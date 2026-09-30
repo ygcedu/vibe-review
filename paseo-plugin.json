@@ -1,0 +1,6 @@
+{
+  "id": "laya-vibe-review",
+  "requirements": {
+    "paseo": ">=0.9.0-beta.2"
+  }
+}
