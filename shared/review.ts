@@ -25,7 +25,7 @@ export const REVIEW_VERSION = 1;
 
 /** Manual trigger from client slash command / command center. */
 export const reviewAgentRpc = defineRpc({
-  name: "laya-vibe-review.run",
+  name: "vibe-review.run",
   input: z.object({ agentId: z.string() }),
   output: z.object({ ok: z.literal(true) }),
 });

@@ -9,6 +9,6 @@ export function notify(title: string, message: string): Promise<void> {
   return execFileAsync("osascript", ["-e", script])
     .then((): undefined => undefined)
     .catch((error: unknown) => {
-      console.error("[laya-vibe-review] notification failed:", error);
+      console.error("[vibe-review] notification failed:", error);
     });
 }

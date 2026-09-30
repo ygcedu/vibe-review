@@ -18,7 +18,7 @@ export default function contribute(server: PluginServerContext) {
   });
 
   server.on("agent.turn_ended", (event, context) => {
-    console.log("[laya-vibe-review] turn_ended", event.agent.id, event.outcome.kind);
+    console.log("[vibe-review] turn_ended", event.agent.id, event.outcome.kind);
     const labels = (event.agent as { labels?: Record<string, string> }).labels;
     const outcome =
       event.outcome.kind === "failed"

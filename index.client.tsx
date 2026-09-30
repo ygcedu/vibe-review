@@ -12,7 +12,7 @@ export default function contribute(client: PluginClientContext) {
   });
 
   client.addCommandCenterItem({
-    id: "laya-review",
+    id: "vibe-review",
     title: "审核任务完成情况",
     icon: "Gauge",
     context: "agent",
@@ -22,8 +22,8 @@ export default function contribute(client: PluginClientContext) {
   });
 
   client.addSettingsScreen({
-    id: "laya-vibe-review-settings",
-    title: "Laya Vibe Review",
+    id: "vibe-review-settings",
+    title: "Vibe Review",
     icon: "Gauge",
     Component: LlmSettingsScreen,
   });

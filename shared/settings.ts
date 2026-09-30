@@ -11,7 +11,7 @@ export const llmConfigSchema = z.object({
 export type LlmConfig = z.infer<typeof llmConfigSchema>;
 
 /** Server + client both need to address the same settings row by id. */
-export const LLM_SETTINGS_ID = "laya-vibe-review-llm";
+export const LLM_SETTINGS_ID = "vibe-review-llm";
 
 export const llmSettings: SettingsDefinition<typeof llmConfigSchema> = defineSettings({
   id: LLM_SETTINGS_ID,

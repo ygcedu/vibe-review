@@ -68,7 +68,7 @@ export function queueReview(
     try {
       await runReview(paseo, agentId, timeline, turnId, labels, run, outcome);
     } catch (error) {
-      console.error("[laya-vibe-review] review crashed:", error);
+      console.error("[vibe-review] review crashed:", error);
     }
   })();
 }
@@ -112,7 +112,7 @@ async function runReview(
       },
     );
   } catch (error) {
-    console.error("[laya-vibe-review] LLM distill failed, falling back to raw task:", error);
+    console.error("[vibe-review] LLM distill failed, falling back to raw task:", error);
     distilled = { goal: summary.task.slice(0, 80) || "完成用户任务", drifts: [], narrative: "", result: "unknown", prompt: "", promptNoDiff: "" };
     config = { baseUrl: "", model: "", apiKey: "" };
   }
@@ -136,7 +136,7 @@ async function runReview(
   try {
     const appendResult = await paseo.agents.ref(agentId).timeline.append({
       type: "plugin",
-      id: `laya-review-${turnId ?? Date.now()}`,
+      id: `vibe-review-${turnId ?? Date.now()}`,
       kind: "review-result",
       version: 1,
       data: {
@@ -155,10 +155,10 @@ async function runReview(
       },
     });
     console.log(
-      `[laya-vibe-review] appended review: verdict=${result.verdict} completed=${result.completed} drift=${result.drift} seq=${appendResult.seq}`,
+      `[vibe-review] appended review: verdict=${result.verdict} completed=${result.completed} drift=${result.drift} seq=${appendResult.seq}`,
     );
   } catch (error) {
-    console.error("[laya-vibe-review] timeline append failed:", error);
+    console.error("[vibe-review] timeline append failed:", error);
   }
 
   if (result.verdict === "pass") return;
@@ -173,7 +173,7 @@ async function runReview(
 
   // Agent 1 (auto follow-up): only for spawned task agents, with cooldown.
   if (!isSpawnedAgent(labels)) {
-    console.log(`[laya-vibe-review] ${result.verdict} but agent is a main session; notifying only`);
+    console.log(`[vibe-review] ${result.verdict} but agent is a main session; notifying only`);
     return;
   }
   const last = lastFollowupAt.get(agentId) ?? 0;
@@ -187,9 +187,9 @@ async function runReview(
 
   try {
     await paseo.agents.ref(agentId).send(message);
-    console.log(`[laya-vibe-review] sent follow-up (${result.verdict}) to ${agentId}`);
+    console.log(`[vibe-review] sent follow-up (${result.verdict}) to ${agentId}`);
   } catch (error) {
-    console.error("[laya-vibe-review] follow-up send failed:", error);
+    console.error("[vibe-review] follow-up send failed:", error);
   }
 }
 
