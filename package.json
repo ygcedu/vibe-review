@@ -25,6 +25,7 @@
     "zod": "^4.4.3"
   },
   "dependencies": {
+    "@getpaseo/highlight": "0.10.0",
     "@getpaseo/protocol": "^0.8.0"
   }
 }

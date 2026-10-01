@@ -1,7 +1,9 @@
 import { useMemo, useRef, useState } from "react";
-import { PanResponder, Platform, ScrollView, StyleSheet, Text, View, type PointerEvent as RNPointerEvent, type ViewStyle } from "react-native";
+import { PanResponder, Platform, ScrollView, StyleSheet, Text, View, type PointerEvent as RNPointerEvent, type TextStyle, type ViewStyle } from "react-native";
+import { lightHighlightColors, type HighlightToken } from "@getpaseo/highlight";
 import type { DiffCell, DiffFile } from "./diff";
 import { buildSplitDiffRows } from "./diff";
+import { highlightSplitRows } from "./syntax";
 
 const DIVIDER_WIDTH = 14;
 const changeColors = { modify: "#dceaff", add: "#e3f5e9", remove: "#ffe7e7" } as const;
@@ -12,29 +14,30 @@ function clampRatio(ratio: number, width: number): number {
   return Math.max(minRatio, Math.min(1 - minRatio, ratio));
 }
 
-function CodeLine({ cell, side, tone }: { cell: DiffCell; side: "before" | "after"; tone?: keyof typeof changeColors }) {
+function CodeLine({ cell, side, tone, tokens }: { cell: DiffCell; side: "before" | "after"; tone?: keyof typeof changeColors; tokens?: HighlightToken[] }) {
+  const code = tokens?.length ? tokens.map((token, index) => <Text key={index} style={token.style ? { color: lightHighlightColors[token.style] } : undefined}>{token.text.replace(/\t/g, "    ")}</Text>) : cell.text.replace(/\t/g, "    ");
   return (
     <View style={[styles.cell, tone ? { backgroundColor: changeColors[tone] } : styles.contextCell]}>
       {side === "before" ? (
         <>
-          <Text selectable style={[styles.codeText, styles.beforeCode]}>{cell.text}</Text>
+          <Text selectable style={[styles.codeText, styles.beforeCode, Platform.OS === "web" && ({ fontFamily: "monospace", whiteSpace: "pre-wrap" } as unknown as TextStyle)]}>{code}</Text>
           <Text style={styles.beforeLineNumber}>{cell.number ?? ""}</Text>
         </>
       ) : (
         <>
           <Text style={styles.afterLineNumber}>{cell.number ?? ""}</Text>
-          <Text selectable style={[styles.codeText, styles.afterCode]}>{cell.text}</Text>
+          <Text selectable style={[styles.codeText, styles.afterCode, Platform.OS === "web" && ({ fontFamily: "monospace", whiteSpace: "pre-wrap" } as unknown as TextStyle)]}>{code}</Text>
         </>
       )}
     </View>
   );
 }
 
-function ChangePane({ cells, side, width, tone, showMarker, onContentLayout }: { cells: DiffCell[]; side: "before" | "after"; width: number; tone: keyof typeof changeColors; showMarker: boolean; onContentLayout: (height: number) => void }) {
+function ChangePane({ cells, side, width, tone, tokens, showMarker, onContentLayout }: { cells: DiffCell[]; side: "before" | "after"; width: number; tone: keyof typeof changeColors; tokens: Map<DiffCell, HighlightToken[]>; showMarker: boolean; onContentLayout: (height: number) => void }) {
   return (
     <View style={[styles.changePane, cells.length === 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: edgeColors[tone] }, { width }]}>
       <View onLayout={(event) => onContentLayout(event.nativeEvent.layout.height)}>
-        {cells.map((cell, index) => <CodeLine key={index} cell={cell} side={side} tone={tone} />)}
+        {cells.map((cell, index) => <CodeLine key={index} cell={cell} side={side} tone={tone} tokens={tokens.get(cell)} />)}
       </View>
       <View style={styles.changeSpacer}>
         {showMarker ? <View style={[styles.changeMarker, side === "before" ? styles.beforeMarker : styles.afterMarker, { backgroundColor: edgeColors[tone] }]} /> : null}
@@ -43,20 +46,21 @@ function ChangePane({ cells, side, width, tone, showMarker, onContentLayout }: {
   );
 }
 
-function ChangeBlock({ before, after, leftWidth, rightWidth, tone }: { before: DiffCell[]; after: DiffCell[]; leftWidth: number; rightWidth: number; tone: keyof typeof changeColors }) {
+function ChangeBlock({ before, after, leftWidth, rightWidth, tone, tokens }: { before: DiffCell[]; after: DiffCell[]; leftWidth: number; rightWidth: number; tone: keyof typeof changeColors; tokens: Map<DiffCell, HighlightToken[]> }) {
   const [heights, setHeights] = useState<[number, number]>([0, 0]);
   const setHeight = (side: 0 | 1, height: number) => setHeights((current) => current[side] === height ? current : side === 0 ? [height, current[1]] : [current[0], height]);
   return (
     <View style={styles.changeBlock}>
-      <ChangePane side="before" cells={before} width={leftWidth} tone={tone} showMarker={heights[0] < heights[1]} onContentLayout={(height) => setHeight(0, height)} />
-      <ChangePane side="after" cells={after} width={rightWidth} tone={tone} showMarker={heights[1] < heights[0]} onContentLayout={(height) => setHeight(1, height)} />
+      <ChangePane side="before" cells={before} width={leftWidth} tone={tone} tokens={tokens} showMarker={heights[0] < heights[1]} onContentLayout={(height) => setHeight(0, height)} />
+      <ChangePane side="after" cells={after} width={rightWidth} tone={tone} tokens={tokens} showMarker={heights[1] < heights[0]} onContentLayout={(height) => setHeight(1, height)} />
     </View>
   );
 }
 
 /** Two aligned panes modeled after an IDE side-by-side diff. */
 export function SplitDiff({ file }: { file: DiffFile }) {
-  const rows = buildSplitDiffRows(file.lines);
+  const rows = useMemo(() => buildSplitDiffRows(file.lines), [file.lines]);
+  const tokens = useMemo(() => highlightSplitRows(rows, file.path), [rows, file.path]);
   const [width, setWidth] = useState(0);
   const [ratio, setRatio] = useState(0.5);
   const widthRef = useRef(0);
@@ -113,11 +117,11 @@ export function SplitDiff({ file }: { file: DiffFile }) {
             </View>
           ) : row.kind === "context" ? (
             <View key={index} style={styles.codeRow}>
-              <View style={{ width: leftWidth }}><CodeLine side="before" cell={row.before} /></View>
-              <View style={{ width: rightWidth }}><CodeLine side="after" cell={row.after} /></View>
+              <View style={{ width: leftWidth }}><CodeLine side="before" cell={row.before} tokens={tokens.get(row.before)} /></View>
+              <View style={{ width: rightWidth }}><CodeLine side="after" cell={row.after} tokens={tokens.get(row.after)} /></View>
             </View>
           ) : (
-            <ChangeBlock key={index} before={row.before} after={row.after} leftWidth={leftWidth} rightWidth={rightWidth} tone={row.tone} />
+            <ChangeBlock key={index} before={row.before} after={row.after} leftWidth={leftWidth} rightWidth={rightWidth} tone={row.tone} tokens={tokens} />
           ))}
         </View>
       </ScrollView> : null}
