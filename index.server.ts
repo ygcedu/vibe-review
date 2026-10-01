@@ -2,7 +2,7 @@ import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { reviewAgentRpc } from "./shared/review";
 import { llmSettings, type LlmConfig } from "./shared/settings";
 import { queueReview, reviewAgent, type RunContext } from "./server/review";
-import { newFilesSince, snapshotFiles, type FileSnapshot } from "./server/new-files";
+import { newFilesFromTurnCommits, newFilesSince, snapshotFiles, type FileSnapshot } from "./server/new-files";
 
 export default function contribute(server: PluginServerContext) {
   const settings = server.registerSettings(llmSettings);
@@ -37,8 +37,10 @@ export default function contribute(server: PluginServerContext) {
     fileSnapshots.delete(event.agent.id);
     const run = {
       ...ctx(),
-      cwd: snapshot?.cwd,
-      getNewFiles: () => snapshot ? newFilesSince(snapshot) : [],
+      cwd: event.agent.cwd,
+      getNewFiles: () => snapshot
+        ? newFilesSince(snapshot)
+        : newFilesFromTurnCommits(event.agent.cwd, event.timeline),
     };
     queueReview(context.paseo, event.agent.id, event.timeline, event.turnId, labels, run, outcome);
   });
