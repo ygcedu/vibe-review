@@ -4,7 +4,7 @@ export interface TaskSummary {
   task: string;
   userMessages: string[];
   assistantMessages: string[];
-  /** 最近一轮的代码变更（unified diff，截断后的文本），供审核 LLM 判断实现。 */
+  /** 最近一轮的代码变更（unified diff，供卡片显示；LLM 提示词另行截断）。 */
   lastTurnDiff: string;
   shellCommands: number;
   /** 停在 running 的工具数；>0 说明 agent 中途断开会话。 */
@@ -12,7 +12,7 @@ export interface TaskSummary {
   finalOutput: string;
 }
 
-const DIFF_BUDGET = 2000;
+const CARD_DIFF_BUDGET = 24000;
 
 /** 最近一次 user_message 之后完成的 write/edit 工具调用（本轮的改动），diff 与文件列表共用，天然一致。 */
 function lastTurnEdits(timeline: readonly AgentTimelineItem[]) {
@@ -22,22 +22,24 @@ function lastTurnEdits(timeline: readonly AgentTimelineItem[]) {
     if (item.type !== "tool_call" || item.status === "running") continue;
     const detail = item.detail;
     if (detail.type === "edit") {
-      const diff =
-        detail.unifiedDiff ??
+      const rawDiff = detail.unifiedDiff ??
         (detail.oldString || detail.newString ? `--- a/${detail.filePath}\n+++ b/${detail.filePath}\n-${detail.oldString ?? ""}\n+${detail.newString ?? ""}` : undefined);
+      const diff = rawDiff && !rawDiff.startsWith("diff --git")
+        ? `diff --git a/${detail.filePath} b/${detail.filePath}\n${rawDiff}`
+        : rawDiff;
       edits.push({ type: "edit", filePath: detail.filePath, diff });
     } else if (detail.type === "write") {
-      const diff = detail.content ? `+++ ${detail.filePath} (new file)\n${detail.content.split("\n").map((l) => `+${l}`).join("\n")}` : undefined;
+      const diff = detail.content ? `diff --git a/${detail.filePath} b/${detail.filePath}\n+++ b/${detail.filePath}\n${detail.content.split("\n").map((l) => `+${l}`).join("\n")}` : undefined;
       edits.push({ type: "write", filePath: detail.filePath, diff });
     }
   }
   return edits;
 }
 
-/** 本轮的 diff（截断到 DIFF_BUDGET）。 */
+/** 本轮的 diff（timeline data 有 64 KiB 限制，保留最多 24 KiB）。 */
 function lastTurnDiff(edits: ReturnType<typeof lastTurnEdits>): string {
   const joined = edits.filter((e) => e.diff).map((e) => e.diff as string).join("\n");
-  return joined.slice(0, DIFF_BUDGET);
+  return Buffer.from(joined).subarray(0, CARD_DIFF_BUDGET).toString("utf8");
 }
 
 /** Extract a compact review state from the full agent timeline. */

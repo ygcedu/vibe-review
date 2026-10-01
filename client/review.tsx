@@ -4,7 +4,7 @@ import { useState } from "react";
 import type { PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import { output } from "zod";
 import { reviewResultSchema } from "../shared/review";
-import { parseUnifiedDiff } from "./diff";
+import { parseDiffFiles } from "./diff";
 
 type ReviewResultData = output<typeof reviewResultSchema>;
 
@@ -39,7 +39,10 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
   const v = verdictStyle[data.verdict];
   const drift = driftLabel[data.drift as keyof typeof driftLabel] ?? data.drift;
   const [expanded, setExpanded] = useState(false);
-  const diffLines = parseUnifiedDiff(data.diff);
+  const [openFile, setOpenFile] = useState<number | null>(null);
+  const diffFiles = parseDiffFiles(data.diff);
+  const totalAdded = diffFiles.reduce((total, file) => total + file.added, 0);
+  const totalRemoved = diffFiles.reduce((total, file) => total + file.removed, 0);
 
   return (
     <View style={[styles.container, { backgroundColor: v.bg }]}>
@@ -89,7 +92,7 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
           ))}
         </View>
       ) : null}
-      {data.detail ? (
+      {data.detail || diffFiles.length ? (
         <>
           <TouchableOpacity
             style={styles.expandBtn}
@@ -102,22 +105,49 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
           </TouchableOpacity>
           {expanded ? (
             <View style={styles.detail}>
-              {diffLines.length ? (
+              {diffFiles.length ? (
                 <View style={styles.diffBox}>
-                  <Text style={styles.diffHeading}>修改的文件</Text>
-                  {diffLines.map((line, i) => (
-                    <View key={i} style={[styles.diffLine, line.type === "add" ? styles.diffAdd : line.type === "remove" ? styles.diffRemove : line.type === "header" ? styles.diffHeader : null]}>
-                      <Text selectable style={styles.diffText}>{line.content || " "}</Text>
+                  <View style={styles.diffSummary}>
+                    <Text style={styles.diffHeading}>已编辑 {diffFiles.length} 个文件</Text>
+                    <Text style={styles.added}>+{totalAdded}</Text>
+                    <Text style={styles.removed}>-{totalRemoved}</Text>
+                  </View>
+                  {diffFiles.map((file, i) => (
+                    <View key={`${file.path}-${i}`}>
+                      <TouchableOpacity
+                        accessibilityRole="button"
+                        accessibilityLabel={`${file.path}，新增 ${file.added} 行，删除 ${file.removed} 行`}
+                        onPress={() => setOpenFile(openFile === i ? null : i)}
+                        style={styles.fileRow}
+                      >
+                        <Text style={styles.fileName} numberOfLines={1}>{file.path}</Text>
+                        <Text style={styles.added}>+{file.added}</Text>
+                        <Text style={styles.removed}>-{file.removed}</Text>
+                        <Text style={styles.chevron}>{openFile === i ? "⌄" : "›"}</Text>
+                      </TouchableOpacity>
+                      {openFile === i ? (
+                        <View style={styles.fileDiff}>
+                          {file.lines.map((line, j) => (
+                            <View key={j} style={[styles.diffLine, line.type === "add" ? styles.diffAdd : line.type === "remove" ? styles.diffRemove : line.type === "header" ? styles.diffHeader : null]}>
+                              <Text selectable style={styles.diffText}>{line.content || " "}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      ) : null}
                     </View>
                   ))}
                 </View>
               ) : null}
-              <Text style={[styles.detailHeading, { color: v.text, opacity: 0.8 }]}>
-                发给大模型的审核提示词
-              </Text>
-              <Text selectable style={styles.detailText}>
-                {data.detail}
-              </Text>
+              {data.detail ? (
+                <>
+                  <Text style={[styles.detailHeading, { color: v.text, opacity: 0.8 }]}>
+                    发给大模型的审核提示词
+                  </Text>
+                  <Text selectable style={styles.detailText}>
+                    {data.detail}
+                  </Text>
+                </>
+              ) : null}
             </View>
           ) : null}
         </>
@@ -191,13 +221,20 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "700",
   },
-  diffBox: { backgroundColor: "#0d1117", borderRadius: 6, overflow: "hidden", marginBottom: 6 },
-  diffHeading: { color: "#c9d1d9", fontSize: 11, fontWeight: "700", padding: 8 },
+  diffBox: { backgroundColor: "#fff", borderRadius: 8, overflow: "hidden", marginBottom: 6 },
+  diffSummary: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#e5e7eb" },
+  diffHeading: { color: "#111827", fontSize: 12, fontWeight: "700", flex: 1 },
+  fileRow: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 42, paddingHorizontal: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#e5e7eb" },
+  fileName: { color: "#374151", fontSize: 12, flex: 1 },
+  added: { color: "#15803d", fontSize: 12, fontWeight: "600" },
+  removed: { color: "#b91c1c", fontSize: 12, fontWeight: "600" },
+  chevron: { color: "#6b7280", fontSize: 16, width: 14, textAlign: "center" },
+  fileDiff: { backgroundColor: "#f8fafc", paddingVertical: 4 },
   diffLine: { paddingHorizontal: 8, paddingVertical: 1 },
-  diffAdd: { backgroundColor: "#123524" },
-  diffRemove: { backgroundColor: "#3d1b21" },
-  diffHeader: { backgroundColor: "#172a46" },
-  diffText: { color: "#c9d1d9", fontFamily: "monospace", fontSize: 10 },
+  diffAdd: { backgroundColor: "#dcfce7" },
+  diffRemove: { backgroundColor: "#fee2e2" },
+  diffHeader: { backgroundColor: "#e5e7eb" },
+  diffText: { color: "#1f2937", fontFamily: "monospace", fontSize: 10 },
   detailText: {
     fontSize: 10,
     color: "#fff",

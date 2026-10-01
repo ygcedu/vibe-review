@@ -65,8 +65,8 @@ export function buildDistillPrompt(
     assistantMessages.slice(-1)[0]?.slice(-2000) || "(无)",
     "</final_output>",
     "",
-    // ponytail: diff 截断在 inspect.ts 的 DIFF_BUDGET（2000 字符，只够看清改动要点）；升级路径：想看全量调大该值。
-    ...(lastTurnDiff !== undefined ? ["<changed_files>", lastTurnDiff.trim() || "(无)", "</changed_files>", ""] : []),
+    // LLM 只需最近的改动要点；卡片另存较完整的 diff。
+    ...(lastTurnDiff !== undefined ? ["<changed_files>", lastTurnDiff.trim().slice(0, 2000) || "(无)", "</changed_files>", ""] : []),
     "<interruption_signals>",
     signals.join("；") || "(未检测到)",
     "</interruption_signals>",

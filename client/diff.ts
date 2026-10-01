@@ -1,46 +1,49 @@
-/** 解析 unified diff 为带类型的行，供卡片渲染（借鉴 paseo 源码 diff-viewer）。 */
+/** Group unified diffs by file for the review card. */
 export interface DiffLine {
   type: "add" | "remove" | "context" | "header";
   content: string;
 }
 
-export function parseUnifiedDiff(diffText?: string): DiffLine[] {
-  if (!diffText) return [];
-  const lines = diffText.replace(/\r\n/g, "\n").split("\n");
-  const out: DiffLine[] = [];
-  for (const line of lines) {
-    if (!line.length) {
-      out.push({ type: "context", content: line });
+export interface DiffFile {
+  path: string;
+  added: number;
+  removed: number;
+  lines: DiffLine[];
+}
+
+export function parseDiffFiles(diffText?: string): DiffFile[] {
+  if (!diffText?.trim()) return [];
+  const files: DiffFile[] = [];
+  let current: DiffFile | undefined;
+  const startFile = (path: string) => {
+    current = { path, added: 0, removed: 0, lines: [] };
+    files.push(current);
+  };
+
+  for (const line of diffText.replace(/\r\n/g, "\n").split("\n")) {
+    const gitHeader = /^diff --git a\/(.+) b\/(.+)$/.exec(line);
+    if (gitHeader) {
+      startFile(gitHeader[2]);
       continue;
     }
-    if (line.startsWith("@@")) {
-      out.push({ type: "header", content: line });
+    const newFile = /^\+\+\+ (?:b\/)?(.+?)(?: \(new file\))?$/.exec(line);
+    if (newFile) {
+      if (!current || current.path !== newFile[1]) startFile(newFile[1]);
       continue;
     }
-    if (line.startsWith("diff --git")) {
-      out.push({ type: "header", content: line.replace(/^diff --git a\/\S+ b\//, "文件 ") });
-      continue;
-    }
+    if (/^--- (?:a\/|\/dev\/null)/.test(line) || line.startsWith("index ")) continue;
+    if (!current) startFile("修改内容");
     if (line.startsWith("+")) {
-      if (!line.startsWith("+++")) out.push({ type: "add", content: line });
-      continue;
+      current!.added++;
+      current!.lines.push({ type: "add", content: line });
+    } else if (line.startsWith("-")) {
+      current!.removed++;
+      current!.lines.push({ type: "remove", content: line });
+    } else if (line.startsWith("@@") || line.startsWith("\\ No newline")) {
+      current!.lines.push({ type: "header", content: line });
+    } else if (line.length) {
+      current!.lines.push({ type: "context", content: line });
     }
-    if (line.startsWith("-")) {
-      if (!line.startsWith("---")) out.push({ type: "remove", content: line });
-      continue;
-    }
-    if (
-      line.startsWith("index ") ||
-      line.startsWith("---") ||
-      line.startsWith("+++")
-    ) {
-      continue;
-    }
-    if (line.startsWith("\\ No newline")) {
-      out.push({ type: "header", content: line });
-      continue;
-    }
-    out.push({ type: "context", content: line });
   }
-  return out;
+  return files.filter((file) => file.lines.length || file.added || file.removed);
 }
