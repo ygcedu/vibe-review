@@ -14,10 +14,17 @@ export interface DiffFile {
 export function parseDiffFiles(diffText?: string): DiffFile[] {
   if (!diffText?.trim()) return [];
   const files: DiffFile[] = [];
+  const byPath = new Map<string, DiffFile>();
   let current: DiffFile | undefined;
   const startFile = (path: string) => {
-    current = { path, added: 0, removed: 0, lines: [] };
-    files.push(current);
+    current = byPath.get(path);
+    if (current) {
+      current.lines.push({ type: "header", content: "再次修改" });
+    } else {
+      current = { path, added: 0, removed: 0, lines: [] };
+      byPath.set(path, current);
+      files.push(current);
+    }
   };
 
   for (const line of diffText.replace(/\r\n/g, "\n").split("\n")) {
