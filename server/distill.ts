@@ -50,6 +50,13 @@ export function buildDistillPrompt(
   if (turnOutcome?.kind === "failed") signals.push(`本轮 turn 结局为 failed（${turnOutcome.error?.message ?? "未知错误"}），result 必须填 none`);
   if (turnOutcome?.kind === "canceled") signals.push("本轮 turn 被取消，若目标未完成 result 填 none");
 
+  const allAssistantText = assistantMessages
+    .map((message, index) => `${index + 1}. ${message}`)
+    .join("\n\n");
+  const assistantText = allAssistantText.length > 12000
+    ? `${allAssistantText.slice(0, 4000)}\n\n...(中间内容过长，已截断)...\n\n${allAssistantText.slice(-8000)}`
+    : allAssistantText;
+
   return [
     "你是对话审核助手。总结这轮任务、agent 执行过程和结果。严格按下面的固定格式输出四行，不要 JSON、不要 markdown、不要其它解释：",
     "goal: 结合最近几轮上下文，最新一条用户消息里用户真正要解决什么问题（1 句话，≤40 字）",
@@ -61,9 +68,9 @@ export function buildDistillPrompt(
     userMessages.map((m, i) => `${i + 1}. ${m}`).join("\n") || "(无)",
     "</user_messages>",
     "",
-    "<final_output>",
-    assistantMessages.slice(-1)[0]?.slice(-2000) || "(无)",
-    "</final_output>",
+    "<assistant_messages>",
+    assistantText || "(无)",
+    "</assistant_messages>",
     "",
     // LLM 只需最近的改动要点；卡片另存较完整的 diff。
     ...(lastTurnDiff !== undefined ? ["<changed_files>", lastTurnDiff.trim().slice(0, 2000) || "(无)", "</changed_files>", ""] : []),

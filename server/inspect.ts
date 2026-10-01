@@ -9,7 +9,6 @@ export interface TaskSummary {
   shellCommands: number;
   /** 停在 running 的工具数；>0 说明 agent 中途断开会话。 */
   runningTools: number;
-  finalOutput: string;
 }
 
 const CARD_DIFF_BUDGET = 24000;
@@ -81,6 +80,5 @@ export function buildTaskSummary(timeline: readonly AgentTimelineItem[]): TaskSu
     lastTurnDiff: diff,
     shellCommands,
     runningTools: runningTool,
-    finalOutput: assistantMessages[assistantMessages.length - 1]?.trim() ?? "",
   };
 }
