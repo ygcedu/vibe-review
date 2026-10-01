@@ -1,4 +1,5 @@
 import type { AgentTimelineItem } from "@getpaseo/protocol/agent-types";
+import { absoluteEditPath, type NewFileDiff } from "./new-files";
 
 export interface TaskSummary {
   task: string;
@@ -11,7 +12,7 @@ export interface TaskSummary {
   runningTools: number;
 }
 
-/** 最近一次 user_message 之后完成的 write/edit 工具调用（本轮的改动），diff 与文件列表共用，天然一致。 */
+/** 最近一次 user_message 之后完成的 write/edit 工具调用。 */
 function lastTurnEdits(timeline: readonly AgentTimelineItem[]) {
   const lastUserAt = timeline.reduce((acc, item, i) => (item.type === "user_message" ? i : acc), -1);
   const edits: Array<{ type: "edit" | "write"; filePath: string; diff?: string }> = [];
@@ -39,7 +40,11 @@ function lastTurnDiff(edits: ReturnType<typeof lastTurnEdits>): string {
 }
 
 /** Extract a compact review state from the full agent timeline. */
-export function buildTaskSummary(timeline: readonly AgentTimelineItem[]): TaskSummary {
+export function buildTaskSummary(
+  timeline: readonly AgentTimelineItem[],
+  newFiles: NewFileDiff[] = [],
+  cwd?: string,
+): TaskSummary {
   // 全部以"最近一次 user_message 之后"为本轮窗口，和 diff 同源，避免窗口错位。
   const lastUserAt = timeline.reduce((acc, item, i) => (item.type === "user_message" ? i : acc), -1);
   const lastTurn = timeline.slice(lastUserAt + 1);
@@ -63,8 +68,9 @@ export function buildTaskSummary(timeline: readonly AgentTimelineItem[]): TaskSu
     }
   }
 
-  const edits = lastTurnEdits(timeline);
-  const diff = lastTurnDiff(edits);
+  const newPaths = new Set(newFiles.map((file) => file.absolutePath));
+  const edits = lastTurnEdits(timeline).filter((edit) => !cwd || !newPaths.has(absoluteEditPath(cwd, edit.filePath)));
+  const diff = [lastTurnDiff(edits), ...newFiles.map((file) => file.diff)].filter(Boolean).join("\n");
 
   const recentUsers = allUsers.slice(-6);
   const task = recentUsers[recentUsers.length - 1]?.slice(0, 400) ?? "";
