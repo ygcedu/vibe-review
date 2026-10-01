@@ -50,10 +50,7 @@ export function buildDistillPrompt(
   if (turnOutcome?.kind === "failed") signals.push(`本轮 turn 结局为 failed（${turnOutcome.error?.message ?? "未知错误"}），result 必须填 none`);
   if (turnOutcome?.kind === "canceled") signals.push("本轮 turn 被取消，若目标未完成 result 填 none");
 
-  const allAssistantText = assistantMessages.join("\n\n");
-  const assistantText = allAssistantText.length > 12000
-    ? `${allAssistantText.slice(0, 4000)}\n\n...(中间内容过长，已截断)...\n\n${allAssistantText.slice(-8000)}`
-    : allAssistantText;
+  const assistantText = assistantMessages.join("\n");
 
   return [
     "你是对话审核助手。总结这轮任务、agent 执行过程和结果。严格按下面的固定格式输出四行，不要 JSON、不要 markdown、不要其它解释：",

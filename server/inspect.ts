@@ -75,8 +75,7 @@ export function buildTaskSummary(timeline: readonly AgentTimelineItem[]): TaskSu
   return {
     task,
     userMessages: recentUsers.map((m) => m.slice(0, 300)),
-    // ponytail: 本轮 assistant 消息，单条超 4000 字符时保留开头；升级路径：调大上限。
-    assistantMessages: assistantMessages.map((m) => (m.length > 4000 ? `${m.slice(0, 4000)}…(截断)` : m)),
+    assistantMessages,
     lastTurnDiff: diff,
     shellCommands,
     runningTools: runningTool,
