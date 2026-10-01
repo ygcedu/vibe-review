@@ -4,14 +4,12 @@ export interface TaskSummary {
   task: string;
   userMessages: string[];
   assistantMessages: string[];
-  /** 最近一轮的代码变更（unified diff，供卡片显示；LLM 提示词另行截断）。 */
+  /** 最近一轮的代码变更（unified diff，卡片与 LLM 使用同一份内容）。 */
   lastTurnDiff: string;
   shellCommands: number;
   /** 停在 running 的工具数；>0 说明 agent 中途断开会话。 */
   runningTools: number;
 }
-
-const CARD_DIFF_BUDGET = 24000;
 
 /** 最近一次 user_message 之后完成的 write/edit 工具调用（本轮的改动），diff 与文件列表共用，天然一致。 */
 function lastTurnEdits(timeline: readonly AgentTimelineItem[]) {
@@ -35,10 +33,9 @@ function lastTurnEdits(timeline: readonly AgentTimelineItem[]) {
   return edits;
 }
 
-/** 本轮的 diff（timeline data 有 64 KiB 限制，保留最多 24 KiB）。 */
+/** 本轮所有 edit/write 工具记录的 diff，按发生顺序拼接。 */
 function lastTurnDiff(edits: ReturnType<typeof lastTurnEdits>): string {
-  const joined = edits.filter((e) => e.diff).map((e) => e.diff as string).join("\n");
-  return Buffer.from(joined).subarray(0, CARD_DIFF_BUDGET).toString("utf8");
+  return edits.filter((e) => e.diff).map((e) => e.diff as string).join("\n");
 }
 
 /** Extract a compact review state from the full agent timeline. */

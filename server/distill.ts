@@ -67,8 +67,7 @@ export function buildDistillPrompt(
     assistantText || "(无)",
     "</assistant_messages>",
     "",
-    // LLM 只需最近的改动要点；卡片另存较完整的 diff。
-    ...(lastTurnDiff !== undefined ? ["<changed_files>", lastTurnDiff.trim().slice(0, 2000) || "(无)", "</changed_files>", ""] : []),
+    ...(lastTurnDiff !== undefined ? ["<changed_files>", lastTurnDiff || "(无)", "</changed_files>", ""] : []),
     "<interruption_signals>",
     signals.join("；") || "(未检测到)",
     "</interruption_signals>",
@@ -77,7 +76,7 @@ export function buildDistillPrompt(
     'goal: ...',
     'drifts: ...',
     'narrative: ...',
-    'result: done',
+    'result: ...',
   ].join("\n");
 }
 
