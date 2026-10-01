@@ -17,14 +17,12 @@ export interface DiffCell {
   type: "context" | "add" | "remove";
 }
 
-export interface SplitDiffRow {
-  kind: "code" | "header";
-  label?: string;
-  before?: DiffCell;
-  after?: DiffCell;
-}
+export type SplitDiffRow =
+  | { kind: "header"; label: string }
+  | { kind: "context"; before: DiffCell; after: DiffCell }
+  | { kind: "change"; before: DiffCell[]; after: DiffCell[]; tone: "modify" | "add" | "remove" };
 
-/** Align each run of removed and added lines; hunk headers supply line numbers. */
+/** Keep each change run together so different line counts can share one block height. */
 export function buildSplitDiffRows(lines: DiffLine[]): SplitDiffRow[] {
   const rows: SplitDiffRow[] = [];
   let beforeNumber: number | undefined;
@@ -33,9 +31,12 @@ export function buildSplitDiffRows(lines: DiffLine[]): SplitDiffRow[] {
   let added: DiffCell[] = [];
 
   const flushChanges = () => {
-    for (let i = 0; i < Math.max(removed.length, added.length); i++) {
-      rows.push({ kind: "code", before: removed[i], after: added[i] });
-    }
+    if (removed.length || added.length) rows.push({
+      kind: "change",
+      before: removed,
+      after: added,
+      tone: removed.length && added.length ? "modify" : removed.length ? "remove" : "add",
+    });
     removed = [];
     added = [];
   };
@@ -65,11 +66,7 @@ export function buildSplitDiffRows(lines: DiffLine[]): SplitDiffRow[] {
     } else {
       flushChanges();
       const content = line.content.startsWith(" ") ? text : line.content;
-      rows.push({
-        kind: "code",
-        before: { number: beforeNumber, text: content, type: "context" },
-        after: { number: afterNumber, text: content, type: "context" },
-      });
+      rows.push({ kind: "context", before: { number: beforeNumber, text: content, type: "context" }, after: { number: afterNumber, text: content, type: "context" } });
       if (beforeNumber !== undefined) beforeNumber++;
       if (afterNumber !== undefined) afterNumber++;
     }
