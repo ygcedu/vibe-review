@@ -15,8 +15,9 @@ export const reviewResultSchema = z.object({
   narrative: z.string().optional(),
   /** 发给大模型的审核提示词（已去掉 diff 原文），展开时供调试查看。 */
   detail: z.string().optional(),
-  /** 本轮代码变更（unified diff），卡片展开时渲染为带色 diff。 */
+  /** 本轮工具记录的变更片段，卡片展开时渲染为带色 diff。 */
   diff: z.string().optional(),
+  diffIncomplete: z.boolean().optional(),
 });
 
 /** Timeline renderer contract. */

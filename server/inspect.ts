@@ -1,12 +1,13 @@
 import type { AgentTimelineItem } from "@getpaseo/protocol/agent-types";
-import { absoluteEditPath, type NewFileDiff } from "./new-files";
 
 export interface TaskSummary {
   task: string;
   userMessages: string[];
   assistantMessages: string[];
-  /** 最近一轮的代码变更（unified diff，卡片与 LLM 使用同一份内容）。 */
+  /** 最近一轮工具明确报告的代码变更；不包含无法归因的工作区扫描结果。 */
   lastTurnDiff: string;
+  /** Some file changes may be absent from tool records. */
+  diffIncomplete: boolean;
   shellCommands: number;
   /** 停在 running 的工具数；>0 说明 agent 中途断开会话。 */
   runningTools: number;
@@ -17,7 +18,7 @@ function lastTurnEdits(timeline: readonly AgentTimelineItem[]) {
   const lastUserAt = timeline.reduce((acc, item, i) => (item.type === "user_message" ? i : acc), -1);
   const edits: Array<{ type: "edit" | "write"; filePath: string; diff?: string }> = [];
   for (const item of timeline.slice(lastUserAt + 1)) {
-    if (item.type !== "tool_call" || item.status === "running") continue;
+    if (item.type !== "tool_call" || item.status !== "completed") continue;
     const detail = item.detail;
     if (detail.type === "edit") {
       const rawDiff = detail.unifiedDiff ??
@@ -34,17 +35,13 @@ function lastTurnEdits(timeline: readonly AgentTimelineItem[]) {
   return edits;
 }
 
-/** 本轮所有 edit/write 工具记录的 diff，按发生顺序拼接。 */
+/** 本轮 edit/write 操作记录，按发生顺序拼接；不能冒充文件的最终净变更。 */
 function lastTurnDiff(edits: ReturnType<typeof lastTurnEdits>): string {
   return edits.filter((e) => e.diff).map((e) => e.diff as string).join("\n");
 }
 
 /** Extract a compact review state from the full agent timeline. */
-export function buildTaskSummary(
-  timeline: readonly AgentTimelineItem[],
-  newFiles: NewFileDiff[] = [],
-  cwd?: string,
-): TaskSummary {
+export function buildTaskSummary(timeline: readonly AgentTimelineItem[]): TaskSummary {
   // 全部以"最近一次 user_message 之后"为本轮窗口，和 diff 同源，避免窗口错位。
   const lastUserAt = timeline.reduce((acc, item, i) => (item.type === "user_message" ? i : acc), -1);
   const lastTurn = timeline.slice(lastUserAt + 1);
@@ -68,9 +65,10 @@ export function buildTaskSummary(
     }
   }
 
-  const newPaths = new Set(newFiles.map((file) => file.absolutePath));
-  const edits = lastTurnEdits(timeline).filter((edit) => !cwd || !newPaths.has(absoluteEditPath(cwd, edit.filePath)));
-  const diff = [lastTurnDiff(edits), ...newFiles.map((file) => file.diff)].filter(Boolean).join("\n");
+  const edits = lastTurnEdits(timeline);
+  const diff = lastTurnDiff(edits);
+  const failedFileTools = lastTurn.some((item) => item.type === "tool_call" && item.status !== "completed" && (item.detail.type === "edit" || item.detail.type === "write"));
+  const diffIncomplete = shellCommands > 0 || failedFileTools || edits.some((edit) => !edit.diff || edit.diff.includes("...[truncated "));
 
   const recentUsers = allUsers.slice(-6);
   const task = recentUsers[recentUsers.length - 1]?.slice(0, 400) ?? "";
@@ -80,6 +78,7 @@ export function buildTaskSummary(
     userMessages: recentUsers.map((m) => m.slice(0, 300)),
     assistantMessages,
     lastTurnDiff: diff,
+    diffIncomplete,
     shellCommands,
     runningTools: runningTool,
   };

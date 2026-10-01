@@ -44,6 +44,7 @@ export function buildDistillPrompt(
   lastTurnDiff?: string,
   runningTools = 0,
   turnOutcome?: { kind: string; error?: { message?: string } },
+  diffIncomplete = false,
 ): string {
   const signals: string[] = [];
   if (runningTools > 0) signals.push(`agent 断开时有 ${runningTools} 个工具调用停在 running、无最终答复 —— 属于异常中断，result 必须填 none`);
@@ -67,7 +68,8 @@ export function buildDistillPrompt(
     assistantText || "(无)",
     "</assistant_messages>",
     "",
-    ...(lastTurnDiff !== undefined ? ["<changed_files>", lastTurnDiff || "(无)", "</changed_files>", ""] : []),
+    ...(lastTurnDiff !== undefined ? ["<changed_files>", lastTurnDiff || "(无记录)", "</changed_files>", ""] : []),
+    ...(diffIncomplete ? ["文件变更可能不完整。", ""] : []),
     "<interruption_signals>",
     signals.join("；") || "(未检测到)",
     "</interruption_signals>",
@@ -88,6 +90,7 @@ export async function distillTask(
     lastTurnDiff?: string;
     runningTools?: number;
     turnOutcome?: { kind: string; error?: { message?: string } };
+    diffIncomplete?: boolean;
   },
 ): Promise<DistilledTask> {
   const prompt = buildDistillPrompt(
@@ -96,6 +99,7 @@ export async function distillTask(
     extra?.lastTurnDiff,
     extra?.runningTools ?? 0,
     extra?.turnOutcome,
+    extra?.diffIncomplete ?? false,
   );
   // 卡片展开详情：重新生成一份不含 changed_files 块的提示词，避免用正则去抠 diff 内容
   // （diff 里可能含有 </changed_files> 等字面量，正则不可靠）。
@@ -105,6 +109,7 @@ export async function distillTask(
     undefined,
     extra?.runningTools ?? 0,
     extra?.turnOutcome,
+    extra?.diffIncomplete ?? false,
   );
 
   const res = await fetch(`${config.baseUrl}/chat/completions`, {

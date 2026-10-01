@@ -5,13 +5,10 @@ import { notify } from "./notify";
 import { distillTask, type DistilledTask } from "./distill";
 import type { LlmConfig } from "../shared/settings";
 import { reviewAgentRpc } from "../shared/review";
-import type { NewFileDiff } from "./new-files";
 
 /** Settings access, injected from the server entry point. */
 export interface RunContext {
   getLlmConfig(): Promise<LlmConfig>;
-  getNewFiles?(): NewFileDiff[];
-  cwd?: string;
 }
 
 /** Auto follow-up only for spawned task agents (labeled by Paseo), never the user's main session. */
@@ -95,7 +92,7 @@ async function runReview(
   run: RunContext,
   outcome?: TurnOutcome,
 ): Promise<void> {
-  const summary = buildTaskSummary(timeline, run.getNewFiles?.() ?? [], run.cwd);
+  const summary = buildTaskSummary(timeline);
   // Nothing was actually done — skip review.
   if (!summary.task && summary.userMessages.length === 0) return;
 
@@ -109,6 +106,7 @@ async function runReview(
       summary.assistantMessages,
       {
         lastTurnDiff: summary.lastTurnDiff,
+        diffIncomplete: summary.diffIncomplete,
         runningTools: summary.runningTools,
         turnOutcome: outcome,
       },
@@ -153,6 +151,7 @@ async function runReview(
         drifts: distilled.drifts,
         narrative: distilled.narrative,
         diff: summary.lastTurnDiff || undefined,
+        diffIncomplete: summary.diffIncomplete,
         detail: distilled.promptNoDiff,
       },
     });

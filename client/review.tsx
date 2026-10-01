@@ -109,7 +109,8 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
               {diffFiles.length ? (
                 <View style={styles.diffBox}>
                   <View style={styles.diffSummary}>
-                    <Text style={styles.diffHeading}>已编辑 {diffFiles.length} 个文件</Text>
+                    <Text style={styles.diffHeading}>文件变更 · {diffFiles.length} 个</Text>
+                    {data.diffIncomplete ? <Text style={styles.diffCaveat}>可能不全</Text> : null}
                     <Text style={styles.added}>+{totalAdded}</Text>
                     <Text style={styles.removed}>-{totalRemoved}</Text>
                   </View>
@@ -133,10 +134,13 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
                   ))}
                 </View>
               ) : null}
+              {!diffFiles.length && data.diffIncomplete ? (
+                <Text style={styles.missingDiff}>文件变更可能未被记录</Text>
+              ) : null}
               {data.detail ? (
                 <>
                   <Text style={[styles.detailHeading, { color: v.text, opacity: 0.8 }]}>
-                    发给大模型的审核提示词
+                    审核提示词
                   </Text>
                   <Text selectable style={styles.detailText}>
                     {data.detail}
@@ -219,6 +223,8 @@ const styles = StyleSheet.create({
   diffBox: { backgroundColor: "#fff", borderRadius: 8, overflow: "hidden", marginBottom: 6 },
   diffSummary: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#e5e7eb" },
   diffHeading: { color: "#111827", fontSize: 12, fontWeight: "700", flex: 1 },
+  diffCaveat: { color: "#92400e", fontSize: 10 },
+  missingDiff: { color: "#fffbeb", fontSize: 11, opacity: 0.8 },
   fileRow: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 42, paddingHorizontal: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#e5e7eb" },
   fileName: { color: "#374151", fontSize: 12, flex: 1 },
   added: { color: "#15803d", fontSize: 12, fontWeight: "600" },
