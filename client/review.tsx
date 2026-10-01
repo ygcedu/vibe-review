@@ -5,6 +5,7 @@ import type { PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import { output } from "zod";
 import { reviewResultSchema } from "../shared/review";
 import { parseDiffFiles } from "./diff";
+import { SplitDiff } from "./split-diff";
 
 type ReviewResultData = output<typeof reviewResultSchema>;
 
@@ -126,13 +127,7 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
                         <Text style={styles.chevron}>{openFile === i ? "⌄" : "›"}</Text>
                       </TouchableOpacity>
                       {openFile === i ? (
-                        <View style={styles.fileDiff}>
-                          {file.lines.map((line, j) => (
-                            <View key={j} style={[styles.diffLine, line.type === "add" ? styles.diffAdd : line.type === "remove" ? styles.diffRemove : line.type === "header" ? styles.diffHeader : null]}>
-                              <Text selectable style={styles.diffText}>{line.content || " "}</Text>
-                            </View>
-                          ))}
-                        </View>
+                        <SplitDiff file={file} />
                       ) : null}
                     </View>
                   ))}
@@ -229,12 +224,6 @@ const styles = StyleSheet.create({
   added: { color: "#15803d", fontSize: 12, fontWeight: "600" },
   removed: { color: "#b91c1c", fontSize: 12, fontWeight: "600" },
   chevron: { color: "#6b7280", fontSize: 16, width: 14, textAlign: "center" },
-  fileDiff: { backgroundColor: "#f8fafc", paddingVertical: 4 },
-  diffLine: { paddingHorizontal: 8, paddingVertical: 1 },
-  diffAdd: { backgroundColor: "#dcfce7" },
-  diffRemove: { backgroundColor: "#fee2e2" },
-  diffHeader: { backgroundColor: "#e5e7eb" },
-  diffText: { color: "#1f2937", fontFamily: "monospace", fontSize: 10 },
   detailText: {
     fontSize: 10,
     color: "#fff",

@@ -11,6 +11,73 @@ export interface DiffFile {
   lines: DiffLine[];
 }
 
+export interface DiffCell {
+  number?: number;
+  text: string;
+  type: "context" | "add" | "remove";
+}
+
+export interface SplitDiffRow {
+  kind: "code" | "header";
+  label?: string;
+  before?: DiffCell;
+  after?: DiffCell;
+}
+
+/** Align each run of removed and added lines; hunk headers supply line numbers. */
+export function buildSplitDiffRows(lines: DiffLine[]): SplitDiffRow[] {
+  const rows: SplitDiffRow[] = [];
+  let beforeNumber: number | undefined;
+  let afterNumber: number | undefined;
+  let removed: DiffCell[] = [];
+  let added: DiffCell[] = [];
+
+  const flushChanges = () => {
+    for (let i = 0; i < Math.max(removed.length, added.length); i++) {
+      rows.push({ kind: "code", before: removed[i], after: added[i] });
+    }
+    removed = [];
+    added = [];
+  };
+
+  for (const line of lines) {
+    if (line.type === "header") {
+      flushChanges();
+      const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line.content);
+      if (hunk) {
+        beforeNumber = Number(hunk[1]);
+        afterNumber = Number(hunk[2]);
+      } else if (line.content === "再次修改") {
+        beforeNumber = undefined;
+        afterNumber = undefined;
+      }
+      rows.push({ kind: "header", label: line.content });
+      continue;
+    }
+
+    const text = line.content.slice(1);
+    if (line.type === "remove") {
+      if (beforeNumber === undefined) beforeNumber = 1;
+      removed.push({ number: beforeNumber++, text, type: "remove" });
+    } else if (line.type === "add") {
+      if (afterNumber === undefined) afterNumber = 1;
+      added.push({ number: afterNumber++, text, type: "add" });
+    } else {
+      flushChanges();
+      const content = line.content.startsWith(" ") ? text : line.content;
+      rows.push({
+        kind: "code",
+        before: { number: beforeNumber, text: content, type: "context" },
+        after: { number: afterNumber, text: content, type: "context" },
+      });
+      if (beforeNumber !== undefined) beforeNumber++;
+      if (afterNumber !== undefined) afterNumber++;
+    }
+  }
+  flushChanges();
+  return rows;
+}
+
 export function parseDiffFiles(diffText?: string): DiffFile[] {
   if (!diffText?.trim()) return [];
   const files: DiffFile[] = [];
