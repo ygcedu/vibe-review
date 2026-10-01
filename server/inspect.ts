@@ -4,7 +4,6 @@ export interface TaskSummary {
   task: string;
   userMessages: string[];
   assistantMessages: string[];
-  changedFiles: string[];
   /** 最近一轮的代码变更（unified diff，截断后的文本），供审核 LLM 判断实现。 */
   lastTurnDiff: string;
   shellCommands: number;
@@ -35,21 +34,15 @@ function lastTurnEdits(timeline: readonly AgentTimelineItem[]) {
   return edits;
 }
 
-/**
- * 本轮的 diff（截断到 DIFF_BUDGET）+ 实际进入 diff 的文件列表。
- * 截断后只保留"diff 里真出现过的"文件，保证卡片上两者永远一致。
- */
-function lastTurnDiffAndFiles(edits: ReturnType<typeof lastTurnEdits>): { diff: string; files: string[] } {
-  const withDiff = edits.filter((e) => e.diff);
-  const joined = withDiff.map((e) => e.diff as string).join("\n");
-  const diff = joined.slice(0, DIFF_BUDGET);
-  const files = [...new Set(withDiff.map((e) => e.filePath))].slice(0, 20);
-  return { diff, files };
+/** 本轮的 diff（截断到 DIFF_BUDGET）。 */
+function lastTurnDiff(edits: ReturnType<typeof lastTurnEdits>): string {
+  const joined = edits.filter((e) => e.diff).map((e) => e.diff as string).join("\n");
+  return joined.slice(0, DIFF_BUDGET);
 }
 
 /** Extract a compact review state from the full agent timeline. */
 export function buildTaskSummary(timeline: readonly AgentTimelineItem[]): TaskSummary {
-  // 全部以"最近一次 user_message 之后"为本轮窗口，和 diff/changedFiles 同源，避免窗口错位。
+  // 全部以"最近一次 user_message 之后"为本轮窗口，和 diff 同源，避免窗口错位。
   const lastUserAt = timeline.reduce((acc, item, i) => (item.type === "user_message" ? i : acc), -1);
   const lastTurn = timeline.slice(lastUserAt + 1);
 
@@ -73,7 +66,7 @@ export function buildTaskSummary(timeline: readonly AgentTimelineItem[]): TaskSu
   }
 
   const edits = lastTurnEdits(timeline);
-  const { diff, files } = lastTurnDiffAndFiles(edits);
+  const diff = lastTurnDiff(edits);
 
   const recentUsers = allUsers.slice(-6);
   const task = recentUsers[recentUsers.length - 1]?.slice(0, 400) ?? "";
@@ -83,7 +76,6 @@ export function buildTaskSummary(timeline: readonly AgentTimelineItem[]): TaskSu
     userMessages: recentUsers.map((m) => m.slice(0, 300)),
     // ponytail: 本轮 assistant 消息，单条超 4000 字符时保留开头；升级路径：调大上限。
     assistantMessages: assistantMessages.map((m) => (m.length > 4000 ? `${m.slice(0, 4000)}…(截断)` : m)),
-    changedFiles: files,
     lastTurnDiff: diff,
     shellCommands,
     runningTools: runningTool,

@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import { output } from "zod";
 import { reviewResultSchema } from "../shared/review";
+import { parseUnifiedDiff } from "./diff";
 
 type ReviewResultData = output<typeof reviewResultSchema>;
 
@@ -38,6 +39,7 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
   const v = verdictStyle[data.verdict];
   const drift = driftLabel[data.drift as keyof typeof driftLabel] ?? data.drift;
   const [expanded, setExpanded] = useState(false);
+  const diffLines = parseUnifiedDiff(data.diff);
 
   return (
     <View style={[styles.container, { backgroundColor: v.bg }]}>
@@ -100,6 +102,16 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
           </TouchableOpacity>
           {expanded ? (
             <View style={styles.detail}>
+              {diffLines.length ? (
+                <View style={styles.diffBox}>
+                  <Text style={styles.diffHeading}>修改的文件</Text>
+                  {diffLines.map((line, i) => (
+                    <View key={i} style={[styles.diffLine, line.type === "add" ? styles.diffAdd : line.type === "remove" ? styles.diffRemove : line.type === "header" ? styles.diffHeader : null]}>
+                      <Text selectable style={styles.diffText}>{line.content || " "}</Text>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
               <Text style={[styles.detailHeading, { color: v.text, opacity: 0.8 }]}>
                 发给大模型的审核提示词
               </Text>
@@ -179,6 +191,13 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "700",
   },
+  diffBox: { backgroundColor: "#0d1117", borderRadius: 6, overflow: "hidden", marginBottom: 6 },
+  diffHeading: { color: "#c9d1d9", fontSize: 11, fontWeight: "700", padding: 8 },
+  diffLine: { paddingHorizontal: 8, paddingVertical: 1 },
+  diffAdd: { backgroundColor: "#123524" },
+  diffRemove: { backgroundColor: "#3d1b21" },
+  diffHeader: { backgroundColor: "#172a46" },
+  diffText: { color: "#c9d1d9", fontFamily: "monospace", fontSize: 10 },
   detailText: {
     fontSize: 10,
     color: "#fff",

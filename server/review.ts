@@ -104,7 +104,6 @@ async function runReview(
       config,
       summary.userMessages,
       summary.assistantMessages,
-      summary.changedFiles,
       {
         lastTurnDiff: summary.lastTurnDiff,
         runningTools: summary.runningTools,
@@ -150,7 +149,7 @@ async function runReview(
         result: distilled.result,
         drifts: distilled.drifts,
         narrative: distilled.narrative,
-        changedFiles: summary.changedFiles,
+        diff: summary.lastTurnDiff || undefined,
         detail: distilled.promptNoDiff,
       },
     });

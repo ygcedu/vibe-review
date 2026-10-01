@@ -41,7 +41,6 @@ export interface DistilledTask {
 export function buildDistillPrompt(
   userMessages: string[],
   assistantMessages: string[],
-  changedFiles: string[],
   lastTurnDiff?: string,
   runningTools = 0,
   turnOutcome?: { kind: string; error?: { message?: string } },
@@ -66,15 +65,8 @@ export function buildDistillPrompt(
     assistantMessages.slice(-1)[0]?.slice(-2000) || "(无)",
     "</final_output>",
     "",
-    "<changed_files>",
-    changedFiles.slice(0, 10).join(", ") || "(无)",
-    "</changed_files>",
-    "",
     // ponytail: diff 截断在 inspect.ts 的 DIFF_BUDGET（2000 字符，只够看清改动要点）；升级路径：想看全量调大该值。
-    "<diff>",
-    lastTurnDiff?.trim() || "(无)",
-    "</diff>",
-    "",
+    ...(lastTurnDiff !== undefined ? ["<changed_files>", lastTurnDiff.trim() || "(无)", "</changed_files>", ""] : []),
     "<interruption_signals>",
     signals.join("；") || "(未检测到)",
     "</interruption_signals>",
@@ -91,7 +83,6 @@ export async function distillTask(
   config: LlmConfig,
   userMessages: string[],
   assistantMessages: string[],
-  changedFiles: string[],
   extra?: {
     lastTurnDiff?: string;
     runningTools?: number;
@@ -101,17 +92,15 @@ export async function distillTask(
   const prompt = buildDistillPrompt(
     userMessages,
     assistantMessages,
-    changedFiles,
     extra?.lastTurnDiff,
     extra?.runningTools ?? 0,
     extra?.turnOutcome,
   );
-  // 卡片展开详情：重新生成一份"不填 diff"的提示词，避免用正则去抠 diff 内容
-  // （diff 里可能含有 </diff> 等字面量，正则不可靠）。
+  // 卡片展开详情：重新生成一份不含 changed_files 块的提示词，避免用正则去抠 diff 内容
+  // （diff 里可能含有 </changed_files> 等字面量，正则不可靠）。
   const promptNoDiff = buildDistillPrompt(
     userMessages,
     assistantMessages,
-    changedFiles,
     undefined,
     extra?.runningTools ?? 0,
     extra?.turnOutcome,

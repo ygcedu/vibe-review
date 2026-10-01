@@ -13,10 +13,10 @@ export const reviewResultSchema = z.object({
   result: z.enum(["done", "partial", "none", "unknown"]).optional(),
   drifts: z.array(z.string()).optional(),
   narrative: z.string().optional(),
-  /** 本轮修改的文件列表，卡片展开时显示。 */
-  changedFiles: z.array(z.string()).optional(),
   /** 发给大模型的审核提示词（已去掉 diff 原文），展开时供调试查看。 */
   detail: z.string().optional(),
+  /** 本轮代码变更（unified diff），卡片展开时渲染为带色 diff。 */
+  diff: z.string().optional(),
 });
 
 /** Timeline renderer contract. */
