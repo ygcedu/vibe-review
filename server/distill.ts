@@ -50,9 +50,7 @@ export function buildDistillPrompt(
   if (turnOutcome?.kind === "failed") signals.push(`本轮 turn 结局为 failed（${turnOutcome.error?.message ?? "未知错误"}），result 必须填 none`);
   if (turnOutcome?.kind === "canceled") signals.push("本轮 turn 被取消，若目标未完成 result 填 none");
 
-  const allAssistantText = assistantMessages
-    .map((message, index) => `${index + 1}. ${message}`)
-    .join("\n\n");
+  const allAssistantText = assistantMessages.join("\n\n");
   const assistantText = allAssistantText.length > 12000
     ? `${allAssistantText.slice(0, 4000)}\n\n...(中间内容过长，已截断)...\n\n${allAssistantText.slice(-8000)}`
     : allAssistantText;
