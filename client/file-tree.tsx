@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Pressable, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import type { DiffFile } from "./diff";
+import { FileTypeIcon } from "./file-icons";
 import { SplitDiff } from "./split-diff";
 
 type FolderNode = { kind: "folder"; name: string; path: string; count: number; children: TreeNode[] };
@@ -62,7 +63,6 @@ export function FileTree({ files }: { files: DiffFile[] }) {
           style={[styles.row, { paddingLeft: 12 + depth * 20 }]}
         >
           <Icon name={isCollapsed ? "ChevronRight" : "ChevronDown"} size={15} color="#6b7280" />
-          <Icon name="Folder" size={17} color="#6b7280" />
           <Text style={styles.folderName} numberOfLines={1}>{node.name}</Text>
           <Text style={styles.count}>{node.count} 个文件</Text>
         </TouchableOpacity>
@@ -85,7 +85,7 @@ export function FileTree({ files }: { files: DiffFile[] }) {
           style={styles.fileSelect}
         >
           <View style={styles.fileIndent} />
-          <Icon name="FileCode2" size={16} color="#2563eb" />
+          <FileTypeIcon fileName={node.name} />
           <Text style={[styles.fileName, fileNameColors[file.status]]} numberOfLines={1}>{node.name}</Text>
         </TouchableOpacity>
         {isOpen ? <View style={styles.fileActions}>
