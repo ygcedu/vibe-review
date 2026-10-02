@@ -1,6 +1,6 @@
 import { Platform, ScrollView, StyleSheet, Text, View, type NativeScrollEvent, type NativeSyntheticEvent, type TextStyle, type ViewStyle } from "react-native";
 import type { RefObject } from "react";
-import { lightHighlightColors, type HighlightToken } from "@getpaseo/highlight";
+import type { HighlightToken } from "@getpaseo/highlight";
 import type { DiffCell, PaneRow } from "./diff";
 
 export const LINE_NUMBER_WIDTH = 38;
@@ -10,6 +10,16 @@ const WAVE_HEIGHT = 12;
 const WAVE_PERIOD = 16;
 const WAVE_COLOR = "#cbd5e1";
 const changeColors = { modify: "#dceaff", add: "#e3f5e9", remove: "#ffe7e7" } as const;
+// Match @getpaseo/highlight's light palette without eagerly loading its parsers.
+const lightHighlightColors: Record<NonNullable<HighlightToken["style"]>, string> = {
+  keyword: "#cf222e", comment: "#6e7781", string: "#0a3069",
+  number: "#0550ae", literal: "#0550ae", function: "#8250df",
+  definition: "#8250df", class: "#953800", type: "#cf222e",
+  tag: "#116329", attribute: "#0550ae", property: "#0550ae",
+  variable: "#24292f", operator: "#0550ae", punctuation: "#24292f",
+  regexp: "#0a3069", escape: "#0550ae", meta: "#6e7781",
+  heading: "#0550ae", link: "#0a3069",
+};
 
 function CodeLine({ cell, side, tone, tokens, wrapLines, showLineNumber = true, visibleCodeWidth }: { cell: DiffCell; side: "before" | "after"; tone?: keyof typeof changeColors; tokens?: HighlightToken[]; wrapLines: boolean; showLineNumber?: boolean; visibleCodeWidth?: number }) {
   const code = tokens?.length ? tokens.map((token, index) => <Text key={index} style={{ fontFamily: "monospace", color: token.style ? lightHighlightColors[token.style] : undefined }}>{token.text.replace(/\t/g, "    ")}</Text>) : cell.text.replace(/\t/g, "    ");

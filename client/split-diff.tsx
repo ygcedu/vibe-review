@@ -37,7 +37,15 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
   const rows = useMemo(() => buildSplitDiffRows(file.lines), [file.lines]);
   const beforeRows = useMemo(() => buildPaneRows(rows, "before"), [rows]);
   const afterRows = useMemo(() => buildPaneRows(rows, "after"), [rows]);
-  const tokens = useMemo(() => highlightSplitRows(rows, file.path), [rows, file.path]);
+  const [tokens, setTokens] = useState<Awaited<ReturnType<typeof highlightSplitRows>>>(new Map());
+  useEffect(() => {
+    let active = true;
+    setTokens(new Map());
+    void highlightSplitRows(rows, file.path).then((result) => {
+      if (active) setTokens(result);
+    });
+    return () => { active = false; };
+  }, [rows, file.path]);
   const [changeBounds, setChangeBounds] = useState<ChangeBounds>({});
   const [waveBounds, setWaveBounds] = useState<WaveBounds>({});
   const [paneHeights, setPaneHeights] = useState({ before: 0, after: 0 });
