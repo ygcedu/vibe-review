@@ -5,7 +5,7 @@ import type { PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import { output } from "zod";
 import { reviewResultSchema } from "../shared/review";
 import { parseDiffFiles } from "./diff";
-import { SplitDiff } from "./split-diff";
+import { FileTree } from "./file-tree";
 
 type ReviewResultData = output<typeof reviewResultSchema>;
 
@@ -40,7 +40,6 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
   const v = verdictStyle[data.verdict];
   const drift = driftLabel[data.drift as keyof typeof driftLabel] ?? data.drift;
   const [expanded, setExpanded] = useState(false);
-  const [openFile, setOpenFile] = useState<number | null>(null);
   const diffFiles = parseDiffFiles(data.diff);
   const totalAdded = diffFiles.reduce((total, file) => total + file.added, 0);
   const totalRemoved = diffFiles.reduce((total, file) => total + file.removed, 0);
@@ -114,24 +113,7 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
                     <Text style={styles.added}>+{totalAdded}</Text>
                     <Text style={styles.removed}>-{totalRemoved}</Text>
                   </View>
-                  {diffFiles.map((file, i) => (
-                    <View key={`${file.path}-${i}`}>
-                      <TouchableOpacity
-                        accessibilityRole="button"
-                        accessibilityLabel={`${file.path}，新增 ${file.added} 行，删除 ${file.removed} 行`}
-                        onPress={() => setOpenFile(openFile === i ? null : i)}
-                        style={styles.fileRow}
-                      >
-                        <Text style={styles.fileName} numberOfLines={1}>{file.path}</Text>
-                        <Text style={styles.added}>+{file.added}</Text>
-                        <Text style={styles.removed}>-{file.removed}</Text>
-                        <Text style={styles.chevron}>{openFile === i ? "⌄" : "›"}</Text>
-                      </TouchableOpacity>
-                      {openFile === i ? (
-                        <SplitDiff file={file} />
-                      ) : null}
-                    </View>
-                  ))}
+                  <FileTree files={diffFiles} />
                 </View>
               ) : null}
               {!diffFiles.length && data.diffIncomplete ? (
@@ -225,11 +207,8 @@ const styles = StyleSheet.create({
   diffHeading: { color: "#111827", fontSize: 12, fontWeight: "700", flex: 1 },
   diffCaveat: { color: "#92400e", fontSize: 10 },
   missingDiff: { color: "#fffbeb", fontSize: 11, opacity: 0.8 },
-  fileRow: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 42, paddingHorizontal: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#e5e7eb" },
-  fileName: { color: "#374151", fontSize: 12, flex: 1 },
   added: { color: "#15803d", fontSize: 12, fontWeight: "600" },
   removed: { color: "#b91c1c", fontSize: 12, fontWeight: "600" },
-  chevron: { color: "#6b7280", fontSize: 16, width: 14, textAlign: "center" },
   detailText: {
     fontSize: 10,
     color: "#fff",
