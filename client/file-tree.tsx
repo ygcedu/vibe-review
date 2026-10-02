@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Pressable, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import type { DiffFile } from "./diff";
 import { SplitDiff } from "./split-diff";
@@ -39,6 +39,8 @@ function buildFileTree(files: DiffFile[]): TreeNode[] {
 export function FileTree({ files }: { files: DiffFile[] }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [openFile, setOpenFile] = useState<number | null>(null);
+  const [wrapLines, setWrapLines] = useState(true);
+  const [showWrapTooltip, setShowWrapTooltip] = useState(false);
   const nodes = buildFileTree(files);
 
   const toggleFolder = (path: string) => setCollapsed((current) => {
@@ -68,21 +70,42 @@ export function FileTree({ files }: { files: DiffFile[] }) {
       </View>;
     }
     const { file, index } = node;
+    const isOpen = openFile === index;
     return <View key={`file:${file.path}`}>
-      <TouchableOpacity
-        accessibilityRole="button"
-        accessibilityLabel={`${file.path}，新增 ${file.added} 行，删除 ${file.removed} 行`}
-        accessibilityState={{ expanded: openFile === index }}
-        onPress={() => setOpenFile(openFile === index ? null : index)}
-        style={[styles.row, openFile === index && styles.selected, { paddingLeft: 12 + depth * 20 }]}
-      >
-        <View style={styles.fileIndent} />
-        <Icon name="FileCode2" size={16} color="#2563eb" />
-        <Text style={styles.fileName} numberOfLines={1}>{node.name}</Text>
+      <View style={[styles.row, isOpen && styles.selected, { paddingLeft: 12 + depth * 20 }]}>
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel={`${file.path}，新增 ${file.added} 行，删除 ${file.removed} 行`}
+          accessibilityState={{ expanded: isOpen }}
+          onPress={() => {
+            setOpenFile(isOpen ? null : index);
+            setWrapLines(true);
+            setShowWrapTooltip(false);
+          }}
+          style={styles.fileSelect}
+        >
+          <View style={styles.fileIndent} />
+          <Icon name="FileCode2" size={16} color="#2563eb" />
+          <Text style={styles.fileName} numberOfLines={1}>{node.name}</Text>
+        </TouchableOpacity>
+        {isOpen ? <View style={styles.fileActions}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="折行显示"
+            aria-pressed={wrapLines}
+            onHoverIn={() => setShowWrapTooltip(true)}
+            onHoverOut={() => setShowWrapTooltip(false)}
+            onPress={() => setWrapLines((current) => !current)}
+            style={[styles.actionButton, wrapLines && styles.actionButtonActive, showWrapTooltip && styles.actionButtonHover]}
+          >
+            <Icon name="WrapText" size={13} color="#64748b" />
+          </Pressable>
+          {showWrapTooltip ? <View style={styles.tooltip}><Text style={styles.tooltipText}>折行显示</Text></View> : null}
+        </View> : null}
         <Text style={styles.added}>+{file.added}</Text>
         <Text style={styles.removed}>-{file.removed}</Text>
-      </TouchableOpacity>
-      {openFile === index ? <SplitDiff file={file} /> : null}
+      </View>
+      {isOpen ? <SplitDiff file={file} wrapLines={wrapLines} /> : null}
     </View>;
   });
 
@@ -91,7 +114,14 @@ export function FileTree({ files }: { files: DiffFile[] }) {
 
 const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 34, paddingRight: 12 },
-  selected: { backgroundColor: "#e8f0ff" },
+  selected: { backgroundColor: "#e8f0ff", zIndex: 3 },
+  fileSelect: { flex: 1, minHeight: 34, flexDirection: "row", alignItems: "center", gap: 6 },
+  fileActions: { flexDirection: "row-reverse", alignItems: "center", gap: 4, position: "relative", zIndex: 2 },
+  actionButton: { width: 20, height: 20, borderRadius: 4, alignItems: "center", justifyContent: "center" },
+  actionButtonActive: { backgroundColor: "#cbcbcd" },
+  actionButtonHover: { backgroundColor: "#e5e7eb" },
+  tooltip: { position: "absolute", bottom: 24, right: 0, width: 72, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 5, backgroundColor: "#1e293b", zIndex: 4 },
+  tooltipText: { color: "#fff", fontSize: 11, textAlign: "center" },
   folderName: { color: "#111827", fontSize: 12, fontWeight: "600", flexShrink: 1 },
   count: { color: "#6b7280", fontSize: 11 },
   fileIndent: { width: 15 },

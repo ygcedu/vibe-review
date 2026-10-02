@@ -1,6 +1,5 @@
 import { useMemo, useRef, useState, type RefObject } from "react";
-import { PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, View, type NativeScrollEvent, type NativeSyntheticEvent, type PointerEvent as RNPointerEvent, type TextStyle, type ViewStyle } from "react-native";
-import { Icon } from "@getpaseo/plugin/client/react-native";
+import { PanResponder, Platform, ScrollView, StyleSheet, Text, View, type NativeScrollEvent, type NativeSyntheticEvent, type PointerEvent as RNPointerEvent, type TextStyle, type ViewStyle } from "react-native";
 import { lightHighlightColors, type HighlightToken } from "@getpaseo/highlight";
 import type { DiffCell, DiffFile, PaneRow } from "./diff";
 import { buildPaneRows, buildSplitDiffRows } from "./diff";
@@ -11,7 +10,6 @@ const LINE_NUMBER_WIDTH = 38;
 const CODE_PADDING = 18;
 const CONNECTOR_WIDTH = 20;
 const WAVE_HEIGHT = 12;
-const TOOLBAR_HEIGHT = 26;
 const WAVE_PERIOD = 16;
 const WAVE_COLOR = "#cbd5e1";
 const changeColors = { modify: "#dceaff", add: "#e3f5e9", remove: "#ffe7e7" } as const;
@@ -132,7 +130,7 @@ function Connector({ rows, bounds, waveBounds }: { rows: PaneRow[]; bounds: Chan
 }
 
 /** Two aligned panes modeled after an IDE side-by-side diff. */
-export function SplitDiff({ file }: { file: DiffFile }) {
+export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: boolean }) {
   const rows = useMemo(() => buildSplitDiffRows(file.lines), [file.lines]);
   const beforeRows = useMemo(() => buildPaneRows(rows, "before"), [rows]);
   const afterRows = useMemo(() => buildPaneRows(rows, "after"), [rows]);
@@ -153,8 +151,6 @@ export function SplitDiff({ file }: { file: DiffFile }) {
   });
   const [width, setWidth] = useState(0);
   const [ratio, setRatio] = useState(0.5);
-  const [wrapLines, setWrapLines] = useState(true);
-  const [showWrapTooltip, setShowWrapTooltip] = useState(false);
   const widthRef = useRef(0);
   const ratioRef = useRef(0.5);
   const dragStartRatio = useRef(0.5);
@@ -245,20 +241,6 @@ export function SplitDiff({ file }: { file: DiffFile }) {
         setWidth(nextWidth);
       }}
     >
-      <View style={styles.toolbar}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="折行显示"
-          aria-pressed={wrapLines}
-          onHoverIn={() => setShowWrapTooltip(true)}
-          onHoverOut={() => setShowWrapTooltip(false)}
-          onPress={() => setWrapLines((current) => !current)}
-          style={[styles.toolbarButton, wrapLines && styles.toolbarButtonActive]}
-        >
-          <Icon name="WrapText" size={13} color={wrapLines ? "#2563eb" : "#64748b"} />
-        </Pressable>
-        {showWrapTooltip ? <View style={styles.tooltip}><Text style={styles.tooltipText}>折行显示</Text></View> : null}
-      </View>
       {width > 0 ? wrapLines ? <ScrollView style={styles.verticalScroll} nestedScrollEnabled>
         <View style={[styles.table, styles.codeRow, { width }]}>
           <WrapPane rows={beforeRows} side="before" width={leftWidth} tokens={tokens} onChange={onChange} onWave={onWave} />
@@ -301,7 +283,7 @@ export function SplitDiff({ file }: { file: DiffFile }) {
         </View>
       </View> : null}
       {width > 0 && !wrapLines ? (
-        <View {...webPointerHandlers} accessibilityRole="adjustable" accessibilityLabel="调整左右对照宽度" accessibilityValue={{ min: 0, max: 100, now: Math.round(ratio * 100) }} style={[styles.divider, { top: TOOLBAR_HEIGHT, left: leftWidth + CONNECTOR_WIDTH / 2 - DIVIDER_WIDTH / 2 }]}>
+        <View {...webPointerHandlers} accessibilityRole="adjustable" accessibilityLabel="调整左右对照宽度" accessibilityValue={{ min: 0, max: 100, now: Math.round(ratio * 100) }} style={[styles.divider, { left: leftWidth + CONNECTOR_WIDTH / 2 - DIVIDER_WIDTH / 2 }]}>
           <View style={styles.dividerLine} />
         </View>
       ) : null}
@@ -311,11 +293,6 @@ export function SplitDiff({ file }: { file: DiffFile }) {
 
 const styles = StyleSheet.create({
   viewport: { position: "relative", minHeight: 32 },
-  toolbar: { height: TOOLBAR_HEIGHT, paddingHorizontal: 7, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", backgroundColor: "#f8fafc", borderBottomWidth: 1, borderBottomColor: "#d7dee8", zIndex: 2 },
-  toolbarButton: { width: 20, height: 20, borderRadius: 4, alignItems: "center", justifyContent: "center" },
-  toolbarButtonActive: { backgroundColor: "#dbeafe" },
-  tooltip: { position: "absolute", top: TOOLBAR_HEIGHT - 1, right: 4, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 5, backgroundColor: "#1e293b" },
-  tooltipText: { color: "#fff", fontSize: 11 },
   verticalScroll: { maxHeight: 520 },
   noWrapPanes: { maxHeight: 538 },
   footerScroll: { height: 18, backgroundColor: "#f8fafc" },

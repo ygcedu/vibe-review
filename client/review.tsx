@@ -92,7 +92,20 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
           ))}
         </View>
       ) : null}
-      {data.detail || diffFiles.length ? (
+      {diffFiles.length ? (
+        <View style={styles.diffBox}>
+          <View style={styles.diffSummary}>
+            <Text style={styles.diffHeading}>文件变更 · {diffFiles.length} 个</Text>
+            {data.diffIncomplete ? <Text style={styles.diffCaveat}>可能不全</Text> : null}
+            <Text style={styles.added}>+{totalAdded}</Text>
+            <Text style={styles.removed}>-{totalRemoved}</Text>
+          </View>
+          <FileTree files={diffFiles} />
+        </View>
+      ) : data.diffIncomplete ? (
+        <Text style={styles.missingDiff}>文件变更可能未被记录</Text>
+      ) : null}
+      {data.detail ? (
         <>
           <TouchableOpacity
             style={styles.expandBtn}
@@ -105,30 +118,8 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
           </TouchableOpacity>
           {expanded ? (
             <View style={styles.detail}>
-              {diffFiles.length ? (
-                <View style={styles.diffBox}>
-                  <View style={styles.diffSummary}>
-                    <Text style={styles.diffHeading}>文件变更 · {diffFiles.length} 个</Text>
-                    {data.diffIncomplete ? <Text style={styles.diffCaveat}>可能不全</Text> : null}
-                    <Text style={styles.added}>+{totalAdded}</Text>
-                    <Text style={styles.removed}>-{totalRemoved}</Text>
-                  </View>
-                  <FileTree files={diffFiles} />
-                </View>
-              ) : null}
-              {!diffFiles.length && data.diffIncomplete ? (
-                <Text style={styles.missingDiff}>文件变更可能未被记录</Text>
-              ) : null}
-              {data.detail ? (
-                <>
-                  <Text style={[styles.detailHeading, { color: v.text, opacity: 0.8 }]}>
-                    审核提示词
-                  </Text>
-                  <Text selectable style={styles.detailText}>
-                    {data.detail}
-                  </Text>
-                </>
-              ) : null}
+              <Text style={[styles.detailHeading, { color: v.text, opacity: 0.8 }]}>审核提示词</Text>
+              <Text selectable style={styles.detailText}>{data.detail}</Text>
             </View>
           ) : null}
         </>
