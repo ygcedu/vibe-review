@@ -14,13 +14,11 @@ const changeColors = { modify: "#dceaff", add: "#e3f5e9", remove: "#ffe7e7" } as
 function CodeLine({ cell, side, tone, tokens, wrapLines, showLineNumber = true, visibleCodeWidth }: { cell: DiffCell; side: "before" | "after"; tone?: keyof typeof changeColors; tokens?: HighlightToken[]; wrapLines: boolean; showLineNumber?: boolean; visibleCodeWidth?: number }) {
   const code = tokens?.length ? tokens.map((token, index) => <Text key={index} style={{ fontFamily: "monospace", color: token.style ? lightHighlightColors[token.style] : undefined }}>{token.text.replace(/\t/g, "    ")}</Text>) : cell.text.replace(/\t/g, "    ");
   const wrapStyle = Platform.OS === "web" ? ({ whiteSpace: wrapLines ? "pre-wrap" : "pre", fontFamily: "monospace" } as unknown as TextStyle) : undefined;
-  const longBeforeLine = visibleCodeWidth !== undefined && cell.text.replace(/\t/g, "    ").length * 6.05 + CODE_PADDING > visibleCodeWidth;
-  const beforeNoWrapStyle = side === "before" && visibleCodeWidth !== undefined ? { flexShrink: 0, width: longBeforeLine ? undefined : visibleCodeWidth, textAlign: longBeforeLine ? "left" as const : "right" as const } : { flex: 1 };
   return (
     <View style={[styles.cell, tone ? { backgroundColor: changeColors[tone] } : styles.contextCell, visibleCodeWidth !== undefined && { width: "100%" }]}>
       {side === "before" ? (
         <>
-          <Text selectable style={[styles.codeText, styles.beforeCode, wrapStyle, beforeNoWrapStyle]}>{code}</Text>
+          <Text selectable style={[styles.codeText, styles.beforeCode, { flex: 1 }, wrapStyle]}>{code}</Text>
           {showLineNumber ? <Text style={styles.beforeLineNumber}>{cell.number ?? ""}</Text> : null}
         </>
       ) : (
@@ -143,6 +141,6 @@ const styles = StyleSheet.create({
   beforeLineNumber: { width: 38, paddingRight: 7, paddingTop: 3, color: "#94a3b8", textAlign: "right", fontFamily: "monospace", fontSize: 10 },
   afterLineNumber: { width: 38, paddingLeft: 7, paddingTop: 3, color: "#94a3b8", textAlign: "left", fontFamily: "monospace", fontSize: 10 },
   codeText: { paddingHorizontal: 9, paddingVertical: 3, color: "#263445", fontFamily: "monospace", fontSize: 10, lineHeight: 15 },
-  beforeCode: { textAlign: "right" },
+  beforeCode: { textAlign: "left" },
   afterCode: { textAlign: "left" },
 });
