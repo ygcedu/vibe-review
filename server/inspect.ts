@@ -4,10 +4,6 @@ export interface TaskSummary {
   task: string;
   userMessages: string[];
   assistantMessages: string[];
-  /** 轮次前后工作树快照的净变更。 */
-  lastTurnDiff: string;
-  /** 起点快照缺失或含无法展示的二进制变更。 */
-  diffIncomplete: boolean;
   /** 停在 running 的工具数；>0 说明 agent 中途断开会话。 */
   runningTools: number;
 }
@@ -39,8 +35,6 @@ export function buildTaskSummary(timeline: readonly AgentTimelineItem[]): TaskSu
     task,
     userMessages: recentUsers.map((m) => m.slice(0, 300)),
     assistantMessages,
-    lastTurnDiff: "",
-    diffIncomplete: true,
     runningTools: runningTool,
   };
 }

@@ -4,7 +4,7 @@ import { buildTaskSummary, type TaskSummary } from "./inspect";
 import { notify } from "./notify";
 import { distillTask, type DistilledTask } from "./distill";
 import type { LlmConfig } from "../shared/settings";
-import { reviewAgentRpc } from "../shared/review";
+import { REVIEW_KIND, REVIEW_VERSION } from "../shared/review";
 
 /** Settings access, injected from the server entry point. */
 export interface RunContext {
@@ -96,36 +96,30 @@ async function runReview(
   fileChanges?: FileChanges,
 ): Promise<void> {
   const summary = buildTaskSummary(timeline);
-  if (fileChanges) {
-    summary.lastTurnDiff = fileChanges.diff;
-    summary.diffIncomplete = fileChanges.diffIncomplete;
-  } else {
-    // A review started after plugin reload or from the command center has no turn-start baseline.
-    // Never present a series of tool edits as if it were the final file diff.
-    summary.diffIncomplete = true;
-  }
+  // A review started after plugin reload or from the command center has no turn-start baseline.
+  // Never present a series of tool edits as if it were the final file diff.
+  const lastTurnDiff = fileChanges?.diff;
+  const diffIncomplete = fileChanges?.diffIncomplete ?? true;
   // Nothing was actually done — skip review.
   if (!summary.task && summary.userMessages.length === 0) return;
 
   let distilled: DistilledTask;
-  let config: LlmConfig;
   try {
-    config = await run.getLlmConfig();
+    const config = await run.getLlmConfig();
     distilled = await distillTask(
       config,
       summary.userMessages,
       summary.assistantMessages,
       {
-        lastTurnDiff: summary.lastTurnDiff,
-        diffIncomplete: summary.diffIncomplete,
+        lastTurnDiff,
+        diffIncomplete,
         runningTools: summary.runningTools,
         turnOutcome: outcome,
       },
     );
   } catch (error) {
     console.error("[vibe-review] LLM distill failed, falling back to raw task:", error);
-    distilled = { goal: summary.task.slice(0, 80) || "完成用户任务", drifts: [], narrative: "", result: "unknown", prompt: "", promptNoDiff: "" };
-    config = { baseUrl: "", model: "", apiKey: "" };
+    distilled = { goal: summary.task.slice(0, 80) || "完成用户任务", drifts: [], narrative: "", result: "unknown", promptNoDiff: "" };
   }
 
   // 中断信号（工具卡 running / turn failed / canceled）是确定的事实，不靠 LLM 猜；
@@ -148,8 +142,8 @@ async function runReview(
     const appendResult = await paseo.agents.ref(agentId).timeline.append({
       type: "plugin",
       id: `vibe-review-${turnId ?? Date.now()}`,
-      kind: "review-result",
-      version: 1,
+      kind: REVIEW_KIND,
+      version: REVIEW_VERSION,
       data: {
         verdict: result.verdict,
         completed: result.completed,
@@ -161,8 +155,8 @@ async function runReview(
         result: distilled.result,
         drifts: distilled.drifts,
         narrative: distilled.narrative,
-        diff: summary.lastTurnDiff || undefined,
-        diffIncomplete: summary.diffIncomplete,
+        diff: lastTurnDiff || undefined,
+        diffIncomplete,
         detail: distilled.promptNoDiff,
       },
     });

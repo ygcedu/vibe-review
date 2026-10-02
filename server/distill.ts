@@ -32,8 +32,6 @@ export interface DistilledTask {
   narrative: string;
   /** 本轮最终结果：done（正常交付）/ partial（部分完成）/ none（未完成/中断）。 */
   result: "done" | "partial" | "none" | "unknown";
-  /** 发给 LLM 的提示词。 */
-  prompt: string;
   /** 展示用：同 prompt，但去掉 diff 原文一节（卡片展开详情）。 */
   promptNoDiff: string;
 }
@@ -139,7 +137,6 @@ export async function distillTask(
       drifts: [],
       narrative: "",
       result: "unknown",
-      prompt,
       promptNoDiff,
     };
   }
@@ -156,7 +153,6 @@ export async function distillTask(
     drifts,
     narrative: fields.narrative,
     result,
-    prompt,
     promptNoDiff,
   };
 }
