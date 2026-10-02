@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { PanResponder, Platform, ScrollView, StyleSheet, Text, View, type NativeScrollEvent, type NativeSyntheticEvent, type PointerEvent as RNPointerEvent, type TextStyle, type ViewStyle } from "react-native";
 import { lightHighlightColors, type HighlightToken } from "@getpaseo/highlight";
 import type { DiffCell, DiffFile, PaneRow } from "./diff";
@@ -136,6 +136,24 @@ function Connector({ rows, bounds, waveBounds, offsets, height }: { rows: PaneRo
   </View>;
 }
 
+function connectorSvg(rows: PaneRow[], bounds: ChangeBounds, waveBounds: WaveBounds, offsets: { before: number; after: number }, height: number): string {
+  const shapes: string[] = [];
+  for (const row of rows) {
+    if (row.kind !== "change" && row.kind !== "wave") continue;
+    const pair = row.kind === "change" ? bounds[row.index] : waveBounds[row.index];
+    if (!pair?.before || !pair.after) continue;
+    const before = { top: pair.before.top - offsets.before, bottom: pair.before.bottom - offsets.before };
+    const after = { top: pair.after.top - offsets.after, bottom: pair.after.bottom - offsets.after };
+    if (before.bottom < 0 || before.top > height || after.bottom < 0 || after.top > height) continue;
+    if (row.kind === "change") {
+      shapes.push(`<path d="M0 ${before.top} L${CONNECTOR_WIDTH} ${after.top} L${CONNECTOR_WIDTH} ${after.bottom} L0 ${before.bottom} Z" fill="${changeColors[row.tone]}"/>`);
+    } else {
+      shapes.push(`<path d="M0 ${before.top + WAVE_HEIGHT / 2} L${CONNECTOR_WIDTH} ${after.top + WAVE_HEIGHT / 2}" fill="none" stroke="${WAVE_COLOR}" stroke-width="1"/>`);
+    }
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${CONNECTOR_WIDTH}" height="${height}" viewBox="0 0 ${CONNECTOR_WIDTH} ${height}">${shapes.join("")}</svg>`;
+}
+
 /** Two aligned panes modeled after an IDE side-by-side diff. */
 export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: boolean }) {
   const rows = useMemo(() => buildSplitDiffRows(file.lines), [file.lines]);
@@ -146,6 +164,8 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
   const [waveBounds, setWaveBounds] = useState<WaveBounds>({});
   const [paneHeights, setPaneHeights] = useState({ before: 0, after: 0 });
   const [verticalOffsets, setVerticalOffsets] = useState({ before: 0, after: 0 });
+  const viewportNode = useRef<View>(null);
+  const connectorDrawing = useRef<View>(null);
   const beforeVertical = useRef<ScrollView>(null);
   const afterVertical = useRef<ScrollView>(null);
   const requestedVertical = useRef({ before: 0, after: 0 });
@@ -163,6 +183,14 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
     points.push({ before: paneHeights.before, after: paneHeights.after });
     return buildVerticalTrack(points);
   }, [beforeRows, changeBounds, waveBounds, paneHeights]);
+  const drawConnector = (offsets: { before: number; after: number }) => {
+    if (Platform.OS !== "web") return;
+    const drawing = connectorDrawing.current as unknown as HTMLElement | null;
+    if (drawing) drawing.innerHTML = connectorSvg(beforeRows, changeBounds, waveBounds, offsets, viewportHeight);
+  };
+  useLayoutEffect(() => {
+    drawConnector(requestedVertical.current);
+  }, [beforeRows, changeBounds, waveBounds, viewportHeight]);
   const applyVerticalPosition = (position: number) => {
     const end = verticalTrack[verticalTrack.length - 1]?.virtualEnd ?? 0;
     const next = Math.max(0, Math.min(Math.max(0, end - viewportHeight), position));
@@ -175,13 +203,40 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
     requestedVertical.current = offsets;
     beforeVertical.current?.scrollTo({ y: offsets.before, animated: false });
     afterVertical.current?.scrollTo({ y: offsets.after, animated: false });
-    setVerticalOffsets(offsets);
+    drawConnector(offsets);
+    if (Platform.OS !== "web") setVerticalOffsets(offsets);
   };
-  const onVerticalWheel = (event: { deltaX: number; deltaY: number; ctrlKey?: boolean; shiftKey?: boolean; preventDefault: () => void }) => {
-    if (event.ctrlKey || event.shiftKey || !Number.isFinite(event.deltaY) || Math.abs(event.deltaX) > Math.abs(event.deltaY) || !verticalTrack.length) return;
-    event.preventDefault();
-    applyVerticalPosition(virtualPosition.current + event.deltaY);
-  };
+  useLayoutEffect(() => {
+    if (Platform.OS !== "web") return;
+    const viewport = viewportNode.current as unknown as HTMLElement | null;
+    const before = viewport?.querySelector<HTMLElement>('#vibe-review-before-vertical');
+    const after = viewport?.querySelector<HTMLElement>('#vibe-review-after-vertical');
+    if (!viewport || !before || !after) return;
+    // A non-passive capture listener blocks native asynchronous wheel scrolling.
+    // The panes and connector can then move together before the next paint.
+    const onWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.shiftKey || !Number.isFinite(event.deltaY) || Math.abs(event.deltaX) > Math.abs(event.deltaY) || !verticalTrack.length) return;
+      event.preventDefault();
+      const unit = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? viewportHeight : 1;
+      applyVerticalPosition(virtualPosition.current + event.deltaY * unit);
+    };
+    const onNativeScroll = (side: "before" | "after", element: HTMLElement) => {
+      const y = element.scrollTop;
+      if (Math.abs(requestedVertical.current[side] - y) < 1) return;
+      virtualPosition.current = positionForOffset(verticalTrack, side, y);
+      applyVerticalPosition(virtualPosition.current);
+    };
+    const onBeforeScroll = () => onNativeScroll("before", before);
+    const onAfterScroll = () => onNativeScroll("after", after);
+    viewport.addEventListener("wheel", onWheel, { capture: true, passive: false });
+    before.addEventListener("scroll", onBeforeScroll, { passive: true });
+    after.addEventListener("scroll", onAfterScroll, { passive: true });
+    return () => {
+      viewport.removeEventListener("wheel", onWheel, true);
+      before.removeEventListener("scroll", onBeforeScroll);
+      after.removeEventListener("scroll", onAfterScroll);
+    };
+  }, [verticalTrack, viewportHeight, paneHeights, beforeRows, changeBounds, waveBounds]);
   useEffect(() => {
     setChangeBounds({});
     setWaveBounds({});
@@ -194,7 +249,7 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
   const onVerticalScroll = (side: "before" | "after", event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const y = event.nativeEvent.contentOffset.y;
     if (Math.abs(requestedVertical.current[side] - y) < 1) {
-      setVerticalOffsets((current) => Math.abs(current[side] - y) < 0.5 ? current : { ...current, [side]: y });
+      if (Platform.OS !== "web") setVerticalOffsets((current) => Math.abs(current[side] - y) < 0.5 ? current : { ...current, [side]: y });
       return;
     }
     virtualPosition.current = positionForOffset(verticalTrack, side, y);
@@ -297,6 +352,7 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
 
   return (
     <View
+      ref={viewportNode}
       style={styles.viewport}
       onLayout={(event) => {
         const nextWidth = event.nativeEvent.layout.width;
@@ -306,13 +362,13 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
     >
       {width > 0 ? <>
         <View style={[styles.codeRow, { width, height: viewportHeight }]}>
-          <ScrollView key={`before-${wrapLines}`} ref={beforeVertical} style={[styles.verticalScroll, Platform.OS === "web" && styles.leftVerticalScroll, { width: leftWidth, height: viewportHeight }]} nestedScrollEnabled showsVerticalScrollIndicator scrollEventThrottle={16} onScroll={(event) => onVerticalScroll("before", event)} onContentSizeChange={(_width, height) => onPaneHeight("before", height)} {...(Platform.OS === "web" ? { onWheel: onVerticalWheel } : {})}>
+          <ScrollView key={`before-${wrapLines}`} nativeID="vibe-review-before-vertical" ref={beforeVertical} style={[styles.verticalScroll, Platform.OS === "web" && styles.leftVerticalScroll, { width: leftWidth, height: viewportHeight }]} nestedScrollEnabled showsVerticalScrollIndicator scrollEventThrottle={16} onScroll={Platform.OS === "web" ? undefined : (event) => onVerticalScroll("before", event)} onContentSizeChange={(_width, height) => onPaneHeight("before", height)}>
             <View style={[{ width: leftWidth }, Platform.OS === "web" && styles.leftVerticalContent]}>
               {wrapLines ? <WrapPane rows={beforeRows} side="before" width={leftWidth} tokens={tokens} onChange={onChange} onWave={onWave} /> : <NoWrapPane rows={beforeRows} side="before" width={leftWidth} contentWidth={Math.max(leftWidth - LINE_NUMBER_WIDTH, minCodeWidths.before)} tokens={tokens} scrollRef={beforeScroll} onScroll={(event) => syncScroll("before", event)} onChange={onChange} onWave={onWave} waveBounds={waveBounds} />}
             </View>
           </ScrollView>
-          <Connector rows={beforeRows} bounds={changeBounds} waveBounds={waveBounds} offsets={verticalOffsets} height={viewportHeight} />
-          <ScrollView key={`after-${wrapLines}`} ref={afterVertical} style={[styles.verticalScroll, { width: rightWidth, height: viewportHeight }]} nestedScrollEnabled showsVerticalScrollIndicator scrollEventThrottle={16} onScroll={(event) => onVerticalScroll("after", event)} onContentSizeChange={(_width, height) => onPaneHeight("after", height)} {...(Platform.OS === "web" ? { onWheel: onVerticalWheel } : {})}>
+          {Platform.OS === "web" ? <View style={[styles.connector, { height: viewportHeight }]}><View style={styles.connectorLine} /><View ref={connectorDrawing} style={styles.connectorDrawing} /></View> : <Connector rows={beforeRows} bounds={changeBounds} waveBounds={waveBounds} offsets={verticalOffsets} height={viewportHeight} />}
+          <ScrollView key={`after-${wrapLines}`} nativeID="vibe-review-after-vertical" ref={afterVertical} style={[styles.verticalScroll, { width: rightWidth, height: viewportHeight }]} nestedScrollEnabled showsVerticalScrollIndicator scrollEventThrottle={16} onScroll={Platform.OS === "web" ? undefined : (event) => onVerticalScroll("after", event)} onContentSizeChange={(_width, height) => onPaneHeight("after", height)}>
             {wrapLines ? <WrapPane rows={afterRows} side="after" width={rightWidth} tokens={tokens} onChange={onChange} onWave={onWave} /> : <NoWrapPane rows={afterRows} side="after" width={rightWidth} contentWidth={Math.max(rightWidth - LINE_NUMBER_WIDTH, minCodeWidths.after)} tokens={tokens} scrollRef={afterScroll} onScroll={(event) => syncScroll("after", event)} onChange={onChange} onWave={onWave} waveBounds={waveBounds} />}
           </ScrollView>
         </View>
@@ -350,6 +406,7 @@ const styles = StyleSheet.create({
   emptyChange: { height: 1 },
   connector: { width: CONNECTOR_WIDTH, overflow: "hidden", backgroundColor: "#fff", position: "relative" },
   connectorChange: { position: "absolute", left: 0, right: 0 },
+  connectorDrawing: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, pointerEvents: "none" },
   connectorWave: { position: "absolute", left: 0, width: CONNECTOR_WIDTH, zIndex: 2, pointerEvents: "none" },
   connectorLine: { position: "absolute", top: 0, bottom: 0, left: CONNECTOR_WIDTH / 2, width: 1, backgroundColor: "rgba(71,85,105,0.18)" },
   codeRow: { flexDirection: "row", alignItems: "stretch" },
