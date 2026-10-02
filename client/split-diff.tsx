@@ -1,9 +1,10 @@
-import { useMemo, useRef, useState, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { PanResponder, Platform, ScrollView, StyleSheet, Text, View, type NativeScrollEvent, type NativeSyntheticEvent, type PointerEvent as RNPointerEvent, type TextStyle, type ViewStyle } from "react-native";
 import { lightHighlightColors, type HighlightToken } from "@getpaseo/highlight";
 import type { DiffCell, DiffFile, PaneRow } from "./diff";
 import { buildPaneRows, buildSplitDiffRows } from "./diff";
 import { highlightSplitRows } from "./syntax";
+import { buildVerticalTrack, positionForOffset, positionsAt } from "./vertical-sync";
 
 const DIVIDER_WIDTH = 14;
 const LINE_NUMBER_WIDTH = 38;
@@ -12,6 +13,7 @@ const CONNECTOR_WIDTH = 20;
 const WAVE_HEIGHT = 12;
 const WAVE_PERIOD = 16;
 const WAVE_COLOR = "#cbd5e1";
+const MAX_VIEWPORT_HEIGHT = 520;
 const changeColors = { modify: "#dceaff", add: "#e3f5e9", remove: "#ffe7e7" } as const;
 
 function clampRatio(ratio: number, width: number): number {
@@ -104,12 +106,17 @@ function NoWrapPane({ rows, side, width, contentWidth, tokens, scrollRef, onScro
   </View>;
 }
 
-function Connector({ rows, bounds, waveBounds }: { rows: PaneRow[]; bounds: ChangeBounds; waveBounds: WaveBounds }) {
-  return <View style={styles.connector}>
+function Connector({ rows, bounds, waveBounds, offsets, height }: { rows: PaneRow[]; bounds: ChangeBounds; waveBounds: WaveBounds; offsets: { before: number; after: number }; height: number }) {
+  const shifted = (pair: { before?: Bounds; after?: Bounds }) => pair.before && pair.after ? {
+    before: { top: pair.before.top - offsets.before, bottom: pair.before.bottom - offsets.before },
+    after: { top: pair.after.top - offsets.after, bottom: pair.after.bottom - offsets.after },
+  } : null;
+  const visible = (bounds: Bounds) => bounds.bottom >= 0 && bounds.top <= height;
+  return <View style={[styles.connector, { height }]}>
     {rows.filter((row) => row.kind === "change").map((row) => {
       if (row.kind !== "change") return null;
-      const pair = bounds[row.index];
-      if (!pair?.before || !pair.after) return null;
+      const pair = shifted(bounds[row.index] ?? {});
+      if (!pair || !visible(pair.before) || !visible(pair.after)) return null;
       const top = Math.min(pair.before.top, pair.after.top);
       const bottom = Math.max(pair.before.bottom, pair.after.bottom);
       const polygon = `polygon(0 ${pair.before.top - top}px, 100% ${pair.after.top - top}px, 100% ${pair.after.bottom - top}px, 0 ${pair.before.bottom - top}px)`;
@@ -117,8 +124,8 @@ function Connector({ rows, bounds, waveBounds }: { rows: PaneRow[]; bounds: Chan
     })}
     {rows.filter((row) => row.kind === "wave").map((row) => {
       if (row.kind !== "wave") return null;
-      const pair = waveBounds[row.index];
-      if (!pair?.before || !pair.after || Platform.OS !== "web") return null;
+      const pair = shifted(waveBounds[row.index] ?? {});
+      if (!pair || !visible(pair.before) || !visible(pair.after) || Platform.OS !== "web") return null;
       const top = Math.min(pair.before.top, pair.after.top);
       const height = Math.ceil(Math.max(pair.before.bottom, pair.after.bottom) - top);
       const beforeY = pair.before.top + WAVE_HEIGHT / 2 - top;
@@ -137,6 +144,62 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
   const tokens = useMemo(() => highlightSplitRows(rows, file.path), [rows, file.path]);
   const [changeBounds, setChangeBounds] = useState<ChangeBounds>({});
   const [waveBounds, setWaveBounds] = useState<WaveBounds>({});
+  const [paneHeights, setPaneHeights] = useState({ before: 0, after: 0 });
+  const [verticalOffsets, setVerticalOffsets] = useState({ before: 0, after: 0 });
+  const beforeVertical = useRef<ScrollView>(null);
+  const afterVertical = useRef<ScrollView>(null);
+  const requestedVertical = useRef({ before: 0, after: 0 });
+  const virtualPosition = useRef(0);
+  const viewportHeight = Math.min(MAX_VIEWPORT_HEIGHT, Math.max(32, paneHeights.before, paneHeights.after));
+  const verticalTrack = useMemo(() => {
+    const points = [{ before: 0, after: 0 }];
+    for (const row of beforeRows) {
+      if (row.kind !== "change" && row.kind !== "wave") continue;
+      const pair = row.kind === "change" ? changeBounds[row.index] : waveBounds[row.index];
+      if (!pair?.before || !pair.after) continue;
+      points.push({ before: pair.before.top, after: pair.after.top });
+      points.push({ before: pair.before.bottom, after: pair.after.bottom });
+    }
+    points.push({ before: paneHeights.before, after: paneHeights.after });
+    return buildVerticalTrack(points);
+  }, [beforeRows, changeBounds, waveBounds, paneHeights]);
+  const applyVerticalPosition = (position: number) => {
+    const end = verticalTrack[verticalTrack.length - 1]?.virtualEnd ?? 0;
+    const next = Math.max(0, Math.min(Math.max(0, end - viewportHeight), position));
+    virtualPosition.current = next;
+    const mapped = positionsAt(verticalTrack, next);
+    const offsets = {
+      before: Math.min(Math.max(0, paneHeights.before - viewportHeight), mapped.before),
+      after: Math.min(Math.max(0, paneHeights.after - viewportHeight), mapped.after),
+    };
+    requestedVertical.current = offsets;
+    beforeVertical.current?.scrollTo({ y: offsets.before, animated: false });
+    afterVertical.current?.scrollTo({ y: offsets.after, animated: false });
+    setVerticalOffsets(offsets);
+  };
+  const onVerticalWheel = (event: { deltaX: number; deltaY: number; ctrlKey?: boolean; shiftKey?: boolean; preventDefault: () => void }) => {
+    if (event.ctrlKey || event.shiftKey || !Number.isFinite(event.deltaY) || Math.abs(event.deltaX) > Math.abs(event.deltaY) || !verticalTrack.length) return;
+    event.preventDefault();
+    applyVerticalPosition(virtualPosition.current + event.deltaY);
+  };
+  useEffect(() => {
+    setChangeBounds({});
+    setWaveBounds({});
+    setPaneHeights({ before: 0, after: 0 });
+    setVerticalOffsets({ before: 0, after: 0 });
+    requestedVertical.current = { before: 0, after: 0 };
+    virtualPosition.current = 0;
+  }, [file.path, wrapLines]);
+  const onPaneHeight = (side: "before" | "after", height: number) => setPaneHeights((current) => current[side] === height ? current : { ...current, [side]: height });
+  const onVerticalScroll = (side: "before" | "after", event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const y = event.nativeEvent.contentOffset.y;
+    if (Math.abs(requestedVertical.current[side] - y) < 1) {
+      setVerticalOffsets((current) => Math.abs(current[side] - y) < 0.5 ? current : { ...current, [side]: y });
+      return;
+    }
+    virtualPosition.current = positionForOffset(verticalTrack, side, y);
+    applyVerticalPosition(virtualPosition.current);
+  };
   const onChange: RecordChange = (side, index, top, height) => setChangeBounds((current) => {
     const nextBounds = { top, bottom: top + height };
     const previous = current[index]?.[side];
@@ -241,36 +304,19 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
         setWidth(nextWidth);
       }}
     >
-      {width > 0 ? wrapLines ? <ScrollView style={styles.verticalScroll} nestedScrollEnabled>
-        <View style={[styles.table, styles.codeRow, { width }]}>
-          <WrapPane rows={beforeRows} side="before" width={leftWidth} tokens={tokens} onChange={onChange} onWave={onWave} />
-          <Connector rows={beforeRows} bounds={changeBounds} waveBounds={waveBounds} />
-          <WrapPane rows={afterRows} side="after" width={rightWidth} tokens={tokens} onChange={onChange} onWave={onWave} />
-          <View
-            {...webPointerHandlers}
-            accessibilityRole="adjustable"
-            accessibilityLabel="调整左右对照宽度"
-            accessibilityValue={{ min: 0, max: 100, now: Math.round(ratio * 100) }}
-            accessibilityActions={[{ name: "increment", label: "增加左栏宽度" }, { name: "decrement", label: "减小左栏宽度" }]}
-            onAccessibilityAction={(event) => {
-              const direction = event.nativeEvent.actionName === "increment" ? 1 : -1;
-              const next = clampRatio(ratioRef.current + direction * 0.05, widthRef.current);
-              ratioRef.current = next;
-              setRatio(next);
-            }}
-            style={[styles.divider, { left: leftWidth + CONNECTOR_WIDTH / 2 - DIVIDER_WIDTH / 2 }]}
-          >
-            <View style={styles.dividerLine} />
-          </View>
+      {width > 0 ? <>
+        <View style={[styles.codeRow, { width, height: viewportHeight }]}>
+          <ScrollView key={`before-${wrapLines}`} ref={beforeVertical} style={[styles.verticalScroll, Platform.OS === "web" && styles.leftVerticalScroll, { width: leftWidth, height: viewportHeight }]} nestedScrollEnabled showsVerticalScrollIndicator scrollEventThrottle={16} onScroll={(event) => onVerticalScroll("before", event)} onContentSizeChange={(_width, height) => onPaneHeight("before", height)} {...(Platform.OS === "web" ? { onWheel: onVerticalWheel } : {})}>
+            <View style={[{ width: leftWidth }, Platform.OS === "web" && styles.leftVerticalContent]}>
+              {wrapLines ? <WrapPane rows={beforeRows} side="before" width={leftWidth} tokens={tokens} onChange={onChange} onWave={onWave} /> : <NoWrapPane rows={beforeRows} side="before" width={leftWidth} contentWidth={Math.max(leftWidth - LINE_NUMBER_WIDTH, minCodeWidths.before)} tokens={tokens} scrollRef={beforeScroll} onScroll={(event) => syncScroll("before", event)} onChange={onChange} onWave={onWave} waveBounds={waveBounds} />}
+            </View>
+          </ScrollView>
+          <Connector rows={beforeRows} bounds={changeBounds} waveBounds={waveBounds} offsets={verticalOffsets} height={viewportHeight} />
+          <ScrollView key={`after-${wrapLines}`} ref={afterVertical} style={[styles.verticalScroll, { width: rightWidth, height: viewportHeight }]} nestedScrollEnabled showsVerticalScrollIndicator scrollEventThrottle={16} onScroll={(event) => onVerticalScroll("after", event)} onContentSizeChange={(_width, height) => onPaneHeight("after", height)} {...(Platform.OS === "web" ? { onWheel: onVerticalWheel } : {})}>
+            {wrapLines ? <WrapPane rows={afterRows} side="after" width={rightWidth} tokens={tokens} onChange={onChange} onWave={onWave} /> : <NoWrapPane rows={afterRows} side="after" width={rightWidth} contentWidth={Math.max(rightWidth - LINE_NUMBER_WIDTH, minCodeWidths.after)} tokens={tokens} scrollRef={afterScroll} onScroll={(event) => syncScroll("after", event)} onChange={onChange} onWave={onWave} waveBounds={waveBounds} />}
+          </ScrollView>
         </View>
-      </ScrollView> : <View style={styles.noWrapPanes}>
-        <ScrollView style={styles.verticalScroll} nestedScrollEnabled>
-        <View style={[styles.codeRow, { width }]}>
-          <NoWrapPane rows={beforeRows} side="before" width={leftWidth} contentWidth={Math.max(leftWidth - LINE_NUMBER_WIDTH, minCodeWidths.before)} tokens={tokens} scrollRef={beforeScroll} onScroll={(event) => syncScroll("before", event)} onChange={onChange} onWave={onWave} waveBounds={waveBounds} />
-          <Connector rows={beforeRows} bounds={changeBounds} waveBounds={waveBounds} />
-          <NoWrapPane rows={afterRows} side="after" width={rightWidth} contentWidth={Math.max(rightWidth - LINE_NUMBER_WIDTH, minCodeWidths.after)} tokens={tokens} scrollRef={afterScroll} onScroll={(event) => syncScroll("after", event)} onChange={onChange} onWave={onWave} waveBounds={waveBounds} />
-        </View>
-        </ScrollView>
+        {!wrapLines ? (
         <View style={[styles.codeRow, { width }]}>
           <View style={{ width: leftWidth - LINE_NUMBER_WIDTH }}>
             <ScrollView horizontal ref={beforeFooter} onScroll={(event) => syncScroll("before", event)} scrollEventThrottle={16} style={styles.footerScroll}><View style={{ width: Math.max(leftWidth - LINE_NUMBER_WIDTH, minCodeWidths.before), height: 1 }} /></ScrollView>
@@ -281,20 +327,20 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
             <ScrollView horizontal ref={afterFooter} onScroll={(event) => syncScroll("after", event)} scrollEventThrottle={16} style={styles.footerScroll}><View style={{ width: Math.max(rightWidth - LINE_NUMBER_WIDTH, minCodeWidths.after), height: 1 }} /></ScrollView>
           </View>
         </View>
-      </View> : null}
-      {width > 0 && !wrapLines ? (
-        <View {...webPointerHandlers} accessibilityRole="adjustable" accessibilityLabel="调整左右对照宽度" accessibilityValue={{ min: 0, max: 100, now: Math.round(ratio * 100) }} style={[styles.divider, { left: leftWidth + CONNECTOR_WIDTH / 2 - DIVIDER_WIDTH / 2 }]}>
+        ) : null}
+        <View {...webPointerHandlers} accessibilityRole="adjustable" accessibilityLabel="调整左右对照宽度" accessibilityValue={{ min: 0, max: 100, now: Math.round(ratio * 100) }} style={[styles.divider, { left: leftWidth + CONNECTOR_WIDTH / 2 - DIVIDER_WIDTH / 2, height: viewportHeight }]}>
           <View style={styles.dividerLine} />
         </View>
-      ) : null}
+      </> : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   viewport: { position: "relative", minHeight: 32 },
-  verticalScroll: { maxHeight: 520 },
-  noWrapPanes: { maxHeight: 538 },
+  verticalScroll: { backgroundColor: "#fff" },
+  leftVerticalScroll: { direction: "rtl" },
+  leftVerticalContent: { direction: "ltr" },
   footerScroll: { height: 18, backgroundColor: "#f8fafc" },
   lineNumberGutter: { width: LINE_NUMBER_WIDTH, backgroundColor: "#fff" },
   gutterLine: { height: 22, width: LINE_NUMBER_WIDTH },
@@ -302,7 +348,7 @@ const styles = StyleSheet.create({
   wave: { height: WAVE_HEIGHT, overflow: "hidden", justifyContent: "center", backgroundColor: "#fff" },
   waveText: { color: "#cbd5e1", fontSize: 13, lineHeight: WAVE_HEIGHT, letterSpacing: 1, marginTop: -2 },
   emptyChange: { height: 1 },
-  connector: { width: CONNECTOR_WIDTH, alignSelf: "stretch", backgroundColor: "#fff", position: "relative" },
+  connector: { width: CONNECTOR_WIDTH, overflow: "hidden", backgroundColor: "#fff", position: "relative" },
   connectorChange: { position: "absolute", left: 0, right: 0 },
   connectorWave: { position: "absolute", left: 0, width: CONNECTOR_WIDTH, zIndex: 2, pointerEvents: "none" },
   connectorLine: { position: "absolute", top: 0, bottom: 0, left: CONNECTOR_WIDTH / 2, width: 1, backgroundColor: "rgba(71,85,105,0.18)" },
