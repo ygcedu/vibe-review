@@ -72,7 +72,7 @@ function WrapPane({ rows, side, width, tokens, onChange, onWave }: { rows: PaneR
 
 function NoWrapGutter({ rows, side, onChange, onWave }: { rows: PaneRow[]; side: "before" | "after"; onChange: RecordChange; onWave: RecordChange }) {
   return <View style={styles.lineNumberGutter}>
-    {rows.map((row) => row.kind === "wave" ? <Wave key={row.key} width={LINE_NUMBER_WIDTH} side={side} onLayout={(top, height) => onWave(side, row.index, top, height)} /> : row.kind === "code" ? (
+    {rows.map((row) => row.kind === "wave" ? <View key={row.key} style={{ height: WAVE_HEIGHT }} onLayout={(event) => onWave(side, row.index, event.nativeEvent.layout.y, event.nativeEvent.layout.height)} /> : row.kind === "code" ? (
       <View key={row.key} style={styles.gutterLine}><Text style={side === "before" ? styles.beforeLineNumber : styles.afterLineNumber}>{row.cell.number ?? ""}</Text></View>
     ) : (
       <View key={row.key} onLayout={(event) => onChange(side, row.index, event.nativeEvent.layout.y, event.nativeEvent.layout.height)}>
@@ -82,10 +82,10 @@ function NoWrapGutter({ rows, side, onChange, onWave }: { rows: PaneRow[]; side:
   </View>;
 }
 
-function NoWrapPane({ rows, side, width, contentWidth, tokens, scrollRef, onScroll, onChange, onWave }: { rows: PaneRow[]; side: "before" | "after"; width: number; contentWidth: number; tokens: Map<DiffCell, HighlightToken[]>; scrollRef: RefObject<ScrollView | null>; onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void; onChange: RecordChange; onWave: RecordChange }) {
+function NoWrapPane({ rows, side, width, contentWidth, tokens, scrollRef, onScroll, onChange, onWave, waveBounds }: { rows: PaneRow[]; side: "before" | "after"; width: number; contentWidth: number; tokens: Map<DiffCell, HighlightToken[]>; scrollRef: RefObject<ScrollView | null>; onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void; onChange: RecordChange; onWave: RecordChange; waveBounds: WaveBounds }) {
   const code = <ScrollView horizontal showsHorizontalScrollIndicator={false} ref={scrollRef} onScroll={onScroll} scrollEventThrottle={16} style={{ width: width - LINE_NUMBER_WIDTH }}>
       <View style={{ width: contentWidth }}>
-        {rows.map((row) => row.kind === "wave" ? <Wave key={row.key} width={contentWidth} side={side} /> : row.kind === "code" ? (
+        {rows.map((row) => row.kind === "wave" ? <View key={row.key} style={{ height: WAVE_HEIGHT }} /> : row.kind === "code" ? (
           <CodeLine key={row.key} side={side} cell={row.cell} tokens={tokens.get(row.cell)} wrapLines={false} showLineNumber={false} visibleCodeWidth={width - LINE_NUMBER_WIDTH} />
         ) : (
           <View key={row.key}>
@@ -95,7 +95,14 @@ function NoWrapPane({ rows, side, width, contentWidth, tokens, scrollRef, onScro
       </View>
   </ScrollView>;
   const gutter = <NoWrapGutter rows={rows} side={side} onChange={onChange} onWave={onWave} />;
-  return <View style={[styles.codeRow, { width }]}>{side === "before" ? <>{code}{gutter}</> : <>{gutter}{code}</>}</View>;
+  return <View style={[styles.codeRow, { width, position: "relative" }]}>
+    {side === "before" ? <>{code}{gutter}</> : <>{gutter}{code}</>}
+    {rows.filter((row) => row.kind === "wave").map((row) => {
+      if (row.kind !== "wave") return null;
+      const bounds = waveBounds[row.index]?.[side];
+      return bounds ? <View key={row.key} pointerEvents="none" style={{ position: "absolute", top: bounds.top, left: 0, zIndex: 1 }}><Wave width={width} side={side} /></View> : null;
+    })}
+  </View>;
 }
 
 function Connector({ rows, bounds, waveBounds }: { rows: PaneRow[]; bounds: ChangeBounds; waveBounds: WaveBounds }) {
@@ -276,9 +283,9 @@ export function SplitDiff({ file }: { file: DiffFile }) {
       </ScrollView> : <View style={styles.noWrapPanes}>
         <ScrollView style={styles.verticalScroll} nestedScrollEnabled>
         <View style={[styles.codeRow, { width }]}>
-          <NoWrapPane rows={beforeRows} side="before" width={leftWidth} contentWidth={Math.max(leftWidth - LINE_NUMBER_WIDTH, minCodeWidths.before)} tokens={tokens} scrollRef={beforeScroll} onScroll={(event) => syncScroll("before", event)} onChange={onChange} onWave={onWave} />
+          <NoWrapPane rows={beforeRows} side="before" width={leftWidth} contentWidth={Math.max(leftWidth - LINE_NUMBER_WIDTH, minCodeWidths.before)} tokens={tokens} scrollRef={beforeScroll} onScroll={(event) => syncScroll("before", event)} onChange={onChange} onWave={onWave} waveBounds={waveBounds} />
           <Connector rows={beforeRows} bounds={changeBounds} waveBounds={waveBounds} />
-          <NoWrapPane rows={afterRows} side="after" width={rightWidth} contentWidth={Math.max(rightWidth - LINE_NUMBER_WIDTH, minCodeWidths.after)} tokens={tokens} scrollRef={afterScroll} onScroll={(event) => syncScroll("after", event)} onChange={onChange} onWave={onWave} />
+          <NoWrapPane rows={afterRows} side="after" width={rightWidth} contentWidth={Math.max(rightWidth - LINE_NUMBER_WIDTH, minCodeWidths.after)} tokens={tokens} scrollRef={afterScroll} onScroll={(event) => syncScroll("after", event)} onChange={onChange} onWave={onWave} waveBounds={waveBounds} />
         </View>
         </ScrollView>
         <View style={[styles.codeRow, { width }]}>
