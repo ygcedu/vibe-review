@@ -11,6 +11,7 @@ const LINE_NUMBER_WIDTH = 38;
 const CODE_PADDING = 18;
 const CONNECTOR_WIDTH = 20;
 const WAVE_HEIGHT = 12;
+const TOOLBAR_HEIGHT = 26;
 const WAVE_PERIOD = 16;
 const WAVE_COLOR = "#cbd5e1";
 const changeColors = { modify: "#dceaff", add: "#e3f5e9", remove: "#ffe7e7" } as const;
@@ -254,7 +255,7 @@ export function SplitDiff({ file }: { file: DiffFile }) {
           onPress={() => setWrapLines((current) => !current)}
           style={[styles.toolbarButton, wrapLines && styles.toolbarButtonActive]}
         >
-          <Icon name="WrapText" size={17} color={wrapLines ? "#2563eb" : "#64748b"} />
+          <Icon name="WrapText" size={13} color={wrapLines ? "#2563eb" : "#64748b"} />
         </Pressable>
         {showWrapTooltip ? <View style={styles.tooltip}><Text style={styles.tooltipText}>折行显示</Text></View> : null}
       </View>
@@ -300,7 +301,7 @@ export function SplitDiff({ file }: { file: DiffFile }) {
         </View>
       </View> : null}
       {width > 0 && !wrapLines ? (
-        <View {...webPointerHandlers} accessibilityRole="adjustable" accessibilityLabel="调整左右对照宽度" accessibilityValue={{ min: 0, max: 100, now: Math.round(ratio * 100) }} style={[styles.divider, { top: 38, left: leftWidth + CONNECTOR_WIDTH / 2 - DIVIDER_WIDTH / 2 }]}>
+        <View {...webPointerHandlers} accessibilityRole="adjustable" accessibilityLabel="调整左右对照宽度" accessibilityValue={{ min: 0, max: 100, now: Math.round(ratio * 100) }} style={[styles.divider, { top: TOOLBAR_HEIGHT, left: leftWidth + CONNECTOR_WIDTH / 2 - DIVIDER_WIDTH / 2 }]}>
           <View style={styles.dividerLine} />
         </View>
       ) : null}
@@ -310,10 +311,10 @@ export function SplitDiff({ file }: { file: DiffFile }) {
 
 const styles = StyleSheet.create({
   viewport: { position: "relative", minHeight: 32 },
-  toolbar: { height: 38, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", backgroundColor: "#f8fafc", borderBottomWidth: 1, borderBottomColor: "#d7dee8", zIndex: 2 },
-  toolbarButton: { width: 28, height: 28, borderRadius: 5, alignItems: "center", justifyContent: "center" },
+  toolbar: { height: TOOLBAR_HEIGHT, paddingHorizontal: 7, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", backgroundColor: "#f8fafc", borderBottomWidth: 1, borderBottomColor: "#d7dee8", zIndex: 2 },
+  toolbarButton: { width: 20, height: 20, borderRadius: 4, alignItems: "center", justifyContent: "center" },
   toolbarButtonActive: { backgroundColor: "#dbeafe" },
-  tooltip: { position: "absolute", top: 35, left: 4, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 5, backgroundColor: "#1e293b" },
+  tooltip: { position: "absolute", top: TOOLBAR_HEIGHT - 1, right: 4, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 5, backgroundColor: "#1e293b" },
   tooltipText: { color: "#fff", fontSize: 11 },
   verticalScroll: { maxHeight: 520 },
   noWrapPanes: { maxHeight: 538 },
