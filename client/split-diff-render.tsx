@@ -1,7 +1,8 @@
-import { Platform, ScrollView, StyleSheet, Text, View, type NativeScrollEvent, type NativeSyntheticEvent, type TextStyle, type ViewStyle } from "react-native";
+import { Image, Platform, ScrollView, StyleSheet, Text, View, type NativeScrollEvent, type NativeSyntheticEvent, type TextStyle, type ViewStyle } from "react-native";
 import type { RefObject } from "react";
 import type { HighlightToken } from "@getpaseo/highlight";
 import type { DiffCell, PaneRow } from "./diff";
+import { bottomFalling, bottomRising, topFalling, topRising } from "./connector-masks";
 
 export const LINE_NUMBER_WIDTH = 38;
 export const CODE_PADDING = 18;
@@ -9,6 +10,7 @@ export const CONNECTOR_WIDTH = 20;
 const WAVE_HEIGHT = 12;
 const WAVE_PERIOD = 16;
 const WAVE_COLOR = "#cbd5e1";
+const nativeWaveTile = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAMCAYAAABr5z2BAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAjUlEQVR4nGNgoCY4e/2hFAiTrPH///9Mp64+6Dt99eFzEAaxQWJEG3D6ysPu01ceHDx//r4ACIPYIDGiNJ+68ijx1NUHd87ceCoCEzt25ZHQ6SsPbp6+8jCdsO1XH744ee2JGro4SAwkd+byfUdcesHhdRZPoIE0E7KAgeZeZKA0kEGA4miGAbITGj4AAMQGmf03ekjFAAAAAElFTkSuQmCC";
 const changeColors = { modify: "#dceaff", add: "#e3f5e9", remove: "#ffe7e7" } as const;
 // Match @getpaseo/highlight's light palette without eagerly loading its parsers.
 const lightHighlightColors: Record<NonNullable<HighlightToken["style"]>, string> = {
@@ -25,16 +27,16 @@ function CodeLine({ cell, side, tone, tokens, wrapLines, showLineNumber = true, 
   const code = tokens?.length ? tokens.map((token, index) => <Text key={index} style={{ fontFamily: "monospace", color: token.style ? lightHighlightColors[token.style] : undefined }}>{token.text.replace(/\t/g, "    ")}</Text>) : cell.text.replace(/\t/g, "    ");
   const wrapStyle = Platform.OS === "web" ? ({ whiteSpace: wrapLines ? "pre-wrap" : "pre", overflowWrap: wrapLines ? "anywhere" : "normal", fontFamily: "monospace" } as unknown as TextStyle) : undefined;
   return (
-    <View style={[styles.cell, tone ? { backgroundColor: changeColors[tone] } : styles.contextCell, visibleCodeWidth !== undefined && { width: "100%" }]}>
+    <View style={[styles.cell, tone ? { backgroundColor: changeColors[tone] } : styles.contextCell, visibleCodeWidth !== undefined && { width: "100%", height: 22, overflow: "hidden" }]}>
       {side === "before" ? (
         <>
-          <Text selectable style={[styles.codeText, styles.beforeCode, { flex: 1 }, wrapStyle]}>{code}</Text>
-          {showLineNumber ? <Text style={styles.beforeLineNumber}>{cell.number ?? ""}</Text> : null}
+          <Text selectable allowFontScaling={false} style={[styles.codeText, styles.beforeCode, { flex: 1 }, wrapStyle]}>{code}</Text>
+          {showLineNumber ? <Text allowFontScaling={false} style={styles.beforeLineNumber}>{cell.number ?? ""}</Text> : null}
         </>
       ) : (
         <>
-          {showLineNumber ? <Text style={styles.afterLineNumber}>{cell.number ?? ""}</Text> : null}
-          <Text selectable style={[styles.codeText, styles.afterCode, { flex: 1 }, wrapStyle]}>{code}</Text>
+          {showLineNumber ? <Text allowFontScaling={false} style={styles.afterLineNumber}>{cell.number ?? ""}</Text> : null}
+          <Text selectable allowFontScaling={false} style={[styles.codeText, styles.afterCode, { flex: 1 }, wrapStyle]}>{code}</Text>
         </>
       )}
     </View>
@@ -45,13 +47,42 @@ const waveTile = `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http
 
 function Wave({ width, side, onLayout }: { width: number; side: "before" | "after"; onLayout?: (top: number, height: number) => void }) {
   const webStyle = Platform.OS === "web" ? ({ backgroundImage: waveTile, backgroundRepeat: "repeat-x", backgroundPositionX: side === "before" ? width % WAVE_PERIOD : 0 } as unknown as ViewStyle) : undefined;
-  return <View onLayout={onLayout ? (event) => onLayout(event.nativeEvent.layout.y, event.nativeEvent.layout.height) : undefined} style={[styles.wave, { width }, webStyle]}>{Platform.OS !== "web" ? <Text numberOfLines={1} style={styles.waveText}>{"∿".repeat(Math.max(12, Math.ceil(width / 7)))}</Text> : null}</View>;
+  const nativePhase = side === "before" ? width % WAVE_PERIOD - WAVE_PERIOD : 0;
+  return <View onLayout={onLayout ? (event) => onLayout(event.nativeEvent.layout.y, event.nativeEvent.layout.height) : undefined} style={[styles.wave, { width }, webStyle]}>{Platform.OS !== "web" ? (
+    <View style={{ flexDirection: "row", position: "absolute", left: nativePhase, top: 0 }}>
+      {Array.from({ length: Math.ceil((width - nativePhase) / WAVE_PERIOD) }, (_, index) => (
+        <Image key={index} source={{ uri: nativeWaveTile }} resizeMode="stretch" style={{ width: WAVE_PERIOD, height: WAVE_HEIGHT }} />
+      ))}
+    </View>
+  ) : null}</View>;
 }
 
 export type Bounds = { top: number; bottom: number };
 export type ChangeBounds = Record<number, { before?: Bounds; after?: Bounds }>;
 export type RecordChange = (side: "before" | "after", index: number, top: number, height: number) => void;
 export type WaveBounds = Record<number, { before?: Bounds; after?: Bounds }>;
+
+export function fixedNoWrapHeight(rows: PaneRow[]): number {
+  return rows.reduce((height, row) => height + (row.kind === "wave" ? WAVE_HEIGHT : row.kind === "change" ? Math.max(1, row.cells.length * 22) : 22), 0);
+}
+
+/** No-wrap rows have fixed heights, so their connector positions need no native layout callbacks. */
+export function fixedNoWrapBounds(beforeRows: PaneRow[], afterRows: PaneRow[]): { changes: ChangeBounds; waves: WaveBounds } {
+  const changes: ChangeBounds = {};
+  const waves: WaveBounds = {};
+  for (const [side, rows] of [["before", beforeRows], ["after", afterRows]] as const) {
+    let top = 0;
+    for (const row of rows) {
+      const height = row.kind === "wave" ? WAVE_HEIGHT : row.kind === "change" ? Math.max(1, row.cells.length * 22) : 22;
+      if (row.kind !== "code") {
+        const target = row.kind === "wave" ? waves : changes;
+        target[row.index] = { ...target[row.index], [side]: { top, bottom: top + height } };
+      }
+      top += height;
+    }
+  }
+  return { changes, waves };
+}
 
 export function WrapPane({ rows, side, width, tokens, onChange, onWave }: { rows: PaneRow[]; side: "before" | "after"; width: number; tokens: Map<DiffCell, HighlightToken[]>; onChange: RecordChange; onWave: RecordChange }) {
   return <View style={{ width }}>
@@ -98,20 +129,42 @@ export function NoWrapPane({ rows, side, width, contentWidth, tokens, scrollRef,
   </View>;
 }
 
-export function Connector({ rows, bounds, offsets, height }: { rows: PaneRow[]; bounds: ChangeBounds; offsets: { before: number; after: number }; height: number }) {
-  const shifted = (pair: { before?: Bounds; after?: Bounds }) => pair.before && pair.after ? {
-    before: { top: pair.before.top - offsets.before, bottom: pair.before.bottom - offsets.before },
-    after: { top: pair.after.top - offsets.after, bottom: pair.after.bottom - offsets.after },
-  } : null;
-  const visible = (bounds: Bounds) => bounds.bottom >= 0 && bounds.top <= height;
+function connectorSegments(rows: PaneRow[], bounds: ChangeBounds, waveBounds: WaveBounds, offsets: { before: number; after: number }, height: number) {
+  return rows.flatMap((row) => {
+    if (row.kind !== "change" && row.kind !== "wave") return [];
+    const pair = (row.kind === "change" ? bounds : waveBounds)[row.index];
+    if (!pair?.before || !pair.after) return [];
+    const before = { top: pair.before.top - offsets.before, bottom: pair.before.bottom - offsets.before };
+    const after = { top: pair.after.top - offsets.after, bottom: pair.after.bottom - offsets.after };
+    if (Math.max(before.bottom, after.bottom) < 0 || Math.min(before.top, after.top) > height) return [];
+    return [{ row, before, after }];
+  });
+}
+
+export function Connector({ rows, bounds, waveBounds, offsets, height }: { rows: PaneRow[]; bounds: ChangeBounds; waveBounds: WaveBounds; offsets: { before: number; after: number }; height: number }) {
   return <View style={[styles.connector, { height }]}>
-    {rows.filter((row) => row.kind === "change").map((row) => {
-      if (row.kind !== "change") return null;
-      const pair = shifted(bounds[row.index] ?? {});
-      if (!pair || !visible(pair.before) || !visible(pair.after)) return null;
-      const top = Math.min(pair.before.top, pair.after.top);
-      const bottom = Math.max(pair.before.bottom, pair.after.bottom);
-      return <View key={row.key} style={[styles.connectorChange, { top, height: Math.max(1, bottom - top), backgroundColor: changeColors[row.tone] }]} />;
+    {connectorSegments(rows, bounds, waveBounds, offsets, height).flatMap(({ row, before, after }) => {
+      if (row.kind === "change") {
+        const color = changeColors[row.tone];
+        const topMin = Math.min(before.top, after.top);
+        const topMax = Math.max(before.top, after.top);
+        const bottomMin = Math.min(before.bottom, after.bottom);
+        const bottomMax = Math.max(before.bottom, after.bottom);
+        if (topMax <= bottomMin) return [
+          topMax > topMin ? <Image key={`${row.key}-top`} source={{ uri: before.top < after.top ? topRising : topFalling }} resizeMode="stretch" style={{ position: "absolute", top: topMin, width: CONNECTOR_WIDTH, height: topMax - topMin, tintColor: color }} /> : null,
+          bottomMin > topMax ? <View key={`${row.key}-middle`} style={{ position: "absolute", top: topMax, width: CONNECTOR_WIDTH, height: bottomMin - topMax, backgroundColor: color }} /> : null,
+          bottomMax > bottomMin ? <Image key={`${row.key}-bottom`} source={{ uri: before.bottom < after.bottom ? bottomRising : bottomFalling }} resizeMode="stretch" style={{ position: "absolute", top: bottomMin, width: CONNECTOR_WIDTH, height: bottomMax - bottomMin, tintColor: color }} /> : null,
+        ];
+      }
+      // Very short change blocks may have no full-width middle section.
+      const stripWidth = 0.25;
+      return Array.from({ length: CONNECTOR_WIDTH / stripWidth }, (_, index) => {
+        const x = index * stripWidth;
+        const ratio = (x + stripWidth / 2) / CONNECTOR_WIDTH;
+        const top = before.top + (after.top - before.top) * ratio + (row.kind === "wave" ? WAVE_HEIGHT / 2 : 0);
+        const bottom = row.kind === "wave" ? top + 1 : before.bottom + (after.bottom - before.bottom) * ratio;
+        return <View key={`${row.key}-${index}`} style={{ position: "absolute", left: x, top, width: stripWidth, height: Math.max(1, bottom - top), backgroundColor: row.kind === "wave" ? WAVE_COLOR : changeColors[row.tone] }} />;
+      });
     })}
     <View style={styles.connectorLine} />
   </View>;
@@ -140,10 +193,8 @@ const styles = StyleSheet.create({
   lineNumberGutter: { width: LINE_NUMBER_WIDTH, backgroundColor: "#fff" },
   gutterLine: { height: 22, width: LINE_NUMBER_WIDTH },
   wave: { height: WAVE_HEIGHT, overflow: "hidden", justifyContent: "center", backgroundColor: "#fff" },
-  waveText: { color: "#cbd5e1", fontSize: 13, lineHeight: WAVE_HEIGHT, letterSpacing: 1, marginTop: -2 },
   emptyChange: { height: 1 },
   connector: { width: CONNECTOR_WIDTH, overflow: "hidden", backgroundColor: "#fff", position: "relative" },
-  connectorChange: { position: "absolute", left: 0, right: 0 },
   connectorLine: { position: "absolute", top: 0, bottom: 0, left: CONNECTOR_WIDTH / 2, width: 1, backgroundColor: "rgba(71,85,105,0.18)" },
   codeRow: { flexDirection: "row", alignItems: "stretch" },
   cell: { flexDirection: "row", minHeight: 22 },
