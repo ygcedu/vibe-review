@@ -40,7 +40,7 @@ function buildFileTree(files: DiffFile[]): TreeNode[] {
 export function FileTree({ files }: { files: DiffFile[] }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [openFile, setOpenFile] = useState<number | null>(null);
-  const [wrapLines, setWrapLines] = useState(true);
+  const [wrapLines, setWrapLines] = useState(false);
   const [showWrapTooltip, setShowWrapTooltip] = useState(false);
   const nodes = buildFileTree(files);
 
@@ -79,7 +79,7 @@ export function FileTree({ files }: { files: DiffFile[] }) {
           accessibilityState={{ expanded: isOpen }}
           onPress={() => {
             setOpenFile(isOpen ? null : index);
-            setWrapLines(true);
+            setWrapLines(false);
             setShowWrapTooltip(false);
           }}
           style={styles.fileSelect}
