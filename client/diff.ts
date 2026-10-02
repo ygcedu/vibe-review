@@ -22,6 +22,30 @@ export type SplitDiffRow =
   | { kind: "context"; before: DiffCell; after: DiffCell }
   | { kind: "change"; before: DiffCell[]; after: DiffCell[]; tone: "modify" | "add" | "remove" };
 
+export type PaneRow =
+  | { kind: "wave"; key: string }
+  | { kind: "code"; key: string; cell: DiffCell }
+  | { kind: "change"; key: string; index: number; cells: DiffCell[]; tone: "modify" | "add" | "remove" };
+
+/** Each side flows independently. A skipped source range gets a small wave divider. */
+export function buildPaneRows(rows: SplitDiffRow[], side: "before" | "after"): PaneRow[] {
+  const result: PaneRow[] = [];
+  let lastNumber: number | undefined;
+  rows.forEach((row, index) => {
+    if (row.kind === "header") return;
+    const cells = row.kind === "context" ? [row[side]] : row[side];
+    const first = cells[0]?.number;
+    if (first !== undefined && (lastNumber === undefined ? first > 1 : first !== lastNumber + 1)) {
+      result.push({ kind: "wave", key: `wave-${index}` });
+    }
+    if (row.kind === "context") result.push({ kind: "code", key: `code-${index}`, cell: row[side] });
+    else result.push({ kind: "change", key: `change-${index}`, index, cells: row[side], tone: row.tone });
+    const last = cells.at(-1)?.number;
+    if (last !== undefined) lastNumber = last;
+  });
+  return result;
+}
+
 /** Keep each change run together so different line counts can share one block height. */
 export function buildSplitDiffRows(lines: DiffLine[]): SplitDiffRow[] {
   const rows: SplitDiffRow[] = [];

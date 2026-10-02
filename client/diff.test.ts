@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildSplitDiffRows, parseDiffFiles } from "./diff.ts";
+import { buildPaneRows, buildSplitDiffRows, parseDiffFiles } from "./diff.ts";
 
 test("snapshot diff renders only code rows, with correct file and line numbers", () => {
   const diff = [
@@ -35,6 +35,21 @@ test("snapshot diff renders only code rows, with correct file and line numbers",
   assert.equal(rows[1]!.kind === "change" && rows[1].after.at(-1)?.number, 97);
   assert.deepEqual(buildSplitDiffRows(files[1]!.lines).map((row) => row.kind), ["change"]);
   assert.deepEqual(buildSplitDiffRows(files[2]!.lines).map((row) => row.kind), ["change"]);
+});
+
+test("pane rows flow independently and show only skipped ranges as waves", () => {
+  const files = parseDiffFiles([
+    "diff --git a/a.ts b/a.ts", "--- a/a.ts", "+++ b/a.ts",
+    "@@ -1,2 +1,3 @@", " same", "+extra", " next",
+    "@@ -20,2 +21,2 @@", " later", "-old", "+new",
+  ].join("\n"));
+  const rows = buildSplitDiffRows(files[0]!.lines);
+  const before = buildPaneRows(rows, "before");
+  const after = buildPaneRows(rows, "after");
+  assert.deepEqual(before.map((row) => row.kind), ["code", "change", "code", "wave", "code", "change"]);
+  assert.deepEqual(after.map((row) => row.kind), ["code", "change", "code", "wave", "code", "change"]);
+  assert.equal(before[1]!.kind === "change" && before[1].cells.length, 0);
+  assert.equal(after[1]!.kind === "change" && after[1].cells.length, 1);
 });
 
 test("legacy repeated edit markers do not appear as visible rows", () => {
