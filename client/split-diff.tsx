@@ -8,6 +8,24 @@ import { CODE_PADDING, CONNECTOR_WIDTH, LINE_NUMBER_WIDTH, Connector, NoWrapPane
 
 const DIVIDER_WIDTH = 14;
 const MAX_VIEWPORT_HEIGHT = 520;
+const VERTICAL_SCROLLBAR_STYLE_ID = "vibe-review-vertical-scrollbars";
+
+function installVerticalScrollbarStyle() {
+  const doc = (globalThis as typeof globalThis & { document?: Document }).document;
+  if (!doc) return;
+  const style = doc.getElementById(VERTICAL_SCROLLBAR_STYLE_ID) ?? doc.createElement("style");
+  style.id = VERTICAL_SCROLLBAR_STYLE_ID;
+  style.textContent = `
+#vibe-review-before-vertical, #vibe-review-after-vertical {
+  scrollbar-width: none;
+}
+#vibe-review-before-vertical::-webkit-scrollbar,
+#vibe-review-after-vertical::-webkit-scrollbar {
+  display: none;
+}
+`;
+  if (!style.isConnected) doc.head.append(style);
+}
 
 function clampRatio(ratio: number, width: number): number {
   const minRatio = Math.min(0.35, 160 / Math.max(width, 1));
@@ -24,6 +42,11 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
   const [waveBounds, setWaveBounds] = useState<WaveBounds>({});
   const [paneHeights, setPaneHeights] = useState({ before: 0, after: 0 });
   const [verticalOffsets, setVerticalOffsets] = useState({ before: 0, after: 0 });
+  const [hoveredScrollbar, setHoveredScrollbar] = useState<"before" | "after" | null>(null);
+  const scrollbarDrag = useRef<{ side: "before" | "after"; startY: number; startOffset: number } | null>(null);
+  const [hoveredHorizontal, setHoveredHorizontal] = useState<"before" | "after" | null>(null);
+  const horizontalDrag = useRef<{ side: "before" | "after"; startX: number; startOffset: number } | null>(null);
+  const [horizontalOffsets, setHorizontalOffsets] = useState({ before: 0, after: 0 });
   const viewportNode = useRef<View>(null);
   const connectorDrawing = useRef<View>(null);
   const beforeVertical = useRef<ScrollView>(null);
@@ -31,6 +54,9 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
   const requestedVertical = useRef({ before: 0, after: 0 });
   const virtualPosition = useRef(0);
   const viewportHeight = Math.min(MAX_VIEWPORT_HEIGHT, Math.max(32, paneHeights.before, paneHeights.after));
+  useEffect(() => {
+    if (Platform.OS === "web") installVerticalScrollbarStyle();
+  }, []);
   const verticalTrack = useMemo(() => {
     const points = [{ before: 0, after: 0 }];
     for (const row of beforeRows) {
@@ -64,7 +90,7 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
     beforeVertical.current?.scrollTo({ y: offsets.before, animated: false });
     afterVertical.current?.scrollTo({ y: offsets.after, animated: false });
     drawConnector(offsets);
-    if (Platform.OS !== "web") setVerticalOffsets(offsets);
+    setVerticalOffsets((current) => Math.abs(current.before - offsets.before) < 0.5 && Math.abs(current.after - offsets.after) < 0.5 ? current : offsets);
   };
   useLayoutEffect(() => {
     if (Platform.OS !== "web") return;
@@ -104,6 +130,8 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
     setVerticalOffsets({ before: 0, after: 0 });
     requestedVertical.current = { before: 0, after: 0 };
     virtualPosition.current = 0;
+    horizontalPositions.current = { before: 0, after: 0 };
+    setHorizontalOffsets({ before: 0, after: 0 });
   }, [file.path, wrapLines]);
   const onPaneHeight = (side: "before" | "after", height: number) => setPaneHeights((current) => current[side] === height ? current : { ...current, [side]: height });
   const onVerticalScroll = (side: "before" | "after", event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -177,10 +205,11 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
   const rightWidth = paneWidth - baseLeftWidth;
   const beforeMaxScroll = Math.max(0, minCodeWidths.before - (leftWidth - LINE_NUMBER_WIDTH));
   const afterMaxScroll = Math.max(0, minCodeWidths.after - (rightWidth - LINE_NUMBER_WIDTH));
-  const syncScroll = (side: "before" | "after", event: NativeSyntheticEvent<NativeScrollEvent>) => {
+  const applyHorizontalScroll = (side: "before" | "after", requestedX: number) => {
     const targetSide = side === "before" ? "after" : "before";
     const previousX = horizontalPositions.current[side];
-    const sourceX = event.nativeEvent.contentOffset.x;
+    const sourceMax = side === "before" ? beforeMaxScroll : afterMaxScroll;
+    const sourceX = Math.max(0, Math.min(sourceMax, requestedX));
     horizontalPositions.current[side] = sourceX;
     if (Math.abs(sourceX - previousX) < 0.01) return;
     (side === "before" ? beforeScroll : afterScroll).current?.scrollTo({ x: sourceX, animated: false });
@@ -189,11 +218,16 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
     // at its own end while the longer side can continue and return independently.
     const targetMax = side === "before" ? afterMaxScroll : beforeMaxScroll;
     const targetX = Math.max(0, Math.min(targetMax, sourceX));
-    if (Math.abs(horizontalPositions.current[targetSide] - targetX) < 0.01) return;
+    if (Math.abs(horizontalPositions.current[targetSide] - targetX) < 0.01) {
+      setHorizontalOffsets((current) => Math.abs(current[side] - sourceX) < 0.5 ? current : { ...current, [side]: sourceX });
+      return;
+    }
     horizontalPositions.current[targetSide] = targetX;
     (side === "before" ? afterScroll : beforeScroll).current?.scrollTo({ x: targetX, animated: false });
     (side === "before" ? afterFooter : beforeFooter).current?.scrollTo({ x: targetX, animated: false });
+    setHorizontalOffsets({ before: horizontalPositions.current.before, after: horizontalPositions.current.after });
   };
+  const syncScroll = (side: "before" | "after", event: NativeSyntheticEvent<NativeScrollEvent>) => applyHorizontalScroll(side, event.nativeEvent.contentOffset.x);
   const webPointerHandlers = Platform.OS === "web" ? {
     onPointerDown: (event: RNPointerEvent) => {
       event.preventDefault();
@@ -209,6 +243,57 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
     onPointerUp: () => { webDrag.current = null; },
     onPointerCancel: () => { webDrag.current = null; },
   } : panResponder.panHandlers;
+  const verticalScrollbar = (side: "before" | "after", left: number) => {
+    const maxOffset = Math.max(0, paneHeights[side] - viewportHeight);
+    if (Platform.OS !== "web" || maxOffset <= 0) return null;
+    const thumbHeight = Math.max(28, viewportHeight * viewportHeight / paneHeights[side]);
+    const thumbTravel = viewportHeight - thumbHeight;
+    const top = verticalOffsets[side] / maxOffset * thumbTravel;
+    const onPointerDown = (event: RNPointerEvent) => {
+      event.preventDefault();
+      (event.currentTarget as unknown as HTMLElement).setPointerCapture(event.nativeEvent.pointerId);
+      const trackTop = (event.currentTarget as unknown as HTMLElement).getBoundingClientRect().top;
+      const clickedThumb = event.target !== event.currentTarget;
+      const offset = clickedThumb ? verticalOffsets[side] : Math.max(0, Math.min(maxOffset, (event.nativeEvent.clientY - trackTop - thumbHeight / 2) / thumbTravel * maxOffset));
+      scrollbarDrag.current = { side, startY: event.nativeEvent.clientY, startOffset: offset };
+      applyVerticalPosition(positionForOffset(verticalTrack, side, offset));
+    };
+    const onPointerMove = (event: RNPointerEvent) => {
+      const drag = scrollbarDrag.current;
+      if (!drag || drag.side !== side) return;
+      const offset = Math.max(0, Math.min(maxOffset, drag.startOffset + (event.nativeEvent.clientY - drag.startY) / thumbTravel * maxOffset));
+      applyVerticalPosition(positionForOffset(verticalTrack, side, offset));
+    };
+    return <View key={`${side}-scrollbar`} style={[styles.scrollbarTrack, { left, height: viewportHeight }]} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={() => { scrollbarDrag.current = null; }} onPointerCancel={() => { scrollbarDrag.current = null; }}>
+      <View style={[styles.scrollbarThumb, { top, height: thumbHeight, backgroundColor: hoveredScrollbar === side ? "rgba(100,116,139,0.65)" : "rgba(100,116,139,0.42)" }]} onPointerEnter={() => setHoveredScrollbar(side)} onPointerLeave={() => setHoveredScrollbar((current) => current === side ? null : current)} />
+    </View>;
+  };
+  const horizontalScrollbar = (side: "before" | "after", trackWidth: number) => {
+    const maxOffset = side === "before" ? beforeMaxScroll : afterMaxScroll;
+    if (Platform.OS !== "web" || maxOffset <= 0) return null;
+    const contentWidth = trackWidth + maxOffset;
+    const thumbWidth = Math.max(28, trackWidth * trackWidth / contentWidth);
+    const thumbTravel = trackWidth - thumbWidth;
+    const left = horizontalOffsets[side] / maxOffset * thumbTravel;
+    const onPointerDown = (event: RNPointerEvent) => {
+      event.preventDefault();
+      const track = event.currentTarget as unknown as HTMLElement;
+      track.setPointerCapture(event.nativeEvent.pointerId);
+      const clickedThumb = event.target !== event.currentTarget;
+      const offset = clickedThumb ? horizontalOffsets[side] : Math.max(0, Math.min(maxOffset, (event.nativeEvent.clientX - track.getBoundingClientRect().left - thumbWidth / 2) / thumbTravel * maxOffset));
+      horizontalDrag.current = { side, startX: event.nativeEvent.clientX, startOffset: offset };
+      applyHorizontalScroll(side, offset);
+    };
+    const onPointerMove = (event: RNPointerEvent) => {
+      const drag = horizontalDrag.current;
+      if (!drag || drag.side !== side) return;
+      const offset = Math.max(0, Math.min(maxOffset, drag.startOffset + (event.nativeEvent.clientX - drag.startX) / thumbTravel * maxOffset));
+      applyHorizontalScroll(side, offset);
+    };
+    return <View style={[styles.horizontalTrack, { width: trackWidth }]} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={() => { horizontalDrag.current = null; }} onPointerCancel={() => { horizontalDrag.current = null; }}>
+      <View style={[styles.horizontalThumb, { left, width: thumbWidth, backgroundColor: hoveredHorizontal === side ? "rgba(100,116,139,0.65)" : "rgba(100,116,139,0.42)" }]} onPointerEnter={() => setHoveredHorizontal(side)} onPointerLeave={() => setHoveredHorizontal((current) => current === side ? null : current)} />
+    </View>;
+  };
 
   return (
     <View
@@ -222,25 +307,27 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
     >
       {width > 0 ? <>
         <View style={[styles.codeRow, { width, height: viewportHeight }]}>
-          <ScrollView key={`before-${wrapLines}`} nativeID="vibe-review-before-vertical" ref={beforeVertical} style={[styles.verticalScroll, Platform.OS === "web" && styles.leftVerticalScroll, { width: leftWidth, height: viewportHeight }]} nestedScrollEnabled showsVerticalScrollIndicator scrollEventThrottle={16} onScroll={Platform.OS === "web" ? undefined : (event) => onVerticalScroll("before", event)} onContentSizeChange={(_width, height) => onPaneHeight("before", height)}>
+          <ScrollView key={`before-${wrapLines}`} nativeID="vibe-review-before-vertical" ref={beforeVertical} style={[styles.verticalScroll, Platform.OS === "web" && styles.leftVerticalScroll, { width: leftWidth, height: viewportHeight }]} nestedScrollEnabled showsVerticalScrollIndicator={Platform.OS !== "web"} scrollEventThrottle={16} onScroll={Platform.OS === "web" ? undefined : (event) => onVerticalScroll("before", event)} onContentSizeChange={(_width, height) => onPaneHeight("before", height)}>
             <View style={[{ width: leftWidth }, Platform.OS === "web" && styles.leftVerticalContent]}>
               {wrapLines ? <WrapPane rows={beforeRows} side="before" width={leftWidth} tokens={tokens} onChange={onChange} onWave={onWave} /> : <NoWrapPane rows={beforeRows} side="before" width={leftWidth} contentWidth={Math.max(leftWidth - LINE_NUMBER_WIDTH, minCodeWidths.before)} tokens={tokens} scrollRef={beforeScroll} onScroll={(event) => syncScroll("before", event)} onChange={onChange} onWave={onWave} waveBounds={waveBounds} />}
             </View>
           </ScrollView>
           {Platform.OS === "web" ? <View style={[styles.connector, { height: viewportHeight }]}><View style={styles.connectorLine} /><View ref={connectorDrawing} style={styles.connectorDrawing} /></View> : <Connector rows={beforeRows} bounds={changeBounds} offsets={verticalOffsets} height={viewportHeight} />}
-          <ScrollView key={`after-${wrapLines}`} nativeID="vibe-review-after-vertical" ref={afterVertical} style={[styles.verticalScroll, { width: rightWidth, height: viewportHeight }]} nestedScrollEnabled showsVerticalScrollIndicator scrollEventThrottle={16} onScroll={Platform.OS === "web" ? undefined : (event) => onVerticalScroll("after", event)} onContentSizeChange={(_width, height) => onPaneHeight("after", height)}>
+          <ScrollView key={`after-${wrapLines}`} nativeID="vibe-review-after-vertical" ref={afterVertical} style={[styles.verticalScroll, { width: rightWidth, height: viewportHeight }]} nestedScrollEnabled showsVerticalScrollIndicator={Platform.OS !== "web"} scrollEventThrottle={16} onScroll={Platform.OS === "web" ? undefined : (event) => onVerticalScroll("after", event)} onContentSizeChange={(_width, height) => onPaneHeight("after", height)}>
             {wrapLines ? <WrapPane rows={afterRows} side="after" width={rightWidth} tokens={tokens} onChange={onChange} onWave={onWave} /> : <NoWrapPane rows={afterRows} side="after" width={rightWidth} contentWidth={Math.max(rightWidth - LINE_NUMBER_WIDTH, minCodeWidths.after)} tokens={tokens} scrollRef={afterScroll} onScroll={(event) => syncScroll("after", event)} onChange={onChange} onWave={onWave} waveBounds={waveBounds} />}
           </ScrollView>
         </View>
+        {verticalScrollbar("before", 0)}
+        {verticalScrollbar("after", width - 8)}
         {!wrapLines ? (
         <View style={[styles.codeRow, { width }]}>
           <View style={{ width: leftWidth - LINE_NUMBER_WIDTH }}>
-            <ScrollView horizontal ref={beforeFooter} onScroll={(event) => syncScroll("before", event)} scrollEventThrottle={16} style={styles.footerScroll}><View style={{ width: Math.max(leftWidth - LINE_NUMBER_WIDTH, minCodeWidths.before), height: 1 }} /></ScrollView>
+            {Platform.OS === "web" ? horizontalScrollbar("before", leftWidth - LINE_NUMBER_WIDTH) : <ScrollView horizontal ref={beforeFooter} onScroll={(event) => syncScroll("before", event)} scrollEventThrottle={16} style={styles.footerScroll}><View style={{ width: Math.max(leftWidth - LINE_NUMBER_WIDTH, minCodeWidths.before), height: 1 }} /></ScrollView>}
           </View>
           <View style={{ width: LINE_NUMBER_WIDTH + CONNECTOR_WIDTH }} />
           <View style={{ width: LINE_NUMBER_WIDTH }} />
           <View style={{ width: rightWidth - LINE_NUMBER_WIDTH }}>
-            <ScrollView horizontal ref={afterFooter} onScroll={(event) => syncScroll("after", event)} scrollEventThrottle={16} style={styles.footerScroll}><View style={{ width: Math.max(rightWidth - LINE_NUMBER_WIDTH, minCodeWidths.after), height: 1 }} /></ScrollView>
+            {Platform.OS === "web" ? horizontalScrollbar("after", rightWidth - LINE_NUMBER_WIDTH) : <ScrollView horizontal ref={afterFooter} onScroll={(event) => syncScroll("after", event)} scrollEventThrottle={16} style={styles.footerScroll}><View style={{ width: Math.max(rightWidth - LINE_NUMBER_WIDTH, minCodeWidths.after), height: 1 }} /></ScrollView>}
           </View>
         </View>
         ) : null}
@@ -255,6 +342,10 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
 const styles = StyleSheet.create({
   viewport: { position: "relative", minHeight: 32 },
   verticalScroll: { backgroundColor: "#fff" },
+  scrollbarTrack: { position: "absolute", top: 0, width: 8, zIndex: 2 },
+  scrollbarThumb: { position: "absolute", left: 1, width: 6, borderRadius: 3, cursor: "pointer" },
+  horizontalTrack: { height: 18, backgroundColor: "#f8fafc", position: "relative" },
+  horizontalThumb: { position: "absolute", top: 6, height: 6, borderRadius: 3, cursor: "pointer" },
   leftVerticalScroll: { direction: "rtl" },
   leftVerticalContent: { direction: "ltr" },
   footerScroll: { height: 18, backgroundColor: "#f8fafc" },
