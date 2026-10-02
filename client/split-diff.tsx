@@ -11,6 +11,8 @@ const LINE_NUMBER_WIDTH = 38;
 const CODE_PADDING = 18;
 const CONNECTOR_WIDTH = 20;
 const WAVE_HEIGHT = 12;
+const WAVE_PERIOD = 16;
+const WAVE_COLOR = "#cbd5e1";
 const changeColors = { modify: "#dceaff", add: "#e3f5e9", remove: "#ffe7e7" } as const;
 
 function clampRatio(ratio: number, width: number): number {
@@ -40,17 +42,27 @@ function CodeLine({ cell, side, tone, tokens, wrapLines, showLineNumber = true, 
   );
 }
 
-function Wave({ width }: { width: number }) {
-  return <View style={[styles.wave, { width }]}><Text numberOfLines={1} style={styles.waveText}>{"∿".repeat(Math.max(12, Math.ceil(width / 7)))}</Text></View>;
+const waveTile = `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="12" viewBox="0 0 16 12"><path d="M0 6 C4 1 4 1 8 6 S12 11 16 6" fill="none" stroke="${WAVE_COLOR}" stroke-width="1"/></svg>`)}")`;
+
+function Wave({ width, side, onLayout }: { width: number; side: "before" | "after"; onLayout?: (top: number, height: number) => void }) {
+  const webStyle = Platform.OS === "web" ? ({ backgroundImage: waveTile, backgroundRepeat: "repeat-x", backgroundPositionX: side === "before" ? width % WAVE_PERIOD : 0 } as unknown as ViewStyle) : undefined;
+  return <View onLayout={onLayout ? (event) => onLayout(event.nativeEvent.layout.y, event.nativeEvent.layout.height) : undefined} style={[styles.wave, { width }, webStyle]}>{Platform.OS !== "web" ? <Text numberOfLines={1} style={styles.waveText}>{"∿".repeat(Math.max(12, Math.ceil(width / 7)))}</Text> : null}</View>;
 }
 
 type Bounds = { top: number; bottom: number };
 type ChangeBounds = Record<number, { before?: Bounds; after?: Bounds }>;
 type RecordChange = (side: "before" | "after", index: number, top: number, height: number) => void;
+type WaveBounds = Record<number, { before?: Bounds; after?: Bounds }>;
 
-function WrapPane({ rows, side, width, tokens, onChange }: { rows: PaneRow[]; side: "before" | "after"; width: number; tokens: Map<DiffCell, HighlightToken[]>; onChange: RecordChange }) {
+function waveConnectorImage(beforeY: number, afterY: number, height: number): string {
+  const span = CONNECTOR_WIDTH;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${span}" height="${height}" viewBox="0 0 ${span} ${height}"><path d="M0 ${beforeY} L${span} ${afterY}" fill="none" stroke="${WAVE_COLOR}" stroke-width="1"/></svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+}
+
+function WrapPane({ rows, side, width, tokens, onChange, onWave }: { rows: PaneRow[]; side: "before" | "after"; width: number; tokens: Map<DiffCell, HighlightToken[]>; onChange: RecordChange; onWave: RecordChange }) {
   return <View style={{ width }}>
-    {rows.map((row) => row.kind === "wave" ? <Wave key={row.key} width={width} /> : row.kind === "code" ? (
+    {rows.map((row) => row.kind === "wave" ? <Wave key={row.key} width={width} side={side} onLayout={(top, height) => onWave(side, row.index, top, height)} /> : row.kind === "code" ? (
       <CodeLine key={row.key} side={side} cell={row.cell} tokens={tokens.get(row.cell)} wrapLines />
     ) : <View key={row.key} onLayout={(event) => onChange(side, row.index, event.nativeEvent.layout.y, event.nativeEvent.layout.height)}>
       {row.cells.length ? row.cells.map((cell, index) => <CodeLine key={index} side={side} cell={cell} tone={row.tone} tokens={tokens.get(cell)} wrapLines />) : <View style={[styles.emptyChange, { backgroundColor: changeColors[row.tone] }]} />}
@@ -58,9 +70,9 @@ function WrapPane({ rows, side, width, tokens, onChange }: { rows: PaneRow[]; si
   </View>;
 }
 
-function NoWrapGutter({ rows, side, onChange }: { rows: PaneRow[]; side: "before" | "after"; onChange: RecordChange }) {
+function NoWrapGutter({ rows, side, onChange, onWave }: { rows: PaneRow[]; side: "before" | "after"; onChange: RecordChange; onWave: RecordChange }) {
   return <View style={styles.lineNumberGutter}>
-    {rows.map((row) => row.kind === "wave" ? <View key={row.key} style={{ height: WAVE_HEIGHT }} /> : row.kind === "code" ? (
+    {rows.map((row) => row.kind === "wave" ? <Wave key={row.key} width={LINE_NUMBER_WIDTH} side={side} onLayout={(top, height) => onWave(side, row.index, top, height)} /> : row.kind === "code" ? (
       <View key={row.key} style={styles.gutterLine}><Text style={side === "before" ? styles.beforeLineNumber : styles.afterLineNumber}>{row.cell.number ?? ""}</Text></View>
     ) : (
       <View key={row.key} onLayout={(event) => onChange(side, row.index, event.nativeEvent.layout.y, event.nativeEvent.layout.height)}>
@@ -70,10 +82,10 @@ function NoWrapGutter({ rows, side, onChange }: { rows: PaneRow[]; side: "before
   </View>;
 }
 
-function NoWrapPane({ rows, side, width, contentWidth, tokens, scrollRef, onScroll, onChange }: { rows: PaneRow[]; side: "before" | "after"; width: number; contentWidth: number; tokens: Map<DiffCell, HighlightToken[]>; scrollRef: RefObject<ScrollView | null>; onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void; onChange: RecordChange }) {
+function NoWrapPane({ rows, side, width, contentWidth, tokens, scrollRef, onScroll, onChange, onWave }: { rows: PaneRow[]; side: "before" | "after"; width: number; contentWidth: number; tokens: Map<DiffCell, HighlightToken[]>; scrollRef: RefObject<ScrollView | null>; onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void; onChange: RecordChange; onWave: RecordChange }) {
   const code = <ScrollView horizontal showsHorizontalScrollIndicator={false} ref={scrollRef} onScroll={onScroll} scrollEventThrottle={16} style={{ width: width - LINE_NUMBER_WIDTH }}>
       <View style={{ width: contentWidth }}>
-        {rows.map((row) => row.kind === "wave" ? <Wave key={row.key} width={contentWidth} /> : row.kind === "code" ? (
+        {rows.map((row) => row.kind === "wave" ? <Wave key={row.key} width={contentWidth} side={side} /> : row.kind === "code" ? (
           <CodeLine key={row.key} side={side} cell={row.cell} tokens={tokens.get(row.cell)} wrapLines={false} showLineNumber={false} visibleCodeWidth={width - LINE_NUMBER_WIDTH} />
         ) : (
           <View key={row.key}>
@@ -82,11 +94,11 @@ function NoWrapPane({ rows, side, width, contentWidth, tokens, scrollRef, onScro
         ))}
       </View>
   </ScrollView>;
-  const gutter = <NoWrapGutter rows={rows} side={side} onChange={onChange} />;
+  const gutter = <NoWrapGutter rows={rows} side={side} onChange={onChange} onWave={onWave} />;
   return <View style={[styles.codeRow, { width }]}>{side === "before" ? <>{code}{gutter}</> : <>{gutter}{code}</>}</View>;
 }
 
-function Connector({ rows, bounds }: { rows: PaneRow[]; bounds: ChangeBounds }) {
+function Connector({ rows, bounds, waveBounds }: { rows: PaneRow[]; bounds: ChangeBounds; waveBounds: WaveBounds }) {
   return <View style={styles.connector}>
     {rows.filter((row) => row.kind === "change").map((row) => {
       if (row.kind !== "change") return null;
@@ -96,6 +108,16 @@ function Connector({ rows, bounds }: { rows: PaneRow[]; bounds: ChangeBounds }) 
       const bottom = Math.max(pair.before.bottom, pair.after.bottom);
       const polygon = `polygon(0 ${pair.before.top - top}px, 100% ${pair.after.top - top}px, 100% ${pair.after.bottom - top}px, 0 ${pair.before.bottom - top}px)`;
       return <View key={row.key} style={[styles.connectorChange, { top, height: Math.max(1, bottom - top), backgroundColor: changeColors[row.tone] }, Platform.OS === "web" && ({ clipPath: polygon } as unknown as ViewStyle)]} />;
+    })}
+    {rows.filter((row) => row.kind === "wave").map((row) => {
+      if (row.kind !== "wave") return null;
+      const pair = waveBounds[row.index];
+      if (!pair?.before || !pair.after || Platform.OS !== "web") return null;
+      const top = Math.min(pair.before.top, pair.after.top);
+      const height = Math.ceil(Math.max(pair.before.bottom, pair.after.bottom) - top);
+      const beforeY = pair.before.top + WAVE_HEIGHT / 2 - top;
+      const afterY = pair.after.top + WAVE_HEIGHT / 2 - top;
+      return <View key={row.key} style={[styles.connectorWave, { top, height, backgroundImage: waveConnectorImage(beforeY, afterY, height) } as unknown as ViewStyle]} />;
     })}
     <View style={styles.connectorLine} />
   </View>;
@@ -108,7 +130,14 @@ export function SplitDiff({ file }: { file: DiffFile }) {
   const afterRows = useMemo(() => buildPaneRows(rows, "after"), [rows]);
   const tokens = useMemo(() => highlightSplitRows(rows, file.path), [rows, file.path]);
   const [changeBounds, setChangeBounds] = useState<ChangeBounds>({});
+  const [waveBounds, setWaveBounds] = useState<WaveBounds>({});
   const onChange: RecordChange = (side, index, top, height) => setChangeBounds((current) => {
+    const nextBounds = { top, bottom: top + height };
+    const previous = current[index]?.[side];
+    if (previous?.top === nextBounds.top && previous.bottom === nextBounds.bottom) return current;
+    return { ...current, [index]: { ...current[index], [side]: nextBounds } };
+  });
+  const onWave: RecordChange = (side, index, top, height) => setWaveBounds((current) => {
     const nextBounds = { top, bottom: top + height };
     const previous = current[index]?.[side];
     if (previous?.top === nextBounds.top && previous.bottom === nextBounds.bottom) return current;
@@ -224,9 +253,9 @@ export function SplitDiff({ file }: { file: DiffFile }) {
       </View>
       {width > 0 ? wrapLines ? <ScrollView style={styles.verticalScroll} nestedScrollEnabled>
         <View style={[styles.table, styles.codeRow, { width }]}>
-          <WrapPane rows={beforeRows} side="before" width={leftWidth} tokens={tokens} onChange={onChange} />
-          <Connector rows={beforeRows} bounds={changeBounds} />
-          <WrapPane rows={afterRows} side="after" width={rightWidth} tokens={tokens} onChange={onChange} />
+          <WrapPane rows={beforeRows} side="before" width={leftWidth} tokens={tokens} onChange={onChange} onWave={onWave} />
+          <Connector rows={beforeRows} bounds={changeBounds} waveBounds={waveBounds} />
+          <WrapPane rows={afterRows} side="after" width={rightWidth} tokens={tokens} onChange={onChange} onWave={onWave} />
           <View
             {...webPointerHandlers}
             accessibilityRole="adjustable"
@@ -247,9 +276,9 @@ export function SplitDiff({ file }: { file: DiffFile }) {
       </ScrollView> : <View style={styles.noWrapPanes}>
         <ScrollView style={styles.verticalScroll} nestedScrollEnabled>
         <View style={[styles.codeRow, { width }]}>
-          <NoWrapPane rows={beforeRows} side="before" width={leftWidth} contentWidth={Math.max(leftWidth - LINE_NUMBER_WIDTH, minCodeWidths.before)} tokens={tokens} scrollRef={beforeScroll} onScroll={(event) => syncScroll("before", event)} onChange={onChange} />
-          <Connector rows={beforeRows} bounds={changeBounds} />
-          <NoWrapPane rows={afterRows} side="after" width={rightWidth} contentWidth={Math.max(rightWidth - LINE_NUMBER_WIDTH, minCodeWidths.after)} tokens={tokens} scrollRef={afterScroll} onScroll={(event) => syncScroll("after", event)} onChange={onChange} />
+          <NoWrapPane rows={beforeRows} side="before" width={leftWidth} contentWidth={Math.max(leftWidth - LINE_NUMBER_WIDTH, minCodeWidths.before)} tokens={tokens} scrollRef={beforeScroll} onScroll={(event) => syncScroll("before", event)} onChange={onChange} onWave={onWave} />
+          <Connector rows={beforeRows} bounds={changeBounds} waveBounds={waveBounds} />
+          <NoWrapPane rows={afterRows} side="after" width={rightWidth} contentWidth={Math.max(rightWidth - LINE_NUMBER_WIDTH, minCodeWidths.after)} tokens={tokens} scrollRef={afterScroll} onScroll={(event) => syncScroll("after", event)} onChange={onChange} onWave={onWave} />
         </View>
         </ScrollView>
         <View style={[styles.codeRow, { width }]}>
@@ -290,6 +319,7 @@ const styles = StyleSheet.create({
   emptyChange: { height: 1 },
   connector: { width: CONNECTOR_WIDTH, alignSelf: "stretch", backgroundColor: "#fff", position: "relative" },
   connectorChange: { position: "absolute", left: 0, right: 0 },
+  connectorWave: { position: "absolute", left: 0, width: CONNECTOR_WIDTH, zIndex: 2, pointerEvents: "none" },
   connectorLine: { position: "absolute", top: 0, bottom: 0, left: CONNECTOR_WIDTH / 2, width: 1, backgroundColor: "rgba(71,85,105,0.18)" },
   codeRow: { flexDirection: "row", alignItems: "stretch" },
   cell: { flexDirection: "row", minHeight: 22 },
