@@ -54,6 +54,7 @@ export function verdictOf(
  * doesn't read as the *current* turn's verdict.
  */
 export type TurnOutcome = { kind: string; error?: { message?: string } };
+export type FileChanges = { diff: string; diffIncomplete: boolean };
 
 export function queueReview(
   paseo: PaseoApi,
@@ -63,10 +64,11 @@ export function queueReview(
   labels: Record<string, string> | undefined,
   run: RunContext,
   outcome?: TurnOutcome,
+  fileChanges?: FileChanges,
 ): void {
   void (async () => {
     try {
-      await runReview(paseo, agentId, timeline, turnId, labels, run, outcome);
+      await runReview(paseo, agentId, timeline, turnId, labels, run, outcome, fileChanges);
     } catch (error) {
       console.error("[vibe-review] review crashed:", error);
     }
@@ -91,8 +93,17 @@ async function runReview(
   labels: Record<string, string> | undefined,
   run: RunContext,
   outcome?: TurnOutcome,
+  fileChanges?: FileChanges,
 ): Promise<void> {
   const summary = buildTaskSummary(timeline);
+  if (fileChanges) {
+    summary.lastTurnDiff = fileChanges.diff;
+    summary.diffIncomplete = fileChanges.diffIncomplete;
+  } else {
+    // A review started after plugin reload or from the command center has no turn-start baseline.
+    // Never present a series of tool edits as if it were the final file diff.
+    summary.diffIncomplete = true;
+  }
   // Nothing was actually done — skip review.
   if (!summary.task && summary.userMessages.length === 0) return;
 

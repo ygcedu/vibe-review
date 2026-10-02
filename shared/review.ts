@@ -15,7 +15,7 @@ export const reviewResultSchema = z.object({
   narrative: z.string().optional(),
   /** 发给大模型的审核提示词（已去掉 diff 原文），展开时供调试查看。 */
   detail: z.string().optional(),
-  /** 本轮工具记录的变更片段，卡片展开时渲染为带色 diff。 */
+  /** 本轮工作树快照的净变更；缺失起点快照时省略。 */
   diff: z.string().optional(),
   diffIncomplete: z.boolean().optional(),
 });

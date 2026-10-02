@@ -52,7 +52,7 @@ export function buildSplitDiffRows(lines: DiffLine[]): SplitDiffRow[] {
         beforeNumber = undefined;
         afterNumber = undefined;
       }
-      rows.push({ kind: "header", label: line.content });
+      // Hunk coordinates only set line numbers; they are not visible diff rows.
       continue;
     }
 
@@ -98,11 +98,11 @@ export function parseDiffFiles(diffText?: string): DiffFile[] {
       continue;
     }
     const newFile = /^\+\+\+ (?:b\/)?(.+?)(?: \(new file\))?$/.exec(line);
-    if (newFile) {
+    if (newFile && newFile[1] !== "/dev/null") {
       if (!current || current.path !== newFile[1]) startFile(newFile[1]);
       continue;
     }
-    if (/^--- (?:a\/|\/dev\/null)/.test(line) || line.startsWith("index ")) continue;
+    if (line === "+++ /dev/null" || /^--- (?:a\/|\/dev\/null)/.test(line) || /^(?:index |new file mode |deleted file mode |old mode |new mode |similarity index |dissimilarity index |rename from |rename to |copy from |copy to )/.test(line)) continue;
     if (!current) startFile("修改内容");
     if (line.startsWith("+")) {
       current!.added++;

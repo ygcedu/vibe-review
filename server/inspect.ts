@@ -4,51 +4,21 @@ export interface TaskSummary {
   task: string;
   userMessages: string[];
   assistantMessages: string[];
-  /** 最近一轮工具明确报告的代码变更；不包含无法归因的工作区扫描结果。 */
+  /** 轮次前后工作树快照的净变更。 */
   lastTurnDiff: string;
-  /** Some file changes may be absent from tool records. */
+  /** 起点快照缺失或含无法展示的二进制变更。 */
   diffIncomplete: boolean;
-  shellCommands: number;
   /** 停在 running 的工具数；>0 说明 agent 中途断开会话。 */
   runningTools: number;
 }
 
-/** 最近一次 user_message 之后完成的 write/edit 工具调用。 */
-function lastTurnEdits(timeline: readonly AgentTimelineItem[]) {
-  const lastUserAt = timeline.reduce((acc, item, i) => (item.type === "user_message" ? i : acc), -1);
-  const edits: Array<{ type: "edit" | "write"; filePath: string; diff?: string }> = [];
-  for (const item of timeline.slice(lastUserAt + 1)) {
-    if (item.type !== "tool_call" || item.status !== "completed") continue;
-    const detail = item.detail;
-    if (detail.type === "edit") {
-      const rawDiff = detail.unifiedDiff ??
-        (detail.oldString || detail.newString ? `--- a/${detail.filePath}\n+++ b/${detail.filePath}\n-${detail.oldString ?? ""}\n+${detail.newString ?? ""}` : undefined);
-      const diff = rawDiff && !rawDiff.startsWith("diff --git")
-        ? `diff --git a/${detail.filePath} b/${detail.filePath}\n${rawDiff}`
-        : rawDiff;
-      edits.push({ type: "edit", filePath: detail.filePath, diff });
-    } else if (detail.type === "write") {
-      const diff = detail.content ? `diff --git a/${detail.filePath} b/${detail.filePath}\n+++ b/${detail.filePath}\n${detail.content.split("\n").map((l) => `+${l}`).join("\n")}` : undefined;
-      edits.push({ type: "write", filePath: detail.filePath, diff });
-    }
-  }
-  return edits;
-}
-
-/** 本轮 edit/write 操作记录，按发生顺序拼接；不能冒充文件的最终净变更。 */
-function lastTurnDiff(edits: ReturnType<typeof lastTurnEdits>): string {
-  return edits.filter((e) => e.diff).map((e) => e.diff as string).join("\n");
-}
-
 /** Extract a compact review state from the full agent timeline. */
 export function buildTaskSummary(timeline: readonly AgentTimelineItem[]): TaskSummary {
-  // 全部以"最近一次 user_message 之后"为本轮窗口，和 diff 同源，避免窗口错位。
+  // 最近一次 user_message 之后是本轮对话窗口；文件变更另由轮次快照提供。
   const lastUserAt = timeline.reduce((acc, item, i) => (item.type === "user_message" ? i : acc), -1);
   const lastTurn = timeline.slice(lastUserAt + 1);
 
-  const userMessages: string[] = [];
   const assistantMessages: string[] = [];
-  let shellCommands = 0;
   let runningTool = 0;
 
   // 历史用户消息（最多 6 条）只用于理解目标上下文；最近 1 条即"本轮任务"。
@@ -59,16 +29,8 @@ export function buildTaskSummary(timeline: readonly AgentTimelineItem[]): TaskSu
 
   for (const item of lastTurn) {
     if (item.type === "assistant_message") assistantMessages.push(item.text);
-    if (item.type === "tool_call") {
-      if (item.status === "running") runningTool++;
-      else if (item.detail.type === "shell") shellCommands++;
-    }
+    if (item.type === "tool_call" && item.status === "running") runningTool++;
   }
-
-  const edits = lastTurnEdits(timeline);
-  const diff = lastTurnDiff(edits);
-  const failedFileTools = lastTurn.some((item) => item.type === "tool_call" && item.status !== "completed" && (item.detail.type === "edit" || item.detail.type === "write"));
-  const diffIncomplete = shellCommands > 0 || failedFileTools || edits.some((edit) => !edit.diff || edit.diff.includes("...[truncated "));
 
   const recentUsers = allUsers.slice(-6);
   const task = recentUsers[recentUsers.length - 1]?.slice(0, 400) ?? "";
@@ -77,9 +39,8 @@ export function buildTaskSummary(timeline: readonly AgentTimelineItem[]): TaskSu
     task,
     userMessages: recentUsers.map((m) => m.slice(0, 300)),
     assistantMessages,
-    lastTurnDiff: diff,
-    diffIncomplete,
-    shellCommands,
+    lastTurnDiff: "",
+    diffIncomplete: true,
     runningTools: runningTool,
   };
 }
