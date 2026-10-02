@@ -13,7 +13,7 @@ const changeColors = { modify: "#dceaff", add: "#e3f5e9", remove: "#ffe7e7" } as
 
 function CodeLine({ cell, side, tone, tokens, wrapLines, showLineNumber = true, visibleCodeWidth }: { cell: DiffCell; side: "before" | "after"; tone?: keyof typeof changeColors; tokens?: HighlightToken[]; wrapLines: boolean; showLineNumber?: boolean; visibleCodeWidth?: number }) {
   const code = tokens?.length ? tokens.map((token, index) => <Text key={index} style={{ fontFamily: "monospace", color: token.style ? lightHighlightColors[token.style] : undefined }}>{token.text.replace(/\t/g, "    ")}</Text>) : cell.text.replace(/\t/g, "    ");
-  const wrapStyle = Platform.OS === "web" ? ({ whiteSpace: wrapLines ? "pre-wrap" : "pre", fontFamily: "monospace" } as unknown as TextStyle) : undefined;
+  const wrapStyle = Platform.OS === "web" ? ({ whiteSpace: wrapLines ? "pre-wrap" : "pre", overflowWrap: wrapLines ? "anywhere" : "normal", fontFamily: "monospace" } as unknown as TextStyle) : undefined;
   return (
     <View style={[styles.cell, tone ? { backgroundColor: changeColors[tone] } : styles.contextCell, visibleCodeWidth !== undefined && { width: "100%" }]}>
       {side === "before" ? (
@@ -140,7 +140,7 @@ const styles = StyleSheet.create({
   contextCell: { backgroundColor: "#fff" },
   beforeLineNumber: { width: 38, paddingRight: 7, paddingTop: 3, color: "#94a3b8", textAlign: "right", fontFamily: "monospace", fontSize: 10 },
   afterLineNumber: { width: 38, paddingLeft: 7, paddingTop: 3, color: "#94a3b8", textAlign: "left", fontFamily: "monospace", fontSize: 10 },
-  codeText: { paddingHorizontal: 9, paddingVertical: 3, color: "#263445", fontFamily: "monospace", fontSize: 10, lineHeight: 15 },
+  codeText: { minWidth: 0, paddingHorizontal: 9, paddingVertical: 3, color: "#263445", fontFamily: "monospace", fontSize: 10, lineHeight: 15 },
   beforeCode: { textAlign: "left" },
   afterCode: { textAlign: "left" },
 });
