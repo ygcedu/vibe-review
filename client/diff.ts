@@ -6,6 +6,7 @@ export interface DiffLine {
 
 export interface DiffFile {
   path: string;
+  status: "added" | "modified" | "deleted";
   added: number;
   removed: number;
   lines: DiffLine[];
@@ -109,7 +110,7 @@ export function parseDiffFiles(diffText?: string): DiffFile[] {
     if (current) {
       current.lines.push({ type: "header", content: "再次修改" });
     } else {
-      current = { path, added: 0, removed: 0, lines: [] };
+      current = { path, status: "modified", added: 0, removed: 0, lines: [] };
       byPath.set(path, current);
       files.push(current);
     }
@@ -126,7 +127,15 @@ export function parseDiffFiles(diffText?: string): DiffFile[] {
       if (!current || current.path !== newFile[1]) startFile(newFile[1]);
       continue;
     }
-    if (line === "+++ /dev/null" || /^--- (?:a\/|\/dev\/null)/.test(line) || /^(?:index |new file mode |deleted file mode |old mode |new mode |similarity index |dissimilarity index |rename from |rename to |copy from |copy to )/.test(line)) continue;
+    if (line.startsWith("new file mode ") || line === "--- /dev/null") {
+      if (current) current.status = "added";
+      continue;
+    }
+    if (line.startsWith("deleted file mode ") || line === "+++ /dev/null") {
+      if (current) current.status = "deleted";
+      continue;
+    }
+    if (/^--- (?:a\/|\/dev\/null)/.test(line) || /^(?:index |old mode |new mode |similarity index |dissimilarity index |rename from |rename to |copy from |copy to )/.test(line)) continue;
     if (!current) startFile("修改内容");
     if (line.startsWith("+")) {
       current!.added++;

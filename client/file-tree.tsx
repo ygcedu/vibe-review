@@ -86,7 +86,7 @@ export function FileTree({ files }: { files: DiffFile[] }) {
         >
           <View style={styles.fileIndent} />
           <Icon name="FileCode2" size={16} color="#2563eb" />
-          <Text style={styles.fileName} numberOfLines={1}>{node.name}</Text>
+          <Text style={[styles.fileName, fileNameColors[file.status]]} numberOfLines={1}>{node.name}</Text>
         </TouchableOpacity>
         {isOpen ? <View style={styles.fileActions}>
           <Pressable
@@ -125,7 +125,13 @@ const styles = StyleSheet.create({
   folderName: { color: "#111827", fontSize: 12, fontWeight: "600", flexShrink: 1 },
   count: { color: "#6b7280", fontSize: 11 },
   fileIndent: { width: 15 },
-  fileName: { color: "#1d4ed8", fontSize: 12, flex: 1 },
-  added: { color: "#15803d", fontSize: 12, fontWeight: "600" },
+  fileName: { fontSize: 12, flex: 1 },
+  added: { color: "#077d18", fontSize: 12, fontWeight: "600" },
   removed: { color: "#b91c1c", fontSize: 12, fontWeight: "600" },
+});
+
+const fileNameColors = StyleSheet.create({
+  added: { color: "#077d18" },
+  modified: { color: "#0133b3" },
+  deleted: { color: "#6c707e" },
 });

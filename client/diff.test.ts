@@ -28,6 +28,7 @@ test("snapshot diff renders only code rows, with correct file and line numbers",
   ].join("\n");
   const files = parseDiffFiles(diff);
   assert.deepEqual(files.map((file) => file.path), ["src/edited.ts", "src/new.ts", "src/deleted.ts"]);
+  assert.deepEqual(files.map((file) => file.status), ["modified", "added", "deleted"]);
   const rows = buildSplitDiffRows(files[0]!.lines);
   assert.deepEqual(rows.map((row) => row.kind), ["context", "change"]);
   assert.equal(rows[0]!.kind === "context" && rows[0].before.number, 93);
