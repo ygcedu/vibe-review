@@ -76,6 +76,11 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
   const viewportHeight = Math.min(MAX_VIEWPORT_HEIGHT, Math.max(32, paneHeights.before, paneHeights.after));
   const nativeContentHeight = Math.max(fixedNoWrapHeight(beforeRows), fixedNoWrapHeight(afterRows), paneHeights.before, paneHeights.after);
   const nativeViewportHeight = Math.min(MAX_VIEWPORT_HEIGHT, Math.max(32, nativeContentHeight));
+  const [nativeScrollPosition, setNativeScrollPosition] = useState(0);
+  const scrollHeights = Platform.OS === "web" ? paneHeights : {
+    before: paneHeights.before || fixedNoWrapHeight(beforeRows),
+    after: paneHeights.after || fixedNoWrapHeight(afterRows),
+  };
   useEffect(() => {
     if (Platform.OS === "web") installVerticalScrollbarStyle();
   }, []);
@@ -88,9 +93,10 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
       points.push({ before: pair.before.top, after: pair.after.top });
       points.push({ before: pair.before.bottom, after: pair.after.bottom });
     }
-    points.push({ before: paneHeights.before, after: paneHeights.after });
+    points.push({ before: scrollHeights.before, after: scrollHeights.after });
     return buildVerticalTrack(points);
-  }, [beforeRows, changeBounds, waveBounds, paneHeights]);
+  }, [beforeRows, changeBounds, waveBounds, scrollHeights.before, scrollHeights.after]);
+  const nativeVirtualHeight = Math.max(nativeViewportHeight, verticalTrack.at(-1)?.virtualEnd ?? 0, nativeContentHeight);
   const drawConnector = (offsets: { before: number; after: number }) => {
     if (Platform.OS !== "web") return;
     const drawing = connectorDrawing.current as unknown as HTMLElement | null;
@@ -100,18 +106,21 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
     drawConnector(requestedVertical.current);
   }, [beforeRows, changeBounds, waveBounds, viewportHeight]);
   const applyVerticalPosition = (position: number) => {
+    const visibleHeight = Platform.OS === "web" ? viewportHeight : nativeViewportHeight;
     const end = verticalTrack[verticalTrack.length - 1]?.virtualEnd ?? 0;
-    const next = Math.max(0, Math.min(Math.max(0, end - viewportHeight), position));
+    const next = Math.max(0, Math.min(Math.max(0, end - visibleHeight), position));
     virtualPosition.current = next;
     const mapped = positionsAt(verticalTrack, next);
     const offsets = {
-      before: Math.min(Math.max(0, paneHeights.before - viewportHeight), mapped.before),
-      after: Math.min(Math.max(0, paneHeights.after - viewportHeight), mapped.after),
+      before: Math.min(Math.max(0, scrollHeights.before - visibleHeight), mapped.before),
+      after: Math.min(Math.max(0, scrollHeights.after - visibleHeight), mapped.after),
     };
     requestedVertical.current = offsets;
-    beforeVertical.current?.scrollTo({ y: offsets.before, animated: false });
-    afterVertical.current?.scrollTo({ y: offsets.after, animated: false });
-    drawConnector(offsets);
+    if (Platform.OS === "web") {
+      beforeVertical.current?.scrollTo({ y: offsets.before, animated: false });
+      afterVertical.current?.scrollTo({ y: offsets.after, animated: false });
+      drawConnector(offsets);
+    } else setNativeScrollPosition(next);
     setVerticalOffsets((current) => Math.abs(current.before - offsets.before) < 0.5 && Math.abs(current.after - offsets.after) < 0.5 ? current : offsets);
   };
   useLayoutEffect(() => {
@@ -155,6 +164,7 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
     setVerticalOffsets({ before: 0, after: 0 });
     requestedVertical.current = { before: 0, after: 0 };
     virtualPosition.current = 0;
+    setNativeScrollPosition(0);
     horizontalPositions.current = { before: 0, after: 0 };
     setHorizontalOffsets({ before: 0, after: 0 });
   }, [file.path, wrapLines]);
@@ -337,13 +347,15 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
           <ScrollView key={`after-${wrapLines}`} nativeID="vibe-review-after-vertical" ref={afterVertical} style={[styles.verticalScroll, { width: rightWidth, height: viewportHeight }]} nestedScrollEnabled showsVerticalScrollIndicator={false} scrollEventThrottle={16} onContentSizeChange={(_width, height) => onPaneHeight("after", height)}>
             {renderPane("after", rightWidth)}
           </ScrollView>
-        </View> : <ScrollView key={`native-${wrapLines}`} style={{ width, height: nativeViewportHeight, backgroundColor: "#fff" }} nestedScrollEnabled showsVerticalScrollIndicator scrollEventThrottle={16}>
-          <View style={[styles.codeRow, { width, alignItems: "flex-start" }]}>
-            <View style={{ width: leftWidth }} onLayout={(event) => onPaneHeight("before", event.nativeEvent.layout.height)}>
+        </View> : <ScrollView key={`native-${wrapLines}`} style={{ width, height: nativeViewportHeight, backgroundColor: "#fff" }} nestedScrollEnabled showsVerticalScrollIndicator scrollEventThrottle={16} onScroll={(event) => applyVerticalPosition(event.nativeEvent.contentOffset.y)}>
+          <View style={[styles.codeRow, { width, height: nativeVirtualHeight, alignItems: "flex-start" }]}>
+            <View style={{ width: leftWidth, transform: [{ translateY: nativeScrollPosition - verticalOffsets.before }] }} onLayout={(event) => onPaneHeight("before", event.nativeEvent.layout.height)}>
               {renderPane("before", leftWidth)}
             </View>
-            <Connector rows={beforeRows} bounds={nativeChangeBounds} waveBounds={nativeWaveBounds} offsets={{ before: 0, after: 0 }} height={nativeContentHeight} />
-            <View style={{ width: rightWidth }} onLayout={(event) => onPaneHeight("after", event.nativeEvent.layout.height)}>
+            <View style={{ transform: [{ translateY: nativeScrollPosition }] }}>
+              <Connector rows={beforeRows} bounds={nativeChangeBounds} waveBounds={nativeWaveBounds} offsets={verticalOffsets} height={nativeContentHeight} />
+            </View>
+            <View style={{ width: rightWidth, transform: [{ translateY: nativeScrollPosition - verticalOffsets.after }] }} onLayout={(event) => onPaneHeight("after", event.nativeEvent.layout.height)}>
               {renderPane("after", rightWidth)}
             </View>
           </View>
