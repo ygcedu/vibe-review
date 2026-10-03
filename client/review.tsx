@@ -213,19 +213,6 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
           ))}
         </View>
       ) : null}
-      {diffFiles.length ? (
-        <View style={styles.diffBox}>
-          <View style={styles.diffSummary}>
-            <Text style={styles.diffHeading}>文件变更 · {diffFiles.length} 个</Text>
-            {data.diffIncomplete ? <Text style={styles.diffCaveat}>可能不全</Text> : null}
-            <Text style={styles.added}>+{totalAdded}</Text>
-            <Text style={styles.removed}>-{totalRemoved}</Text>
-          </View>
-          <FileTree files={diffFiles} />
-        </View>
-      ) : data.diffIncomplete ? (
-        <Text style={styles.missingDiff}>文件变更可能未被记录</Text>
-      ) : null}
       {data.detail ? (
         <>
           <TouchableOpacity
@@ -246,6 +233,19 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
         </>
       ) : null}
     </View>
+    {diffFiles.length ? (
+      <View style={styles.diffBox}>
+        <View style={styles.diffSummary}>
+          <Text style={styles.diffHeading}>文件变更 · {diffFiles.length} 个</Text>
+          {data.diffIncomplete ? <Text style={styles.diffCaveat}>可能不全</Text> : null}
+          <Text style={styles.added}>+{totalAdded}</Text>
+          <Text style={styles.removed}>-{totalRemoved}</Text>
+        </View>
+        <FileTree files={diffFiles} />
+      </View>
+    ) : data.diffIncomplete ? (
+      <Text style={styles.missingDiff}>文件变更可能未被记录</Text>
+    ) : null}
     {commitCwd || visibleFollowups.length || commitProgress ? (
       <View style={styles.followups}>
         <Text style={styles.followupsHeading}>接下来可以问</Text>
@@ -346,11 +346,11 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "700",
   },
-  diffBox: { backgroundColor: "#fff", borderRadius: 8, overflow: "hidden", marginBottom: 6 },
+  diffBox: { backgroundColor: "#fff", borderWidth: 1, borderColor: "#d8dee6", borderRadius: 8, overflow: "hidden" },
   diffSummary: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#e5e7eb" },
   diffHeading: { color: "#111827", fontSize: 12, fontWeight: "700", flex: 1 },
   diffCaveat: { color: "#92400e", fontSize: 10 },
-  missingDiff: { color: "#fffbeb", fontSize: 11, opacity: 0.8 },
+  missingDiff: { color: "#6b7280", fontSize: 11, paddingHorizontal: 2 },
   added: { color: "#15803d", fontSize: 12, fontWeight: "600" },
   removed: { color: "#b91c1c", fontSize: 12, fontWeight: "600" },
   detailText: {
