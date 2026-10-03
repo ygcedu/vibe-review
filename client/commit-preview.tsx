@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useRpc, type PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import type { z } from "zod";
 import { cancelPiCommitRpc, commitPreviewSchema, confirmPiCommitRpc, getPiCommitPreviewRpc } from "../shared/commit";
@@ -19,6 +19,8 @@ export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.i
   const confirm = useRpc(confirmPiCommitRpc);
   const cancel = useRpc(cancelPiCommitRpc);
   const { proposalId, message, files, promptPreview } = item.data;
+  const [editedMessage, setEditedMessage] = useState(message);
+  const validMessage = editedMessage.trim().length > 0 && editedMessage.trim().length <= 80;
   const submitted = /^已提交：([0-9a-f]{7,40})\s+([\s\S]+)$/.exec(done);
 
   useEffect(() => {
@@ -40,9 +42,9 @@ export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.i
   }, [agentId, proposalId, previewRequest]);
 
   const submit = () => {
-    if (busy || !diff) return;
+    if (busy || !diff || !validMessage) return;
     setBusy(true);
-    void confirm({ agentId, proposalId }).then(
+    void confirm({ agentId, proposalId, message: editedMessage.trim() }).then(
       (result) => setDone(`已提交：${result.summary}`),
       (reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason)),
     ).finally(() => setBusy(false));
@@ -67,7 +69,8 @@ export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.i
     </> : <Text selectable style={styles.done}>{done}</Text> : <>
       <Text style={styles.heading}>提交预览</Text>
       <Text style={styles.label}>Commit message</Text>
-      <Text selectable style={styles.message}>{message}</Text>
+      <TextInput accessibilityLabel="Commit message" value={editedMessage} onChangeText={setEditedMessage} editable={!busy} maxLength={80} selectTextOnFocus style={styles.messageInput} />
+      {!validMessage ? <Text style={styles.error}>请输入不超过 80 个字符的提交标题。</Text> : null}
       <Text style={styles.files}>{files.length} 个文件 · 请展开查看具体 diff</Text>
       {diff === null && !error ? <Text style={styles.muted}>正在读取 diff…</Text> : null}
       {diff ? <View style={styles.diff}><FileTree files={parseDiffFiles(diff)} /></View> : null}
@@ -78,7 +81,7 @@ export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.i
       {promptToggle}
       {!done ? <View style={styles.actionButtons}>
         <TouchableOpacity onPress={dismiss} disabled={busy} style={styles.cancel}><Text style={styles.cancelText}>取消</Text></TouchableOpacity>
-        <TouchableOpacity onPress={submit} disabled={busy || !diff || Boolean(error)} style={[styles.confirm, (busy || !diff || error) ? styles.disabled : null]}><Text style={styles.confirmText}>{busy ? "处理中…" : "确认提交"}</Text></TouchableOpacity>
+        <TouchableOpacity onPress={submit} disabled={busy || !diff || Boolean(error) || !validMessage} style={[styles.confirm, (busy || !diff || error || !validMessage) ? styles.disabled : null]}><Text style={styles.confirmText}>{busy ? "处理中…" : "确认提交"}</Text></TouchableOpacity>
       </View> : null}
     </View> : null}
     {showPrompt && promptPreview ? <ScrollView style={styles.promptBox} nestedScrollEnabled><Text selectable style={styles.promptText}>{promptPreview}</Text></ScrollView> : null}
@@ -89,7 +92,7 @@ const styles = StyleSheet.create({
   card: { alignSelf: "stretch", backgroundColor: "#fff", borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: "#d8dee6", padding: 14, gap: 10 },
   heading: { color: "#111827", fontSize: 15, fontWeight: "700" },
   label: { color: "#6b7280", fontSize: 11, fontWeight: "600" },
-  message: { color: "#1f2937", fontSize: 13, lineHeight: 19 },
+  messageInput: { color: "#1f2937", fontSize: 13, lineHeight: 19, borderWidth: StyleSheet.hairlineWidth, borderColor: "#d8dee6", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8 },
   files: { color: "#6b7280", fontSize: 12 },
   diff: { backgroundColor: "#f8fafc", borderRadius: 8, overflow: "hidden" },
   muted: { color: "#6b7280", fontSize: 12 },

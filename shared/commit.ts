@@ -26,7 +26,7 @@ export const getPendingCommitDiffRpc = defineRpc({
 
 export const confirmPiCommitRpc = defineRpc({
   name: "vibe-review.confirm-pi-commit",
-  input: z.object({ agentId: z.string(), proposalId: z.string() }),
+  input: z.object({ agentId: z.string(), proposalId: z.string(), message: z.string().trim().min(1).max(80) }),
   output: z.object({ ok: z.literal(true), summary: z.string() }),
 });
 

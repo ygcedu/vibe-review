@@ -195,7 +195,7 @@ export default function contribute(server: PluginServerContext) {
     return { ok: true as const };
   });
 
-  server.handle(confirmPiCommitRpc, async ({ agentId, proposalId }, context) => {
+  server.handle(confirmPiCommitRpc, async ({ agentId, proposalId, message }, context) => {
     const proposal = await loadCommitProposal(agentId, proposalId);
     if (!proposal || proposal.agentId !== agentId) throw new Error("提交预览已失效，请重新生成。");
     const ref = context.paseo.agents.ref(agentId);
@@ -204,7 +204,7 @@ export default function contribute(server: PluginServerContext) {
     if (activeConfirmations.has(proposalId)) throw new Error("正在提交，请稍候。");
     activeConfirmations.add(proposalId);
     try {
-      const summary = await confirmPiCommit(proposal);
+      const summary = await confirmPiCommit({ ...proposal, message });
       await removeCommitProposal(agentId, proposalId);
       commitStatuses.delete(agentId);
       pendingDiffs.delete(agentId);
