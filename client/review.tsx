@@ -1,7 +1,7 @@
 import type { ComponentType } from "react";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRpc, type PluginTimelineItemProps } from "@getpaseo/plugin/client";
+import { usePaseo, useRpc, type PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import { output } from "zod";
 import { reviewResultSchema } from "../shared/review";
 import { parseDiffFiles } from "./diff";
@@ -57,6 +57,8 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
   const [commitRunning, setCommitRunning] = useState(false);
   const [commitProgress, setCommitProgress] = useState<{ kind: "preparing" | "ready" | "failed"; stage: string; startedAt: number } | null>(null);
   const [pendingDiff, setPendingDiff] = useState<string | null>(null);
+  const superseded = useRef(false);
+  const paseo = usePaseo();
   const pendingDiffRequested = useRef(false);
   const checkCommit = useRpc(commitAvailabilityRpc);
   const checkCommitRef = useRef(checkCommit);
@@ -72,7 +74,7 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
     let active = true;
     const refresh = () => {
       void checkCommitRef.current({ agentId: props.agentId, scoredAt: data.scoredAt }).then(
-        (result) => { if (active) setCommitCwd(result.available ? result.cwd ?? null : null); },
+        (result) => { if (active) setCommitCwd(!superseded.current && result.available ? result.cwd ?? null : null); },
         () => { if (active) setCommitCwd(null); },
       );
     };
@@ -80,6 +82,19 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
     const timer = setInterval(refresh, 15_000);
     return () => { active = false; clearInterval(timer); };
   }, [props.agentId, data.scoredAt]);
+  useEffect(() => {
+    if (!commitCwd) return;
+    const subscription = paseo.agents.ref(props.agentId).timeline.subscribe(({ event }: { event: { type: string; item?: { type: string } } }) => {
+      if (event.type === "turn_started" || (event.type === "timeline" && event.item?.type === "user_message")) {
+        superseded.current = true;
+        setCommitCwd(null);
+        setCommitTargetCwd(null);
+        setCommitProgress(null);
+      }
+    });
+    void subscription.ready.catch(() => {});
+    return () => { subscription(); };
+  }, [paseo, props.agentId, Boolean(commitCwd)]);
   useEffect(() => {
     // The start RPC installs server status before it resolves. Polling earlier
     // can observe idle and falsely report an interrupted preview.
@@ -137,13 +152,13 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
 
   const startCommit = () => {
     const cwd = commitCwd ?? commitTargetCwd;
-    if (!cwd || commitRunning || commitProgress?.kind === "preparing") return;
+    if (!cwd || superseded.current || commitRunning || commitProgress?.kind === "preparing") return;
     setCommitTargetCwd(cwd);
     setPendingDiff(null);
     pendingDiffRequested.current = false;
     setCommitRunning(true);
     setCommitProgress({ kind: "preparing", stage: "正在启动 Pi…", startedAt: Date.now() });
-    void preparePiCommit({ agentId: props.agentId, cwd }).then(
+    void preparePiCommit({ agentId: props.agentId, cwd, scoredAt: data.scoredAt }).then(
       () => setCommitCwd(null),
       (error: unknown) => setCommitProgress({ kind: "failed", stage: `无法启动 Pi：${error instanceof Error ? error.message : String(error)}`, startedAt: Date.now() }),
     ).finally(() => setCommitRunning(false));

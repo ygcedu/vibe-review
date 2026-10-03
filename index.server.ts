@@ -10,6 +10,7 @@ import { preparePiCommitRpc, piCommitStatusRpc, getPendingCommitDiffRpc, confirm
 import { preparePiCommit, confirmPiCommit, hasPendingCodeChanges } from "./server/pi-commit";
 import { loadCommitProposal, removeCommitProposal, saveCommitProposal } from "./server/commit-proposals";
 import { recentCommitContext } from "./server/commit-context";
+import { isLatestReviewTurn } from "./server/commit-availability";
 import { buildTaskSummary, isSessionControlCommand } from "./server/inspect";
 
 export default function contribute(server: PluginServerContext) {
@@ -99,10 +100,13 @@ export default function contribute(server: PluginServerContext) {
     return clarifyDraft(await llmConfig(), text, recent);
   });
 
-  server.handle(preparePiCommitRpc, async ({ agentId, cwd }, context) => {
+  server.handle(preparePiCommitRpc, async ({ agentId, cwd, scoredAt }, context) => {
     const ref = context.paseo.agents.ref(agentId);
     const agent = ref.current() ?? (await ref.refresh())?.agent;
     if (!agent || agent.cwd !== cwd) throw new Error("当前 agent 的工作目录已变化，请重试");
+    const payload = await ref.timeline.refetch();
+    const entries = (payload as unknown as { entries?: Array<{ item: { type: string; kind?: string; data?: { scoredAt?: string; turnId?: string } }; turnId?: string }> }).entries ?? [];
+    if (scoredAt && (agent.activeTurn || !isLatestReviewTurn(entries, scoredAt))) throw new Error("这张审核卡片已不是最后一轮，请使用最新轮次的提交入口。");
     if (activeCommits.has(agentId)) throw new Error("Pi 已在这个会话中执行提交");
     if (await pendingProposal(agentId)) throw new Error("请先确认或取消当前提交预览");
     const state = await piSettings.read();
@@ -113,8 +117,7 @@ export default function contribute(server: PluginServerContext) {
     commitStatuses.set(agentId, { kind: "preparing", stage: "正在读取待提交文件…", startedAt });
     void (async () => {
       try {
-        const payload = await context.paseo.agents.ref(agentId).timeline.refetch();
-        const timeline = (payload as unknown as { entries?: Array<{ item: import("@getpaseo/protocol/agent-types").AgentTimelineItem }> }).entries?.map(({ item }) => item) ?? [];
+        const timeline = entries.map(({ item }) => item as import("@getpaseo/protocol/agent-types").AgentTimelineItem);
         const proposal = await preparePiCommit(agentId, cwd, state.values, recentCommitContext(timeline), (stage) => {
           commitStatuses.set(agentId, { kind: "preparing", stage, startedAt });
         }, (diff) => pendingDiffs.set(agentId, diff));
@@ -215,12 +218,11 @@ export default function contribute(server: PluginServerContext) {
   server.handle(commitAvailabilityRpc, async ({ agentId, scoredAt }, context) => {
     const ref = context.paseo.agents.ref(agentId);
     const agent = ref.current() ?? (await ref.refresh())?.agent;
-    if (!agent?.cwd || activeCommits.has(agentId)) return { available: false };
+    if (!agent?.cwd || agent.activeTurn || activeCommits.has(agentId)) return { available: false };
     if (await pendingProposal(agentId)) return { available: false };
-    const payload = await context.paseo.agents.ref(agentId).timeline.refetch();
-    const items = (payload as unknown as { entries?: Array<{ item: { type?: string; kind?: string; data?: { scoredAt?: string } } }> }).entries?.map(({ item }) => item) ?? [];
-    const latest = items.findLast((item) => item.type === "plugin" && item.kind === REVIEW_KIND);
-    if (latest?.data?.scoredAt !== scoredAt) return { available: false };
+    const payload = await ref.timeline.refetch();
+    const entries = (payload as unknown as { entries?: Array<{ item: { type: string; kind?: string; data?: { scoredAt?: string; turnId?: string } }; turnId?: string }> }).entries ?? [];
+    if (!isLatestReviewTurn(entries, scoredAt)) return { available: false };
     try {
       return await hasPendingCodeChanges(agent.cwd) ? { available: true, cwd: agent.cwd } : { available: false };
     } catch {

@@ -3,7 +3,7 @@ import { z } from "zod";
 
 export const preparePiCommitRpc = defineRpc({
   name: "vibe-review.prepare-pi-commit",
-  input: z.object({ agentId: z.string(), cwd: z.string() }),
+  input: z.object({ agentId: z.string(), cwd: z.string(), scoredAt: z.string().optional() }),
   output: z.object({ ok: z.literal(true), summary: z.string() }),
 });
 
