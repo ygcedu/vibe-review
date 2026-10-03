@@ -2,6 +2,7 @@ import { Image, Platform, ScrollView, StyleSheet, Text, View, type NativeScrollE
 import type { RefObject } from "react";
 import type { HighlightToken } from "@getpaseo/highlight";
 import type { DiffCell, PaneRow } from "./diff";
+import type { TextSpan } from "./intraline";
 import { bottomFalling, bottomRising, topFalling, topRising } from "./connector-masks";
 
 export const LINE_NUMBER_WIDTH = 38;
@@ -12,6 +13,7 @@ const WAVE_PERIOD = 16;
 const WAVE_COLOR = "#cbd5e1";
 const nativeWaveTile = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAMCAYAAABr5z2BAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAjUlEQVR4nGNgoCY4e/2hFAiTrPH///9Mp64+6Dt99eFzEAaxQWJEG3D6ysPu01ceHDx//r4ACIPYIDGiNJ+68ijx1NUHd87ceCoCEzt25ZHQ6SsPbp6+8jCdsO1XH744ee2JGro4SAwkd+byfUdcesHhdRZPoIE0E7KAgeZeZKA0kEGA4miGAbITGj4AAMQGmf03ekjFAAAAAElFTkSuQmCC";
 const changeColors = { modify: "#dceaff", add: "#e3f5e9", remove: "#ffe7e7" } as const;
+const changedTextColors = { before: "#c8cdd4", after: "#b8e6c4" } as const;
 // Match @getpaseo/highlight's light palette without eagerly loading its parsers.
 const lightHighlightColors: Record<NonNullable<HighlightToken["style"]>, string> = {
   keyword: "#cf222e", comment: "#6e7781", string: "#0a3069",
@@ -23,8 +25,19 @@ const lightHighlightColors: Record<NonNullable<HighlightToken["style"]>, string>
   heading: "#0550ae", link: "#0a3069",
 };
 
-function CodeLine({ cell, side, tone, tokens, wrapLines, showLineNumber = true, visibleCodeWidth }: { cell: DiffCell; side: "before" | "after"; tone?: keyof typeof changeColors; tokens?: HighlightToken[]; wrapLines: boolean; showLineNumber?: boolean; visibleCodeWidth?: number }) {
-  const code = tokens?.length ? tokens.map((token, index) => <Text key={index} style={{ fontFamily: "monospace", color: token.style ? lightHighlightColors[token.style] : undefined }}>{token.text.replace(/\t/g, "    ")}</Text>) : cell.text.replace(/\t/g, "    ");
+function CodeLine({ cell, side, tone, tokens, changedSpans, wrapLines, showLineNumber = true, visibleCodeWidth }: { cell: DiffCell; side: "before" | "after"; tone?: keyof typeof changeColors; tokens?: HighlightToken[]; changedSpans?: TextSpan[]; wrapLines: boolean; showLineNumber?: boolean; visibleCodeWidth?: number }) {
+  const highlighted = tokens?.length && tokens.map((token) => token.text).join("") === cell.text ? tokens : [{ text: cell.text, style: undefined }];
+  let offset = 0;
+  const code = highlighted.map((token, index) => {
+    const start = offset;
+    offset += token.text.length;
+    const cuts = [start, offset, ...(changedSpans ?? []).flatMap((span) => [span.start, span.end].filter((point) => point > start && point < offset))].sort((a, b) => a - b);
+    return cuts.slice(0, -1).map((from, part) => {
+      const to = cuts[part + 1];
+      const changed = changedSpans?.some((span) => from < span.end && to > span.start);
+      return <Text key={`${index}-${part}`} style={{ fontFamily: "monospace", color: token.style ? lightHighlightColors[token.style] : undefined, backgroundColor: changed ? changedTextColors[side] : undefined }}>{token.text.slice(from - start, to - start).replace(/\t/g, "    ")}</Text>;
+    });
+  });
   const wrapStyle = Platform.OS === "web" ? ({ whiteSpace: wrapLines ? "pre-wrap" : "pre", overflowWrap: wrapLines ? "anywhere" : "normal", fontFamily: "monospace" } as unknown as TextStyle) : undefined;
   return (
     <View style={[styles.cell, tone ? { backgroundColor: changeColors[tone] } : styles.contextCell, visibleCodeWidth !== undefined && { width: "100%", height: 22, overflow: "hidden" }]}>
@@ -84,12 +97,12 @@ export function fixedNoWrapBounds(beforeRows: PaneRow[], afterRows: PaneRow[]): 
   return { changes, waves };
 }
 
-export function WrapPane({ rows, side, width, tokens, onChange, onWave }: { rows: PaneRow[]; side: "before" | "after"; width: number; tokens: Map<DiffCell, HighlightToken[]>; onChange: RecordChange; onWave: RecordChange }) {
+export function WrapPane({ rows, side, width, tokens, changedSpans, onChange, onWave }: { rows: PaneRow[]; side: "before" | "after"; width: number; tokens: Map<DiffCell, HighlightToken[]>; changedSpans: Map<DiffCell, TextSpan[]>; onChange: RecordChange; onWave: RecordChange }) {
   return <View style={{ width }}>
     {rows.map((row) => row.kind === "wave" ? <Wave key={row.key} width={width} side={side} onLayout={(top, height) => onWave(side, row.index, top, height)} /> : row.kind === "code" ? (
       <CodeLine key={row.key} side={side} cell={row.cell} tokens={tokens.get(row.cell)} wrapLines />
     ) : <View key={row.key} onLayout={(event) => onChange(side, row.index, event.nativeEvent.layout.y, event.nativeEvent.layout.height)}>
-      {row.cells.length ? row.cells.map((cell, index) => <CodeLine key={index} side={side} cell={cell} tone={row.tone} tokens={tokens.get(cell)} wrapLines />) : <View style={[styles.emptyChange, { backgroundColor: changeColors[row.tone] }]} />}
+      {row.cells.length ? row.cells.map((cell, index) => <CodeLine key={index} side={side} cell={cell} tone={row.tone} tokens={tokens.get(cell)} changedSpans={changedSpans.get(cell)} wrapLines />) : <View style={[styles.emptyChange, { backgroundColor: changeColors[row.tone] }]} />}
     </View>)}
   </View>;
 }
@@ -106,14 +119,14 @@ function NoWrapGutter({ rows, side, onChange, onWave }: { rows: PaneRow[]; side:
   </View>;
 }
 
-export function NoWrapPane({ rows, side, width, contentWidth, tokens, scrollRef, onScroll, onChange, onWave, waveBounds }: { rows: PaneRow[]; side: "before" | "after"; width: number; contentWidth: number; tokens: Map<DiffCell, HighlightToken[]>; scrollRef: RefObject<ScrollView | null>; onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void; onChange: RecordChange; onWave: RecordChange; waveBounds: WaveBounds }) {
+export function NoWrapPane({ rows, side, width, contentWidth, tokens, changedSpans, scrollRef, onScroll, onChange, onWave, waveBounds }: { rows: PaneRow[]; side: "before" | "after"; width: number; contentWidth: number; tokens: Map<DiffCell, HighlightToken[]>; changedSpans: Map<DiffCell, TextSpan[]>; scrollRef: RefObject<ScrollView | null>; onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void; onChange: RecordChange; onWave: RecordChange; waveBounds: WaveBounds }) {
   const code = <ScrollView horizontal nestedScrollEnabled bounces={false} overScrollMode="never" showsHorizontalScrollIndicator={false} ref={scrollRef} onScroll={onScroll} scrollEventThrottle={16} style={{ width: width - LINE_NUMBER_WIDTH }}>
       <View style={{ width: contentWidth }}>
         {rows.map((row) => row.kind === "wave" ? <View key={row.key} style={{ height: WAVE_HEIGHT }} /> : row.kind === "code" ? (
           <CodeLine key={row.key} side={side} cell={row.cell} tokens={tokens.get(row.cell)} wrapLines={false} showLineNumber={false} visibleCodeWidth={width - LINE_NUMBER_WIDTH} />
         ) : (
           <View key={row.key}>
-            {row.cells.length ? row.cells.map((cell, index) => <CodeLine key={index} side={side} cell={cell} tone={row.tone} tokens={tokens.get(cell)} wrapLines={false} showLineNumber={false} visibleCodeWidth={width - LINE_NUMBER_WIDTH} />) : <View style={[styles.emptyChange, { backgroundColor: changeColors[row.tone] }]} />}
+            {row.cells.length ? row.cells.map((cell, index) => <CodeLine key={index} side={side} cell={cell} tone={row.tone} tokens={tokens.get(cell)} changedSpans={changedSpans.get(cell)} wrapLines={false} showLineNumber={false} visibleCodeWidth={width - LINE_NUMBER_WIDTH} />) : <View style={[styles.emptyChange, { backgroundColor: changeColors[row.tone] }]} />}
           </View>
         ))}
       </View>

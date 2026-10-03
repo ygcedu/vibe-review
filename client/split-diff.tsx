@@ -3,6 +3,7 @@ import { PanResponder, Platform, ScrollView, StyleSheet, View, type NativeScroll
 import type { DiffCell, DiffFile } from "./diff";
 import { buildPaneRows, buildSplitDiffRows } from "./diff";
 import { highlightSplitRows } from "./syntax";
+import { changedSpansByCell } from "./intraline";
 import { buildVerticalTrack, positionForOffset, positionsAt } from "./vertical-sync";
 import { CODE_PADDING, CONNECTOR_WIDTH, LINE_NUMBER_WIDTH, Connector, NoWrapPane, WrapPane, connectorSvg, fixedNoWrapBounds, fixedNoWrapHeight, type ChangeBounds, type RecordChange, type WaveBounds } from "./split-diff-render";
 
@@ -43,6 +44,7 @@ function measuredBounds(fallback: ChangeBounds, measured: ChangeBounds): ChangeB
 /** Two aligned panes modeled after an IDE side-by-side diff. */
 export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: boolean }) {
   const rows = useMemo(() => buildSplitDiffRows(file.lines), [file.lines]);
+  const changedSpans = useMemo(() => changedSpansByCell(rows), [rows]);
   const beforeRows = useMemo(() => buildPaneRows(rows, "before"), [rows]);
   const afterRows = useMemo(() => buildPaneRows(rows, "after"), [rows]);
   const noWrapBounds = useMemo(() => fixedNoWrapBounds(beforeRows, afterRows), [beforeRows, afterRows]);
@@ -272,8 +274,8 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
   const syncScroll = (side: "before" | "after", event: NativeSyntheticEvent<NativeScrollEvent>) => applyHorizontalScroll(side, event.nativeEvent.contentOffset.x);
   const renderPane = (side: "before" | "after", paneWidth: number) => {
     const paneRows = side === "before" ? beforeRows : afterRows;
-    if (wrapLines) return <WrapPane rows={paneRows} side={side} width={paneWidth} tokens={tokens} onChange={onChange} onWave={onWave} />;
-    return <NoWrapPane rows={paneRows} side={side} width={paneWidth} contentWidth={Math.max(paneWidth - LINE_NUMBER_WIDTH, minCodeWidths[side])} tokens={tokens} scrollRef={side === "before" ? beforeScroll : afterScroll} onScroll={(event) => syncScroll(side, event)} onChange={onChange} onWave={onWave} waveBounds={Platform.OS === "web" ? waveBounds : nativeWaveBounds} />;
+    if (wrapLines) return <WrapPane rows={paneRows} side={side} width={paneWidth} tokens={tokens} changedSpans={changedSpans} onChange={onChange} onWave={onWave} />;
+    return <NoWrapPane rows={paneRows} side={side} width={paneWidth} contentWidth={Math.max(paneWidth - LINE_NUMBER_WIDTH, minCodeWidths[side])} tokens={tokens} changedSpans={changedSpans} scrollRef={side === "before" ? beforeScroll : afterScroll} onScroll={(event) => syncScroll(side, event)} onChange={onChange} onWave={onWave} waveBounds={Platform.OS === "web" ? waveBounds : nativeWaveBounds} />;
   };
   const webPointerHandlers = Platform.OS === "web" ? {
     onPointerDown: (event: RNPointerEvent) => {
