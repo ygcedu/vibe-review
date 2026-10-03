@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, useColorScheme } from "react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePaseo, useRpc, type PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import { output } from "zod";
@@ -13,9 +13,9 @@ import { commitAvailabilityRpc, preparePiCommitRpc, piCommitStatusRpc, getPendin
 type ReviewResultData = output<typeof reviewResultSchema>;
 
 const verdictStyle = {
-  pass: { bg: "#166534", text: "#f0fdf4", label: "通过" },
-  review: { bg: "#92400e", text: "#fffbeb", label: "需复核" },
-  reject: { bg: "#991b1b", text: "#fef2f2", label: "偏离目标" },
+  pass: { accent: "#15803d", darkAccent: "#86efac", tint: "#dcfce7", darkTint: "#153d29", label: "通过" },
+  review: { accent: "#b45309", darkAccent: "#fcd34d", tint: "#fef3c7", darkTint: "#493018", label: "需复核" },
+  reject: { accent: "#b91c1c", darkAccent: "#fca5a5", tint: "#fee2e2", darkTint: "#491f20", label: "偏离目标" },
 } as const;
 
 const driftLabel = {
@@ -57,8 +57,14 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
 ) => {
   const { data } = props.item;
   const v = verdictStyle[data.verdict];
+  const dark = useColorScheme() === "dark";
+  const accent = dark ? v.darkAccent : v.accent;
+  const cardColors = dark
+    ? { background: "#1f2937", border: "#374151", text: "#f3f4f6", muted: "#a9b3c2", divider: "#374151" }
+    : { background: "#ffffff", border: "#d8dee6", text: "#111827", muted: "#6b7280", divider: "#e5e7eb" };
   const drift = driftLabel[data.drift as keyof typeof driftLabel] ?? data.drift;
   const [expanded, setExpanded] = useState(false);
+  const [showPrompt, setShowPrompt] = useState(false);
   const [followupFeedback, setFollowupFeedback] = useState("");
   const [commitCwd, setCommitCwd] = useState<string | null>(null);
   const [commitTargetCwd, setCommitTargetCwd] = useState<string | null>(null);
@@ -146,6 +152,7 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
   const otherFollowups = commitCwd ? followups.filter((suggestion) => !/提交|commit/i.test(suggestion)) : followups;
   const visibleFollowups = (otherFollowups.length ? otherFollowups : followups).slice(0, commitCwd ? 2 : 3);
   const pendingDiffFiles = useMemo(() => pendingDiff ? parseDiffFiles(pendingDiff) : [], [pendingDiff]);
+  const hasAnalysis = Boolean(data.narrative || data.summary || data.drifts?.length || data.verification?.evidence.length || data.verification?.summary || data.detail);
 
   const useFollowup = (suggestion: string) => {
     if (props.layout.platform === "web") {
@@ -174,79 +181,61 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
 
   return (
     <View style={styles.reviewGroup}>
-    <View style={[styles.container, { backgroundColor: v.bg }]}>
+    <View style={[styles.container, { backgroundColor: cardColors.background, borderColor: cardColors.border }]}>
       <View style={styles.header}>
-        <Text style={[styles.title, { color: v.text }]}>
+        <Text style={[styles.title, { color: accent, backgroundColor: dark ? v.darkTint : v.tint }]}>
           {v.label}
         </Text>
-        <Text style={[styles.time, { color: v.text, opacity: 0.7 }]}>
+        <Text style={[styles.time, { color: cardColors.muted }]}>
           {formatTime(data.scoredAt)}
         </Text>
       </View>
       {data.goal ? (
-        <Text numberOfLines={2} style={[styles.goal, { color: v.text, opacity: 0.95 }]}>
-          目标：{data.goal}
+        <Text numberOfLines={2} style={[styles.goal, { color: cardColors.text }]}>
+          {data.goal}
         </Text>
       ) : null}
-      <View style={styles.row}>
+      <View style={styles.statusRow}>
         {data.result ? (
-          <Text style={[styles.stat, { color: v.text }]}>
-            结果：{resultLabel[data.result]}
+          <Text style={[styles.stat, { color: cardColors.muted }]}>
+            {resultLabel[data.result]}
           </Text>
         ) : (
-          <Text style={[styles.stat, { color: v.text }]}>
+          <Text style={[styles.stat, { color: cardColors.muted }]}>
             完成度 {Math.round(data.completed * 100)}%
           </Text>
         )}
-        <Text style={[styles.dot, { color: v.text }]}>·</Text>
-        <Text style={[styles.stat, { color: v.text }]}>
-          偏离 {drift}
-        </Text>
-        {data.taskType ? <><Text style={[styles.dot, { color: v.text }]}>·</Text><Text style={[styles.stat, { color: v.text }]}>{taskTypeLabel[data.taskType]}</Text></> : null}
+        {data.drift !== "in_scope" ? <Text style={[styles.stat, { color: accent }]}>{drift}</Text> : null}
+        {data.taskType === "verification_required" && !data.verification
+          ? <Text style={[styles.stat, { color: cardColors.muted }]}>{taskTypeLabel[data.taskType]}</Text> : null}
+        {data.verification ? <Text style={[styles.stat, { color: data.verification.status === "passed" ? (dark ? "#86efac" : "#15803d") : accent }]}>
+          {verificationLabel[data.verification.status]}
+        </Text> : null}
       </View>
-      {data.narrative ? (
-        <Text selectable style={[styles.narrative, { color: v.text, opacity: 0.9 }]}>
-          {data.narrative}
-        </Text>
-      ) : data.summary ? (
-        <Text numberOfLines={2} style={[styles.summary, { color: v.text, opacity: 0.85 }]}>
-          {data.summary}
-        </Text>
-      ) : null}
-      {data.drifts?.length ? (
-        <View style={styles.drifts}>
-          {data.drifts.map((d, i) => (
-            <Text key={i} numberOfLines={2} style={[styles.driftItem, { color: v.text, opacity: 0.8 }]}>
-              偏离：{d}
-            </Text>
-          ))}
-        </View>
-      ) : null}
-      {data.verification ? <View style={styles.verification}>
-        <Text selectable style={[styles.verificationSummary, { color: v.text }]}>
-          {verificationLabel[data.verification.status]} · {data.verification.summary}
-        </Text>
-        {data.verification.evidence.map((fact, index) => <Text selectable key={`${index}-${fact}`} style={[styles.verificationEvidence, { color: v.text }]}>· {fact}</Text>)}
-      </View> : null}
-      {data.detail ? (
-        <>
-          <TouchableOpacity
-            style={styles.expandBtn}
-            activeOpacity={0.7}
-            onPress={() => setExpanded((e) => !e)}
-          >
-            <Text style={[styles.expandLabel, { color: v.text, opacity: 0.7 }]}>
-              {expanded ? "收起分析详情" : "展开分析详情"}
-            </Text>
+      {hasAnalysis ? <TouchableOpacity style={[styles.expandBtn, { borderTopColor: cardColors.divider }]}
+        activeOpacity={0.7} accessibilityRole="button" accessibilityLabel={expanded ? "收起评估详情" : "查看评估详情"}
+        onPress={() => setExpanded((value) => !value)}>
+        <Text style={[styles.expandLabel, { color: cardColors.muted }]}>{expanded ? "收起详情" : "查看详情"}</Text>
+        <Text style={[styles.expandChevron, { color: cardColors.muted }]}>{expanded ? "⌃" : "⌄"}</Text>
+      </TouchableOpacity> : null}
+      {expanded ? <View style={styles.analysis}>
+        {data.narrative || data.summary ? <Text selectable style={[styles.narrative, { color: cardColors.text }]}>
+          {data.narrative || data.summary}
+        </Text> : null}
+        {data.drifts?.map((item, index) => <Text selectable key={`${index}-${item}`} style={[styles.analysisItem, { color: cardColors.muted }]}>
+          偏离 · {item}
+        </Text>)}
+        {data.verification ? <View style={styles.verification}>
+          <Text selectable style={[styles.verificationSummary, { color: cardColors.text }]}>{data.verification.summary}</Text>
+          {data.verification.evidence.map((fact, index) => <Text selectable key={`${index}-${fact}`} style={[styles.analysisItem, { color: cardColors.muted }]}>· {fact}</Text>)}
+        </View> : null}
+        {data.detail ? <>
+          <TouchableOpacity accessibilityRole="button" onPress={() => setShowPrompt((value) => !value)} style={styles.promptToggle}>
+            <Text style={[styles.promptToggleText, { color: cardColors.muted }]}>{showPrompt ? "收起审核提示词" : "查看审核提示词"}</Text>
           </TouchableOpacity>
-          {expanded ? (
-            <View style={styles.detail}>
-              <Text style={[styles.detailHeading, { color: v.text, opacity: 0.8 }]}>审核提示词</Text>
-              <Text selectable style={styles.detailText}>{data.detail}</Text>
-            </View>
-          ) : null}
-        </>
-      ) : null}
+          {showPrompt ? <Text selectable style={[styles.detailText, { color: cardColors.muted }]}>{data.detail}</Text> : null}
+        </> : null}
+      </View> : null}
     </View>
     {diffFiles.length ? (
       <View style={styles.diffBox}>
@@ -299,9 +288,12 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
 const styles = StyleSheet.create({
   reviewGroup: { marginVertical: 4, gap: 8 },
   container: {
-    borderRadius: 8,
-    padding: 12,
-    gap: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 4,
+    gap: 12,
   },
   header: {
     flexDirection: "row",
@@ -309,61 +301,55 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   title: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: "700",
+    overflow: "hidden",
+    borderRadius: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
   },
   time: {
     fontSize: 11,
   },
-  row: {
+  statusRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 10,
+    flexWrap: "wrap",
+    paddingBottom: 2,
   },
   stat: {
     fontSize: 12,
-  },
-  dot: {
-    fontSize: 12,
-  },
-  summary: {
-    fontSize: 11,
+    fontWeight: "600",
   },
   narrative: {
-    fontSize: 11,
-    lineHeight: 16,
+    fontSize: 13,
+    lineHeight: 20,
   },
   expandBtn: {
-    paddingVertical: 4,
+    marginTop: 2,
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   expandLabel: {
-    fontSize: 11,
-    textAlign: "center",
-  },
-  goal: {
     fontSize: 12,
     fontWeight: "600",
   },
-  drifts: {
-    gap: 2,
+  expandChevron: { fontSize: 18, lineHeight: 18 },
+  goal: {
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: "600",
   },
-  driftItem: {
-    fontSize: 10,
-    opacity: 0.8,
-  },
-  verification: { gap: 3, paddingTop: 4 },
-  verificationSummary: { fontSize: 11, fontWeight: "600" },
-  verificationEvidence: { fontSize: 10, opacity: 0.85 },
-  detail: {
-    gap: 4,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "rgba(255,255,255,0.15)",
-    paddingTop: 6,
-  },
-  detailHeading: {
-    fontSize: 10,
-    fontWeight: "700",
-  },
+  analysis: { gap: 10, paddingBottom: 12 },
+  analysisItem: { fontSize: 12, lineHeight: 18 },
+  verification: { gap: 5 },
+  verificationSummary: { fontSize: 12, fontWeight: "600", lineHeight: 18 },
+  promptToggle: { alignSelf: "flex-start", paddingVertical: 5 },
+  promptToggleText: { fontSize: 12, fontWeight: "600" },
   diffBox: { backgroundColor: "#fff", borderWidth: 1, borderColor: "#d8dee6", borderRadius: 8, overflow: "hidden" },
   diffSummary: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#e5e7eb" },
   diffHeading: { color: "#111827", fontSize: 12, fontWeight: "700", flex: 1 },
@@ -372,9 +358,8 @@ const styles = StyleSheet.create({
   added: { color: "#15803d", fontSize: 12, fontWeight: "600" },
   removed: { color: "#b91c1c", fontSize: 12, fontWeight: "600" },
   detailText: {
-    fontSize: 10,
-    color: "#fff",
-    opacity: 0.85,
+    fontSize: 11,
+    lineHeight: 17,
     fontFamily: "monospace",
   },
   followups: { alignItems: "flex-start", gap: 7, paddingHorizontal: 2 },
