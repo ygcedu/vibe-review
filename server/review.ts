@@ -1,6 +1,6 @@
 import type { AgentTimelineItem } from "@getpaseo/protocol/agent-types";
 import type { PaseoApi } from "./paseo-api-types";
-import { buildTaskSummary, type TaskSummary } from "./inspect";
+import { buildTaskSummary, isSessionControlCommand } from "./inspect";
 import { notify } from "./notify";
 import { distillTask, type DistilledTask } from "./distill";
 import type { LlmConfig } from "../shared/settings";
@@ -102,6 +102,7 @@ async function runReview(
   const diffIncomplete = fileChanges?.diffIncomplete ?? true;
   // Nothing was actually done — skip review.
   if (!summary.task && summary.userMessages.length === 0) return;
+  if (isSessionControlCommand(summary.task)) return;
 
   let distilled: DistilledTask;
   try {

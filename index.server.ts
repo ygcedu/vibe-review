@@ -6,6 +6,7 @@ import { captureWorktree, diffSnapshots, disposeSnapshot, type WorktreeSnapshot 
 import { replaceTurnSnapshot, takeTurnSnapshot } from "./server/turn-snapshots";
 import { clarifyRpc } from "./shared/clarify";
 import { clarifyDraft } from "./server/clarify";
+import { buildTaskSummary, isSessionControlCommand } from "./server/inspect";
 
 export default function contribute(server: PluginServerContext) {
   const settings = server.registerSettings(llmSettings);
@@ -38,6 +39,11 @@ export default function contribute(server: PluginServerContext) {
       started = await takeTurnSnapshot(event.agent.id);
     } catch (error) {
       console.warn("[vibe-review] stored turn snapshot unavailable:", error);
+    }
+    if (isSessionControlCommand(buildTaskSummary(event.timeline).task)) {
+      if (started) await disposeSnapshot(started.snapshot);
+      console.log("[vibe-review] skipped session control command:", event.agent.id, event.turnId);
+      return;
     }
     let fileChanges: { diff: string; diffIncomplete: boolean } | undefined;
     if (started && started.turnId === event.turnId) {

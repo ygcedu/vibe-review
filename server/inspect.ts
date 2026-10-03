@@ -8,6 +8,11 @@ export interface TaskSummary {
   runningTools: number;
 }
 
+/** Session controls do not represent a task for the review model. */
+export function isSessionControlCommand(text: string): boolean {
+  return /^\s*\/(?:compact|model|models|clear|reset|new)(?=\s|$)/i.test(text.trim());
+}
+
 /** Extract a compact review state from the full agent timeline. */
 export function buildTaskSummary(timeline: readonly AgentTimelineItem[]): TaskSummary {
   // 最近一次 user_message 之后是本轮对话窗口；文件变更另由轮次快照提供。
