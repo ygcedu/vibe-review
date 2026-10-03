@@ -12,6 +12,7 @@ export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.i
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState("");
   const [showPrompt, setShowPrompt] = useState(false);
+  const [previewRequest, setPreviewRequest] = useState(0);
   const getPreview = useRpc(getPiCommitPreviewRpc);
   const getPreviewRef = useRef(getPreview);
   getPreviewRef.current = getPreview;
@@ -22,12 +23,21 @@ export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.i
 
   useEffect(() => {
     let active = true;
-    void getPreviewRef.current({ agentId, proposalId }).then(
-      (result) => { if (active) { if (result.result) setDone(result.result); else setDiff(result.diff); } },
-      (reason: unknown) => { if (active) setError(reason instanceof Error ? reason.message : String(reason)); },
-    );
-    return () => { active = false; };
-  }, [agentId, proposalId]);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = (attempt: number) => {
+      void getPreviewRef.current({ agentId, proposalId }).then(
+        (result) => { if (active) { setError(""); if (result.result) setDone(result.result); else setDiff(result.diff); } },
+        (reason: unknown) => {
+          if (!active) return;
+          const message = reason instanceof Error ? reason.message : String(reason);
+          if (attempt < 2 && /Transport closed|connection closed/i.test(message)) timer = setTimeout(() => load(attempt + 1), 500 * (attempt + 1));
+          else setError(message);
+        },
+      );
+    };
+    load(0);
+    return () => { active = false; if (timer) clearTimeout(timer); };
+  }, [agentId, proposalId, previewRequest]);
 
   const submit = () => {
     if (busy || !diff) return;
@@ -62,6 +72,7 @@ export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.i
       {diff === null && !error ? <Text style={styles.muted}>正在读取 diff…</Text> : null}
       {diff ? <View style={styles.diff}><FileTree files={parseDiffFiles(diff)} /></View> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? <TouchableOpacity accessibilityRole="button" onPress={() => { setError(""); setPreviewRequest((value) => value + 1); }} style={styles.retry}><Text style={styles.promptToggleText}>重新读取预览</Text></TouchableOpacity> : null}
     </>}
     {!done || promptToggle ? <View style={styles.actions}>
       {promptToggle}
@@ -96,4 +107,5 @@ const styles = StyleSheet.create({
   promptToggleText: { color: "#4f46e5", fontSize: 12, fontWeight: "600" },
   promptBox: { maxHeight: 320, backgroundColor: "#f8fafc", borderRadius: 8, padding: 10 },
   promptText: { color: "#374151", fontFamily: "monospace", fontSize: 11, lineHeight: 17 },
+  retry: { alignSelf: "flex-start", paddingVertical: 4 },
 });

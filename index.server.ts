@@ -7,7 +7,8 @@ import { replaceTurnSnapshot, takeTurnSnapshot } from "./server/turn-snapshots";
 import { clarifyRpc } from "./shared/clarify";
 import { clarifyDraft } from "./server/clarify";
 import { preparePiCommitRpc, piCommitStatusRpc, getPendingCommitDiffRpc, confirmPiCommitRpc, getPiCommitPreviewRpc, cancelPiCommitRpc, commitAvailabilityRpc, COMMIT_RESULT_KIND, COMMIT_PREVIEW_KIND } from "./shared/commit";
-import { preparePiCommit, confirmPiCommit, hasPendingCodeChanges, type CommitProposal } from "./server/pi-commit";
+import { preparePiCommit, confirmPiCommit, hasPendingCodeChanges } from "./server/pi-commit";
+import { loadCommitProposal, removeCommitProposal, saveCommitProposal } from "./server/commit-proposals";
 import { recentCommitContext } from "./server/commit-context";
 import { buildTaskSummary, isSessionControlCommand } from "./server/inspect";
 
@@ -16,15 +17,9 @@ export default function contribute(server: PluginServerContext) {
   const piSettings = server.registerSettings(piCommitSettings);
   const activeCommits = new Set<string>();
   const activeConfirmations = new Set<string>();
-  const proposals = new Map<string, CommitProposal>();
   const commitStatuses = new Map<string, { kind: "preparing" | "ready" | "failed"; stage: string; startedAt: number }>();
   const pendingDiffs = new Map<string, string>();
-  const pendingProposal = (agentId: string) => {
-    for (const [id, proposal] of proposals) {
-      if (Date.now() > proposal.expiresAt) proposals.delete(id);
-    }
-    return [...proposals.values()].some((proposal) => proposal.agentId === agentId);
-  };
+  const pendingProposal = async (agentId: string) => Boolean(await loadCommitProposal(agentId));
 
 
   /** ponytail: fresh read per review (settings are host-scoped and cheap); upgrade path: cache + subscribe(). */
@@ -109,7 +104,7 @@ export default function contribute(server: PluginServerContext) {
     const agent = ref.current() ?? (await ref.refresh())?.agent;
     if (!agent || agent.cwd !== cwd) throw new Error("当前 agent 的工作目录已变化，请重试");
     if (activeCommits.has(agentId)) throw new Error("Pi 已在这个会话中执行提交");
-    if (pendingProposal(agentId)) throw new Error("请先确认或取消当前提交预览");
+    if (await pendingProposal(agentId)) throw new Error("请先确认或取消当前提交预览");
     const state = await piSettings.read();
     if (state.status !== "ready") throw new Error(`Pi 配置无效: ${state.error}`);
     activeCommits.add(agentId);
@@ -123,7 +118,7 @@ export default function contribute(server: PluginServerContext) {
         const proposal = await preparePiCommit(agentId, cwd, state.values, recentCommitContext(timeline), (stage) => {
           commitStatuses.set(agentId, { kind: "preparing", stage, startedAt });
         }, (diff) => pendingDiffs.set(agentId, diff));
-        proposals.set(proposal.id, proposal);
+        await saveCommitProposal(proposal);
         try {
           await context.paseo.agents.ref(agentId).timeline.append({
             type: "plugin", id: `vibe-review-pi-preview-${proposal.id}`,
@@ -131,7 +126,7 @@ export default function contribute(server: PluginServerContext) {
             data: { proposalId: proposal.id, message: proposal.message, files: proposal.files, promptPreview: proposal.promptPreview },
           });
         } catch (error) {
-          proposals.delete(proposal.id);
+          await removeCommitProposal(agentId, proposal.id);
           throw error;
         }
         pendingDiffs.delete(agentId);
@@ -149,7 +144,11 @@ export default function contribute(server: PluginServerContext) {
 
   server.handle(piCommitStatusRpc, async ({ agentId }) => {
     const status = commitStatuses.get(agentId);
-    if (status?.kind === "ready" && !pendingProposal(agentId)) {
+    if (!status) {
+      const restored = await loadCommitProposal(agentId);
+      if (restored) return { kind: "ready" as const, stage: "提交预览已生成，请查看下方卡片并确认。", startedAt: restored.expiresAt - 10 * 60_000, diffReady: false };
+    }
+    if (status?.kind === "ready" && !await pendingProposal(agentId)) {
       const expired = { kind: "failed" as const, stage: "提交预览已过期，请重试。", startedAt: status.startedAt };
       commitStatuses.set(agentId, expired);
       return { ...expired, diffReady: false };
@@ -163,7 +162,7 @@ export default function contribute(server: PluginServerContext) {
   });
 
   server.handle(getPiCommitPreviewRpc, async ({ agentId, proposalId }, context) => {
-    const proposal = proposals.get(proposalId);
+    const proposal = await loadCommitProposal(agentId, proposalId);
     if (!proposal || proposal.agentId !== agentId || Date.now() > proposal.expiresAt) {
       const payload = await context.paseo.agents.ref(agentId).timeline.refetch();
       const items = (payload as unknown as { entries?: Array<{ item: { type?: string; kind?: string; data?: { proposalId?: string; summary?: string; ok?: boolean } } }> }).entries?.map(({ item }) => item) ?? [];
@@ -185,16 +184,16 @@ export default function contribute(server: PluginServerContext) {
 
   server.handle(cancelPiCommitRpc, async ({ agentId, proposalId }, context) => {
     if (activeConfirmations.has(proposalId)) throw new Error("正在提交，请稍候。");
-    const proposal = proposals.get(proposalId);
+    const proposal = await loadCommitProposal(agentId, proposalId);
     if (proposal?.agentId === agentId) {
-      proposals.delete(proposalId); commitStatuses.delete(agentId); pendingDiffs.delete(agentId);
+      await removeCommitProposal(agentId, proposalId); commitStatuses.delete(agentId); pendingDiffs.delete(agentId);
       await context.paseo.agents.ref(agentId).timeline.append({ type: "plugin", id: `vibe-review-pi-commit-${Date.now()}`, kind: COMMIT_RESULT_KIND, version: 1, data: { ok: false, summary: "已取消提交。", proposalId } });
     }
     return { ok: true as const };
   });
 
   server.handle(confirmPiCommitRpc, async ({ agentId, proposalId }, context) => {
-    const proposal = proposals.get(proposalId);
+    const proposal = await loadCommitProposal(agentId, proposalId);
     if (!proposal || proposal.agentId !== agentId) throw new Error("提交预览已失效，请重新生成。");
     const ref = context.paseo.agents.ref(agentId);
     const agent = ref.current() ?? (await ref.refresh())?.agent;
@@ -203,7 +202,7 @@ export default function contribute(server: PluginServerContext) {
     activeConfirmations.add(proposalId);
     try {
       const summary = await confirmPiCommit(proposal);
-      proposals.delete(proposalId);
+      await removeCommitProposal(agentId, proposalId);
       commitStatuses.delete(agentId);
       pendingDiffs.delete(agentId);
       await ref.timeline.append({ type: "plugin", id: `vibe-review-pi-commit-${Date.now()}`, kind: COMMIT_RESULT_KIND, version: 1, data: { ok: true, summary, proposalId } });
@@ -217,7 +216,7 @@ export default function contribute(server: PluginServerContext) {
     const ref = context.paseo.agents.ref(agentId);
     const agent = ref.current() ?? (await ref.refresh())?.agent;
     if (!agent?.cwd || activeCommits.has(agentId)) return { available: false };
-    if (pendingProposal(agentId)) return { available: false };
+    if (await pendingProposal(agentId)) return { available: false };
     const payload = await context.paseo.agents.ref(agentId).timeline.refetch();
     const items = (payload as unknown as { entries?: Array<{ item: { type?: string; kind?: string; data?: { scoredAt?: string } } }> }).entries?.map(({ item }) => item) ?? [];
     const latest = items.findLast((item) => item.type === "plugin" && item.kind === REVIEW_KIND);
