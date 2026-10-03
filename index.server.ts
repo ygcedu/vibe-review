@@ -128,7 +128,7 @@ export default function contribute(server: PluginServerContext) {
           await context.paseo.agents.ref(agentId).timeline.append({
             type: "plugin", id: `vibe-review-pi-preview-${proposal.id}`,
             kind: COMMIT_PREVIEW_KIND, version: 1,
-            data: { proposalId: proposal.id, message: proposal.message, files: proposal.files },
+            data: { proposalId: proposal.id, message: proposal.message, files: proposal.files, promptPreview: proposal.promptPreview },
           });
         } catch (error) {
           proposals.delete(proposal.id);

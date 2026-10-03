@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useRpc, type PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import type { z } from "zod";
 import { cancelPiCommitRpc, commitPreviewSchema, confirmPiCommitRpc, getPiCommitPreviewRpc } from "../shared/commit";
@@ -11,12 +11,13 @@ export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.i
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState("");
+  const [showPrompt, setShowPrompt] = useState(false);
   const getPreview = useRpc(getPiCommitPreviewRpc);
   const getPreviewRef = useRef(getPreview);
   getPreviewRef.current = getPreview;
   const confirm = useRpc(confirmPiCommitRpc);
   const cancel = useRpc(cancelPiCommitRpc);
-  const { proposalId, message, files } = item.data;
+  const { proposalId, message, files, promptPreview } = item.data;
   const submitted = /^已提交：([0-9a-f]{7,40})\s+([\s\S]+)$/.exec(done);
 
   useEffect(() => {
@@ -62,6 +63,12 @@ export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.i
         <TouchableOpacity onPress={submit} disabled={busy || !diff || Boolean(error)} style={[styles.confirm, (busy || !diff || error) ? styles.disabled : null]}><Text style={styles.confirmText}>{busy ? "处理中…" : "确认提交"}</Text></TouchableOpacity>
       </View>
     </>}
+    {promptPreview ? <>
+      <TouchableOpacity accessibilityRole="button" accessibilityLabel={showPrompt ? "收起 Pi 提示词" : "查看 Pi 提示词"} onPress={() => setShowPrompt((value) => !value)} style={styles.promptToggle}>
+        <Text style={styles.promptToggleText}>{showPrompt ? "收起 Pi 提示词" : "查看 Pi 提示词"}</Text>
+      </TouchableOpacity>
+      {showPrompt ? <ScrollView style={styles.promptBox} nestedScrollEnabled><Text selectable style={styles.promptText}>{promptPreview}</Text></ScrollView> : null}
+    </> : null}
   </View>;
 }
 
@@ -82,4 +89,8 @@ const styles = StyleSheet.create({
   confirm: { minHeight: 36, paddingHorizontal: 15, justifyContent: "center", borderRadius: 8, backgroundColor: "#4f46e5" },
   confirmText: { color: "#fff", fontSize: 13, fontWeight: "600" },
   disabled: { opacity: 0.55 },
+  promptToggle: { alignSelf: "flex-start", paddingVertical: 4 },
+  promptToggleText: { color: "#4f46e5", fontSize: 12, fontWeight: "600" },
+  promptBox: { maxHeight: 320, backgroundColor: "#f8fafc", borderRadius: 8, padding: 10 },
+  promptText: { color: "#374151", fontFamily: "monospace", fontSize: 11, lineHeight: 17 },
 });

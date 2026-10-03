@@ -34,6 +34,7 @@ export const commitPreviewSchema = z.object({
   proposalId: z.string(),
   message: z.string(),
   files: z.array(z.string()),
+  promptPreview: z.string().optional(),
 });
 export const COMMIT_PREVIEW_KIND = "pi-commit-preview";
 

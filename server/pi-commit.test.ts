@@ -22,6 +22,18 @@ test("Pi follows the repository's English conventional commit style", () => {
   assert.match(args.at(-1)!, /英文 Conventional Commit/);
 });
 
+test("preview prompt keeps the actual instructions while omitting diff content", () => {
+  const config = { executable: "pi", provider: "", model: "" };
+  const diff = "diff --git a/secret.ts b/secret.ts\n+const value = 42;";
+  const actual = piPreviewArgs(config, diff, ["secret.ts"], "目标：修复错误", "fix: previous").at(-1)!;
+  const visible = piPreviewArgs(config, diff, ["secret.ts"], "目标：修复错误", "fix: previous", true).at(-1)!;
+  assert.match(actual, /const value = 42/);
+  assert.doesNotMatch(visible, /const value = 42/);
+  assert.match(visible, /diff 内容已省略/);
+  assert.match(visible, /目标：修复错误/);
+  assert.match(visible, /fix: previous/);
+});
+
 test("preview is read-only; confirmation commits only selected files", async () => {
   const dir = await mkdtemp(join(tmpdir(), "vibe-review-pi-test-"));
   try {
