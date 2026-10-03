@@ -107,7 +107,7 @@ function NoWrapGutter({ rows, side, onChange, onWave }: { rows: PaneRow[]; side:
 }
 
 export function NoWrapPane({ rows, side, width, contentWidth, tokens, scrollRef, onScroll, onChange, onWave, waveBounds }: { rows: PaneRow[]; side: "before" | "after"; width: number; contentWidth: number; tokens: Map<DiffCell, HighlightToken[]>; scrollRef: RefObject<ScrollView | null>; onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void; onChange: RecordChange; onWave: RecordChange; waveBounds: WaveBounds }) {
-  const code = <ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator={false} ref={scrollRef} onScroll={onScroll} scrollEventThrottle={16} style={{ width: width - LINE_NUMBER_WIDTH }}>
+  const code = <ScrollView horizontal nestedScrollEnabled bounces={false} overScrollMode="never" showsHorizontalScrollIndicator={false} ref={scrollRef} onScroll={onScroll} scrollEventThrottle={16} style={{ width: width - LINE_NUMBER_WIDTH }}>
       <View style={{ width: contentWidth }}>
         {rows.map((row) => row.kind === "wave" ? <View key={row.key} style={{ height: WAVE_HEIGHT }} /> : row.kind === "code" ? (
           <CodeLine key={row.key} side={side} cell={row.cell} tokens={tokens.get(row.cell)} wrapLines={false} showLineNumber={false} visibleCodeWidth={width - LINE_NUMBER_WIDTH} />

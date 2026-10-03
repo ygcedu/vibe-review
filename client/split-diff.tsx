@@ -382,12 +382,12 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
         {!wrapLines ? (
         <View pointerEvents="box-none" style={[styles.codeRow, { position: "absolute", top: (Platform.OS === "web" ? viewportHeight : nativeViewportHeight) - 18, left: 0, zIndex: 3, width, height: 18 }]}>
           <View pointerEvents={Platform.OS === "web" ? "box-none" : "auto"} style={{ width: leftWidth - LINE_NUMBER_WIDTH }}>
-            {Platform.OS === "web" ? horizontalScrollbar("before", leftWidth - LINE_NUMBER_WIDTH) : <ScrollView horizontal ref={beforeFooter} onScroll={(event) => syncScroll("before", event)} scrollEventThrottle={16} style={styles.footerScroll}><View style={{ width: Math.max(leftWidth - LINE_NUMBER_WIDTH, minCodeWidths.before), height: 1 }} /></ScrollView>}
+            {Platform.OS === "web" ? horizontalScrollbar("before", leftWidth - LINE_NUMBER_WIDTH) : <ScrollView horizontal bounces={false} overScrollMode="never" ref={beforeFooter} onScroll={(event) => syncScroll("before", event)} scrollEventThrottle={16} style={styles.footerScroll}><View style={{ width: Math.max(leftWidth - LINE_NUMBER_WIDTH, minCodeWidths.before), height: 1 }} /></ScrollView>}
           </View>
           <View pointerEvents="none" style={{ width: LINE_NUMBER_WIDTH + CONNECTOR_WIDTH }} />
           <View pointerEvents="none" style={{ width: LINE_NUMBER_WIDTH }} />
           <View pointerEvents={Platform.OS === "web" ? "box-none" : "auto"} style={{ width: rightWidth - LINE_NUMBER_WIDTH }}>
-            {Platform.OS === "web" ? horizontalScrollbar("after", rightWidth - LINE_NUMBER_WIDTH) : <ScrollView horizontal ref={afterFooter} onScroll={(event) => syncScroll("after", event)} scrollEventThrottle={16} style={styles.footerScroll}><View style={{ width: Math.max(rightWidth - LINE_NUMBER_WIDTH, minCodeWidths.after), height: 1 }} /></ScrollView>}
+            {Platform.OS === "web" ? horizontalScrollbar("after", rightWidth - LINE_NUMBER_WIDTH) : <ScrollView horizontal bounces={false} overScrollMode="never" ref={afterFooter} onScroll={(event) => syncScroll("after", event)} scrollEventThrottle={16} style={styles.footerScroll}><View style={{ width: Math.max(rightWidth - LINE_NUMBER_WIDTH, minCodeWidths.after), height: 1 }} /></ScrollView>}
           </View>
         </View>
         ) : null}
