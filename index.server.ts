@@ -12,7 +12,7 @@ import { loadCommitProposal, removeCommitProposal, saveCommitProposal } from "./
 import { recentCommitContext } from "./server/commit-context";
 import { isCurrentCommitPreview, isLatestReviewTurn } from "./server/commit-availability";
 import { buildTaskSummary, isSessionControlCommand } from "./server/inspect";
-import { VERIFIER_LABEL, verifyWithPaseoProvider } from "./server/verify";
+import { isVerifierHookAgent, verifyWithPaseoProvider } from "./server/verify";
 
 export default function contribute(server: PluginServerContext) {
   const settings = server.registerSettings(llmSettings);
@@ -42,7 +42,7 @@ export default function contribute(server: PluginServerContext) {
   });
 
   server.on("agent.turn_started", async (event) => {
-    if ((event.agent as { labels?: Record<string, string> }).labels?.[VERIFIER_LABEL] === "true") return;
+    if (isVerifierHookAgent(event.agent)) return;
     try {
       const staleProposal = await loadCommitProposal(event.agent.id);
       if (staleProposal) await removeCommitProposal(event.agent.id, staleProposal.id);
@@ -61,7 +61,7 @@ export default function contribute(server: PluginServerContext) {
   });
 
   server.on("agent.turn_ended", async (event, context) => {
-    if ((event.agent as { labels?: Record<string, string> }).labels?.[VERIFIER_LABEL] === "true") return;
+    if (isVerifierHookAgent(event.agent)) return;
     console.log("[vibe-review] turn_ended", event.agent.id, event.outcome.kind);
     let started: { turnId: string | null; snapshot: WorktreeSnapshot } | undefined;
     try {

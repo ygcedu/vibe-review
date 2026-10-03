@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { AgentPermissionRequest, AgentTimelineItem } from "@getpaseo/protocol/agent-types";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
-import { isAllowedVerificationPermission, usedVerificationTool, verifyWithPaseoProvider, VERIFIER_LABEL } from "./verify.ts";
+import { isAllowedVerificationPermission, isVerifierHookAgent, usedVerificationTool, verifyWithPaseoProvider, VERIFIER_LABEL, VERIFIER_TITLE } from "./verify.ts";
+
+test("verifier lifecycle events are recognized without labels", () => {
+  assert.equal(isVerifierHookAgent({ title: VERIFIER_TITLE, parentAgentId: "parent-1" }), true);
+  assert.equal(isVerifierHookAgent({ title: VERIFIER_TITLE, parentAgentId: null }), false);
+  assert.equal(isVerifierHookAgent({ title: "Other agent", parentAgentId: "parent-1" }), false);
+});
 
 const observation = { type: "tool_call", name: "mcp__paseo__browser_snapshot", status: "completed" } as AgentTimelineItem;
 
@@ -50,10 +56,31 @@ test("browser observation is required for a passed verification", async () => {
     options: { approval_policy: "never", sandbox_mode: "danger-full-access" },
     systemPrompt: "你是独立验证员。只读检查，不得修改工作区或用户数据。",
   });
-  assert.equal(createdOptions.autoArchive, true);
+  assert.equal(createdOptions.autoArchive, undefined);
   assert.equal(archived, true);
   lastMessage = '{"status":"passed","summary":"看起来正常","evidence":[]}';
   assert.equal((await verifyWithPaseoProvider(paseo, "parent-1", config, request)).status, "unavailable");
+});
+
+test("verification resumes after a transient Paseo transport disconnect", async () => {
+  let waits = 0;
+  let archived = false;
+  const verifier = {
+    waitForFinish: async () => {
+      if (++waits === 1) throw Object.assign(new Error("Transport closed"), { code: "DAEMON_CONNECTION_LOST" });
+      return { status: "idle", lastMessage: '{"status":"passed","summary":"已检查设置页","evidence":["页面包含验证设置"]}' };
+    },
+    timeline: { refetch: async () => ({ entries: [{ item: observation }] }) },
+    archive: async () => { archived = true; },
+  };
+  const paseo = {
+    agents: { ref: () => ({ current: () => ({ workspaceId: "workspace-1" }) }) },
+    workspaces: { ref: () => ({ agents: { create: async () => verifier } }) },
+  } as unknown as PluginHandlerContext["paseo"];
+  const result = await verifyWithPaseoProvider(paseo, "parent-1", { enabled: true, provider: "codex", model: "gpt-6-sol", modeId: "full-access" }, { goal: "检查设置页", narrative: "已更新", assistantMessages: [] });
+  assert.equal(result.status, "passed");
+  assert.equal(waits, 2);
+  assert.equal(archived, true);
 });
 
 test("full-access verifier answers provider permission requests without prompting", async () => {

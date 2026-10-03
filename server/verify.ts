@@ -4,6 +4,30 @@ import type { VerificationConfig } from "../shared/settings";
 import { parseFirstJsonObject } from "./llm-response.ts";
 
 export const VERIFIER_LABEL = "vibe-review.verification";
+export const VERIFIER_TITLE = "Vibe Review · 验证";
+
+// Lifecycle hook agents expose title and parentAgentId, but not SDK labels.
+export function isVerifierHookAgent(agent: { title: string | null; parentAgentId: string | null }): boolean {
+  return agent.title === VERIFIER_TITLE && agent.parentAgentId !== null;
+}
+
+function isTransportDisconnect(error: unknown): boolean {
+  const value = error as { code?: string; message?: string } | null;
+  return value?.code === "DAEMON_CONNECTION_LOST" || /Transport (?:closed|not connected)/i.test(value?.message ?? "");
+}
+
+async function retryAfterReconnect<T>(operation: () => Promise<T>, deadline: number): Promise<T> {
+  while (true) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (!isTransportDisconnect(error)) throw error;
+      if (Date.now() >= deadline) throw new Error("与 Paseo 的连接持续中断，未能取得验证结果。", { cause: error });
+      console.warn("[vibe-review] verification transport disconnected; waiting to reconnect");
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+}
 
 /** Only observational/navigation browser tools may be approved unattended. */
 const ALLOWED_BROWSER_TOOLS = new Set([
@@ -79,17 +103,18 @@ export async function verifyWithPaseoProvider(
       systemPrompt: "你是独立验证员。只读检查，不得修改工作区或用户数据。",
     },
     parent: parentAgentId,
-    title: "Vibe Review · 验证",
+    title: VERIFIER_TITLE,
     labels: { [VERIFIER_LABEL]: "true" },
-    autoArchive: true,
     prompt,
   });
   console.log("[vibe-review] verification agent created:", agent.id, provider);
   try {
-    const deadline = Date.now() + 180_000;
-    let run = await agent.waitForFinish(180_000);
+    const deadline = Date.now() + 6 * 60_000;
+    const waitForVerifier = () => retryAfterReconnect<any>(
+      () => agent.waitForFinish(Math.max(1, deadline - Date.now())), deadline);
+    let run = await waitForVerifier();
     for (let attempts = 0; run.status === "permission" && attempts < 12 && Date.now() < deadline; attempts++) {
-      const current = (await agent.refresh())?.agent ?? agent.current();
+      const current = (await retryAfterReconnect<any>(() => agent.refresh(), deadline))?.agent ?? agent.current();
       const pending = current?.pendingPermissions ?? [];
       if (pending.length === 0) {
         // The permission event may already have been answered while the run result was in flight.
@@ -98,7 +123,7 @@ export async function verifyWithPaseoProvider(
         const fullAccess = (config.modeId.trim() || "full-access") === "full-access";
         const blocked = fullAccess ? undefined : pending.find((request: AgentPermissionRequest) => !isAllowedVerificationPermission(request));
         if (blocked) {
-          const history = await agent.timeline.refetch({ limit: 50 });
+          const history = await retryAfterReconnect<any>(() => agent.timeline.refetch({ limit: 50 }), deadline);
           const noBrowserHost = history.entries.some(({ item }: { item: AgentTimelineItem }) =>
             item.type === "tool_call" && (item.detail as { output?: { structuredContent?: { error?: { code?: string } } } } | undefined)?.output?.structuredContent?.error?.code === "browser_no_host");
           console.warn("[vibe-review] verification agent needs permission:", agent.id, blocked.name, "browserHostUnavailable=", noBrowserHost);
@@ -107,13 +132,13 @@ export async function verifyWithPaseoProvider(
             : "验证 agent 请求了需要人工授权的工具，本次未自动执行。", evidence: [], provider };
         }
         for (const request of pending) {
-          await agent.respondToPermission({ requestId: request.id, response: { behavior: "allow" } });
+          await retryAfterReconnect(() => agent.respondToPermission({ requestId: request.id, response: { behavior: "allow" } }), deadline);
         }
       }
-      run = await agent.waitForFinish(Math.max(1, deadline - Date.now()));
+      run = await waitForVerifier();
     }
     if (run.status !== "idle") return { status: "unavailable", summary: run.error || `验证任务状态：${run.status}`, evidence: [], provider };
-    const timeline = await agent.timeline.refetch({ limit: 200 });
+    const timeline = await retryAfterReconnect<any>(() => agent.timeline.refetch({ limit: 200 }), deadline);
     const items = timeline.entries.map((entry: { item: AgentTimelineItem }) => entry.item);
     if (!usedVerificationTool(items)) return { status: "unavailable", summary: "验证 agent 未实际调用 Browser 或 Computer 观察工具。", evidence: [], provider };
     const output = parseFirstJsonObject<{ status?: string; summary?: string; evidence?: unknown }>(run.lastMessage ?? "");

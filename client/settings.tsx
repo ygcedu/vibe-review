@@ -1,90 +1,90 @@
-import type { ComponentType } from "react";
+import { useState, type ComponentType } from "react";
+import { Pressable, Text, useColorScheme } from "react-native";
 import { useSettings } from "@getpaseo/plugin/client";
-import { SettingsCard, SettingsInput, SettingsRow, SettingsSwitch } from "@getpaseo/plugin/client/ui";
+import { SettingsCard, SettingsInput, SettingsRow, SettingsSection, SettingsSwitch } from "@getpaseo/plugin/client/ui";
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { llmSettings, piCommitSettings, verificationSettings } from "../shared/settings";
 
-/** 设置界面：OpenAI 兼容接口的 base url / model / api key。 */
+function SectionToggle({ expanded, onPress }: { expanded: boolean; onPress(): void }) {
+  const dark = useColorScheme() === "dark";
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={expanded ? "收起设置" : "展开设置"} onPress={onPress}
+      hitSlop={8} style={{ minHeight: 44, justifyContent: "center", paddingHorizontal: 8 }}>
+      <Text style={{ color: dark ? "#a5b4fc" : "#4338ca", fontSize: 14, fontWeight: "600" }}>
+        {expanded ? "收起" : "展开"}
+      </Text>
+    </Pressable>
+  );
+}
+
+/** Keep the main review settings visible; tuck the less frequent provider details away. */
 export const LlmSettingsScreen: ComponentType<PluginSurfaceProps> = () => {
   const settings = useSettings(llmSettings);
   const pi = useSettings(piCommitSettings);
   const verification = useSettings(verificationSettings);
+  const [showVerification, setShowVerification] = useState(false);
+  const [showPi, setShowPi] = useState(false);
 
   if (settings.status === "loading") return null;
   if (settings.status === "error" || settings.status === "invalid") {
-    return <SettingsRow label="LLM 配置" error={settings.error} />;
+    return <SettingsRow label="审核模型" error={settings.error} />;
   }
 
   const v = settings.values;
-  const patch = (values: typeof v) => {
-    void settings.save(values, settings.revision);
-  };
+  const patch = (values: typeof v) => { void settings.save(values, settings.revision); };
 
   return (
     <>
-      <SettingsCard>
-        <SettingsRow label="Base URL" hint="OpenAI 兼容的 /v1 地址" error={settings.saveError}>
-          <SettingsInput
-            label="baseUrl"
-            initialValue={v.baseUrl}
-            placeholder="http://localhost:20128/v1"
-            onChangeText={(text) => patch({ ...v, baseUrl: text })}
-          />
-        </SettingsRow>
-        <SettingsRow label="Model" hint="模型名或别名">
-          <SettingsInput
-            label="model"
-            initialValue={v.model}
-            placeholder="coding"
-            onChangeText={(text) => patch({ ...v, model: text })}
-          />
-        </SettingsRow>
-        <SettingsRow label="API Key">
-          <SettingsInput
-            label="apiKey"
-            initialValue={v.apiKey}
-            placeholder="sk-..."
-            secureTextEntry
-            onChangeText={(text) => patch({ ...v, apiKey: text })}
-          />
-        </SettingsRow>
-      </SettingsCard>
+      <SettingsSection title="审核模型" info="用于生成每轮任务总结、评估和追问建议">
+        <SettingsCard>
+          <SettingsInput label="服务地址" error={settings.saveError} initialValue={v.baseUrl}
+            placeholder="http://localhost:20128/v1" onChangeText={(baseUrl) => patch({ ...v, baseUrl })} />
+          <SettingsInput label="模型" initialValue={v.model} placeholder="coding"
+            onChangeText={(model) => patch({ ...v, model })} />
+          <SettingsInput label="API Key" initialValue={v.apiKey} placeholder="sk-..." secureTextEntry
+            onChangeText={(apiKey) => patch({ ...v, apiKey })} />
+        </SettingsCard>
+      </SettingsSection>
+
       {verification.status === "ready" ? (
-        <SettingsCard>
-          <SettingsRow label="验证任务" hint="待验证类任务结束后运行独立 Paseo Agent" error={verification.saveError}>
-            <SettingsSwitch label="启用验证" value={verification.values.enabled}
+        <SettingsSection title="独立验证" info="需要实际检查界面的任务，由单独的 Paseo Agent 验证"
+          trailing={verification.values.enabled
+            ? <SectionToggle expanded={showVerification} onPress={() => setShowVerification((value) => !value)} />
+            : undefined}>
+          <SettingsCard>
+            <SettingsSwitch label="自动验证" error={verification.saveError} value={verification.values.enabled}
               onValueChange={(enabled) => { void verification.save({ ...verification.values, enabled }, verification.revision); }} />
-          </SettingsRow>
-          <SettingsRow label="验证 Provider" hint="Paseo Provider ID；需支持 Browser 或 Computer 工具">
-            <SettingsInput label="verificationProvider" initialValue={verification.values.provider} placeholder="codex"
-              onChangeText={(provider) => { void verification.save({ ...verification.values, provider }, verification.revision); }} />
-          </SettingsRow>
-          <SettingsRow label="验证 Model" hint="所选 Provider 的模型 ID">
-            <SettingsInput label="verificationModel" initialValue={verification.values.model} placeholder="gpt-6-sol"
-              onChangeText={(model) => { void verification.save({ ...verification.values, model }, verification.revision); }} />
-          </SettingsRow>
-          <SettingsRow label="验证权限模式" hint="Provider 的模式 ID；默认 full-access。Codex 使用此模式时无需审批。">
-            <SettingsInput label="verificationModeId" initialValue={verification.values.modeId} placeholder="full-access"
-              onChangeText={(modeId) => { void verification.save({ ...verification.values, modeId }, verification.revision); }} />
-          </SettingsRow>
-        </SettingsCard>
-      ) : verification.status === "error" || verification.status === "invalid" ? <SettingsRow label="验证配置" error={verification.error} /> : null}
+            {verification.values.enabled && showVerification ? (
+              <>
+                <SettingsInput label="Provider" initialValue={verification.values.provider} placeholder="codex"
+                  onChangeText={(provider) => { void verification.save({ ...verification.values, provider }, verification.revision); }} />
+                <SettingsInput label="模型" initialValue={verification.values.model} placeholder="gpt-6-sol"
+                  onChangeText={(model) => { void verification.save({ ...verification.values, model }, verification.revision); }} />
+                <SettingsInput label="权限模式" initialValue={verification.values.modeId} placeholder="full-access"
+                  onChangeText={(modeId) => { void verification.save({ ...verification.values, modeId }, verification.revision); }} />
+              </>
+            ) : null}
+          </SettingsCard>
+        </SettingsSection>
+      ) : verification.status === "error" || verification.status === "invalid"
+        ? <SettingsSection title="独立验证"><SettingsCard><SettingsRow label="配置读取失败" error={verification.error} /></SettingsCard></SettingsSection>
+        : null}
+
       {pi.status === "ready" ? (
-        <SettingsCard>
-          <SettingsRow label="Pi 可执行文件" hint="用于 /commit；填写 pi 或绝对路径" error={pi.saveError}>
-            <SettingsInput label="piExecutable" initialValue={pi.values.executable} placeholder="pi"
-              onChangeText={(text) => { void pi.save({ ...pi.values, executable: text }, pi.revision); }} />
-          </SettingsRow>
-          <SettingsRow label="Pi Provider" hint="留空使用 Pi 默认配置">
-            <SettingsInput label="piProvider" initialValue={pi.values.provider} placeholder="例如 openai-codex"
-              onChangeText={(text) => { void pi.save({ ...pi.values, provider: text }, pi.revision); }} />
-          </SettingsRow>
-          <SettingsRow label="Pi Model" hint="留空使用 Pi 默认模型">
-            <SettingsInput label="piModel" initialValue={pi.values.model} placeholder="模型 ID"
-              onChangeText={(text) => { void pi.save({ ...pi.values, model: text }, pi.revision); }} />
-          </SettingsRow>
-        </SettingsCard>
-      ) : pi.status === "error" || pi.status === "invalid" ? <SettingsRow label="Pi 配置" error={pi.error} /> : null}
+        <SettingsSection title="Pi 提交" info="生成提交预览并确认提交时使用"
+          trailing={<SectionToggle expanded={showPi} onPress={() => setShowPi((value) => !value)} />}>
+          {showPi ? <SettingsCard>
+            <SettingsInput label="可执行文件" error={pi.saveError} initialValue={pi.values.executable} placeholder="pi"
+              onChangeText={(executable) => { void pi.save({ ...pi.values, executable }, pi.revision); }} />
+            <SettingsInput label="Provider" initialValue={pi.values.provider} placeholder="例如 openai-codex"
+              onChangeText={(provider) => { void pi.save({ ...pi.values, provider }, pi.revision); }} />
+            <SettingsInput label="模型" initialValue={pi.values.model} placeholder="留空使用 Pi 默认模型"
+              onChangeText={(model) => { void pi.save({ ...pi.values, model }, pi.revision); }} />
+          </SettingsCard> : null}
+        </SettingsSection>
+      ) : pi.status === "error" || pi.status === "invalid"
+        ? <SettingsSection title="Pi 提交"><SettingsCard><SettingsRow label="配置读取失败" error={pi.error} /></SettingsCard></SettingsSection>
+        : null}
     </>
   );
 };
