@@ -3,6 +3,7 @@ import { REVIEW_KIND, REVIEW_VERSION, reviewResultSchema, reviewAgentRpc } from 
 import { ReviewResultItem } from "./client/review";
 import { LlmSettingsScreen } from "./client/settings";
 import { createClarifyController } from "./client/clarify";
+import { MobileClarify } from "./client/mobile-clarify";
 
 export default function contribute(client: PluginClientContext) {
   const clarify = createClarifyController(client);
@@ -12,7 +13,7 @@ export default function contribute(client: PluginClientContext) {
     if (agent.workspaceId && pills.get(agent.id)?.workspaceId === agent.workspaceId) return;
     pills.get(agent.id)?.remove();
     pills.delete(agent.id);
-    if (!agent.workspaceId || lifetime.signal.aborted || typeof document === "undefined") return;
+    if (!agent.workspaceId || lifetime.signal.aborted) return;
     const registration = client.addComposerPill({
       id: "clarify-draft",
       workspaceId: agent.workspaceId,
@@ -21,7 +22,9 @@ export default function contribute(client: PluginClientContext) {
         title: "澄清表达",
         icon: "WandSparkles",
         label: "澄清表达",
-        behavior: { kind: "action", onPress: () => clarify.open(agent.id) },
+        behavior: typeof document === "undefined"
+          ? { kind: "popover", Content: (props) => <MobileClarify {...props} client={client} agentId={agent.id} /> }
+          : { kind: "action", onPress: () => clarify.open(agent.id) },
       },
     });
     pills.set(agent.id, { workspaceId: agent.workspaceId, remove: registration.remove });
