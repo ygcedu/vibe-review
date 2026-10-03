@@ -1,13 +1,14 @@
 import type { ComponentType } from "react";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
-import { useState } from "react";
-import type { PluginTimelineItemProps } from "@getpaseo/plugin/client";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRpc, type PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import { output } from "zod";
 import { reviewResultSchema } from "../shared/review";
 import { parseDiffFiles } from "./diff";
 import { FileTree } from "./file-tree";
 import { copyText } from "@getpaseo/plugin/client/react-native";
 import { fillVisibleComposer } from "./composer-fill";
+import { commitAvailabilityRpc, preparePiCommitRpc, piCommitStatusRpc, getPendingCommitDiffRpc } from "../shared/commit";
 
 type ReviewResultData = output<typeof reviewResultSchema>;
 
@@ -35,6 +36,14 @@ function formatTime(iso: string): string {
   return d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
 }
 
+const commitSteps = ["读取改动", "等待模型", "生成建议", "整理预览"];
+function commitStep(stage: string): number {
+  if (stage.includes("整理")) return 3;
+  if (stage.includes("模型已开始") || stage.includes("模型正在")) return 2;
+  if (stage.includes("Pi") || stage.includes("等待模型")) return 1;
+  return 0;
+}
+
 export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResultData>> = (
   props,
 ) => {
@@ -43,9 +52,75 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
   const drift = driftLabel[data.drift as keyof typeof driftLabel] ?? data.drift;
   const [expanded, setExpanded] = useState(false);
   const [followupFeedback, setFollowupFeedback] = useState("");
+  const [commitCwd, setCommitCwd] = useState<string | null>(null);
+  const [commitTargetCwd, setCommitTargetCwd] = useState<string | null>(null);
+  const [commitRunning, setCommitRunning] = useState(false);
+  const [commitProgress, setCommitProgress] = useState<{ kind: "preparing" | "ready" | "failed"; stage: string; startedAt: number } | null>(null);
+  const [pendingDiff, setPendingDiff] = useState<string | null>(null);
+  const pendingDiffRequested = useRef(false);
+  const checkCommit = useRpc(commitAvailabilityRpc);
+  const checkCommitRef = useRef(checkCommit);
+  checkCommitRef.current = checkCommit;
+  const preparePiCommit = useRpc(preparePiCommitRpc);
+  const getCommitStatus = useRpc(piCommitStatusRpc);
+  const getCommitStatusRef = useRef(getCommitStatus);
+  getCommitStatusRef.current = getCommitStatus;
+  const getPendingDiff = useRpc(getPendingCommitDiffRpc);
+  const getPendingDiffRef = useRef(getPendingDiff);
+  getPendingDiffRef.current = getPendingDiff;
+  useEffect(() => {
+    let active = true;
+    const refresh = () => {
+      void checkCommitRef.current({ agentId: props.agentId, scoredAt: data.scoredAt }).then(
+        (result) => { if (active) setCommitCwd(result.available ? result.cwd ?? null : null); },
+        () => { if (active) setCommitCwd(null); },
+      );
+    };
+    refresh();
+    const timer = setInterval(refresh, 15_000);
+    return () => { active = false; clearInterval(timer); };
+  }, [props.agentId, data.scoredAt]);
+  useEffect(() => {
+    if (!commitProgress) return;
+    let active = true;
+    const refresh = () => {
+      void getCommitStatusRef.current({ agentId: props.agentId }).then((status) => {
+        if (!active) return;
+        if (status.kind === "idle") {
+          setCommitProgress((current) => current?.kind === "preparing"
+            ? { kind: "failed", stage: "预览任务已中断，请重试。", startedAt: current.startedAt }
+            : null);
+          setPendingDiff(null);
+        } else {
+          const next = { kind: status.kind, stage: status.stage, startedAt: status.startedAt ?? Date.now() };
+          setCommitProgress((current) => {
+            if (current && next.startedAt < current.startedAt) return current;
+            if (current?.kind === next.kind && current.stage === next.stage && current.startedAt === next.startedAt) return current;
+            return next;
+          });
+          if (status.diffReady && !pendingDiffRequested.current) {
+            pendingDiffRequested.current = true;
+            void getPendingDiffRef.current({ agentId: props.agentId }).then(
+              (result) => { if (active) setPendingDiff(result.diff); },
+              () => { pendingDiffRequested.current = false; },
+            );
+          }
+        }
+      }, (error: unknown) => {
+        if (active) setCommitProgress({ kind: "failed", stage: error instanceof Error ? error.message : String(error), startedAt: Date.now() });
+      });
+    };
+    refresh();
+    const timer = setInterval(refresh, 2_000);
+    return () => { active = false; clearInterval(timer); };
+  }, [props.agentId, Boolean(commitProgress)]);
   const diffFiles = parseDiffFiles(data.diff);
   const totalAdded = diffFiles.reduce((total, file) => total + file.added, 0);
   const totalRemoved = diffFiles.reduce((total, file) => total + file.removed, 0);
+  const followups = data.followups ?? [];
+  const otherFollowups = commitCwd ? followups.filter((suggestion) => !/提交|commit/i.test(suggestion)) : followups;
+  const visibleFollowups = (otherFollowups.length ? otherFollowups : followups).slice(0, commitCwd ? 2 : 3);
+  const pendingDiffFiles = useMemo(() => pendingDiff ? parseDiffFiles(pendingDiff) : [], [pendingDiff]);
 
   const useFollowup = (suggestion: string) => {
     if (props.layout.platform === "web") {
@@ -56,6 +131,20 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
       () => setFollowupFeedback("已复制追问，请粘贴到输入框。"),
       () => setFollowupFeedback("复制失败，请长按文字复制。"),
     );
+  };
+
+  const startCommit = () => {
+    const cwd = commitCwd ?? commitTargetCwd;
+    if (!cwd || commitRunning || commitProgress?.kind === "preparing") return;
+    setCommitTargetCwd(cwd);
+    setPendingDiff(null);
+    pendingDiffRequested.current = false;
+    setCommitRunning(true);
+    setCommitProgress({ kind: "preparing", stage: "正在启动 Pi…", startedAt: Date.now() });
+    void preparePiCommit({ agentId: props.agentId, cwd }).then(
+      () => setCommitCwd(null),
+      (error: unknown) => setCommitProgress({ kind: "failed", stage: `无法启动 Pi：${error instanceof Error ? error.message : String(error)}`, startedAt: Date.now() }),
+    ).finally(() => setCommitRunning(false));
   };
 
   return (
@@ -140,15 +229,34 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
         </>
       ) : null}
     </View>
-    {data.followups?.length ? (
+    {commitCwd || visibleFollowups.length || commitProgress ? (
       <View style={styles.followups}>
         <Text style={styles.followupsHeading}>接下来可以问</Text>
-        {data.followups.map((suggestion, index) => (
+        {commitCwd && !commitProgress ? (
+          <TouchableOpacity activeOpacity={0.75} disabled={commitRunning} onPress={startCommit} accessibilityRole="button" accessibilityLabel="预览 Pi 提交" style={[styles.followupBubble, styles.commitBubble]}>
+            <Text style={styles.commitText}>{commitRunning ? "正在启动 Pi…" : "预览 Pi 提交"}</Text>
+            <Text style={styles.commitArrow}>↗</Text>
+          </TouchableOpacity>
+        ) : null}
+        {visibleFollowups.map((suggestion, index) => (
           <TouchableOpacity key={`${index}-${suggestion}`} activeOpacity={0.75} onPress={() => useFollowup(suggestion)} accessibilityRole="button" accessibilityLabel={`${props.layout.platform === "web" ? "填入" : "复制"}追问：${suggestion}`} style={styles.followupBubble}>
             <Text style={styles.followupText}>{suggestion}</Text>
             <Text style={styles.followupArrow}>↗</Text>
           </TouchableOpacity>
         ))}
+        {commitProgress ? <View style={styles.commitProgress}>
+          {commitProgress.kind === "preparing" ? <View style={styles.commitSteps}>
+            {commitSteps.map((step, index) => <Text key={step} style={[styles.commitStep, index === commitStep(commitProgress.stage) && styles.commitStepActive, index < commitStep(commitProgress.stage) && styles.commitStepDone]}>{index + 1}. {step}</Text>)}
+          </View> : null}
+          <Text style={[styles.followupFeedback, commitProgress.kind === "failed" && styles.commitError]}>
+            {commitProgress.kind === "preparing" ? `准备中 · ${commitProgress.stage} · 已等待 ${Math.floor((Date.now() - commitProgress.startedAt) / 1000)} 秒` : commitProgress.stage}
+          </Text>
+          {commitProgress.kind === "failed" && (commitCwd || commitTargetCwd) ? <TouchableOpacity accessibilityRole="button" accessibilityLabel="重试 Pi 提交预览" onPress={startCommit} style={styles.retryButton}><Text style={styles.retryText}>重试</Text></TouchableOpacity> : null}
+        </View> : null}
+        {pendingDiffFiles.length && commitProgress?.kind !== "ready" ? <View style={styles.pendingDiffBox}>
+          <Text style={styles.pendingDiffHeading}>当前待提交 diff · {pendingDiffFiles.length} 个候选文件</Text>
+          <FileTree files={pendingDiffFiles} />
+        </View> : null}
         {followupFeedback ? <Text style={styles.followupFeedback}>{followupFeedback}</Text> : null}
       </View>
     ) : null}
@@ -237,7 +345,20 @@ const styles = StyleSheet.create({
   followups: { alignItems: "flex-start", gap: 7, paddingHorizontal: 2 },
   followupsHeading: { color: "#6b7280", fontSize: 12, fontWeight: "600", marginBottom: 1 },
   followupBubble: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 10, maxWidth: "90%", minHeight: 38, paddingHorizontal: 13, paddingVertical: 9, borderRadius: 10, backgroundColor: "#fff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#d8dee6" },
+  commitBubble: { backgroundColor: "#eef2ff", borderColor: "#c7d2fe" },
+  commitText: { color: "#3730a3", fontSize: 13, lineHeight: 19, fontWeight: "600" },
+  commitArrow: { color: "#6366f1", fontSize: 14, lineHeight: 19 },
   followupText: { color: "#1f2937", fontSize: 13, lineHeight: 19, fontWeight: "500", flexShrink: 1 },
   followupArrow: { color: "#9ca3af", fontSize: 14, lineHeight: 19 },
   followupFeedback: { color: "#6b7280", fontSize: 11 },
+  commitError: { color: "#b91c1c" },
+  commitProgress: { gap: 6 },
+  commitSteps: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  commitStep: { color: "#9ca3af", fontSize: 11 },
+  commitStepActive: { color: "#3730a3", fontWeight: "700" },
+  commitStepDone: { color: "#6b7280" },
+  retryButton: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, backgroundColor: "#eef2ff" },
+  retryText: { color: "#3730a3", fontSize: 12, fontWeight: "600" },
+  pendingDiffBox: { alignSelf: "stretch", borderRadius: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: "#d8dee6", backgroundColor: "#fff", paddingVertical: 6 },
+  pendingDiffHeading: { color: "#374151", fontSize: 12, fontWeight: "600", paddingHorizontal: 12, paddingVertical: 5 },
 });

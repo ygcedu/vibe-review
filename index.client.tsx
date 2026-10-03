@@ -4,6 +4,9 @@ import { ReviewResultItem } from "./client/review";
 import { LlmSettingsScreen } from "./client/settings";
 import { createClarifyController } from "./client/clarify";
 import { MobileClarify } from "./client/mobile-clarify";
+import { COMMIT_RESULT_KIND, COMMIT_PREVIEW_KIND, commitResultSchema, commitPreviewSchema, preparePiCommitRpc } from "./shared/commit";
+import { CommitResultItem } from "./client/commit-result";
+import { CommitPreviewItem } from "./client/commit-preview";
 
 export default function contribute(client: PluginClientContext) {
   const clarify = createClarifyController(client);
@@ -48,6 +51,26 @@ export default function contribute(client: PluginClientContext) {
     version: REVIEW_VERSION,
     schema: reviewResultSchema,
     Component: ReviewResultItem,
+  });
+  client.addTimelineRenderer({ kind: COMMIT_RESULT_KIND, version: 1, schema: commitResultSchema, Component: CommitResultItem });
+  client.addTimelineRenderer({ kind: COMMIT_PREVIEW_KIND, version: 1, schema: commitPreviewSchema, Component: CommitPreviewItem });
+
+  const commit = async (agent: { id: string; cwd: string }, rpc: (contract: typeof preparePiCommitRpc, input: { agentId: string; cwd: string }) => Promise<unknown>) => {
+    await rpc(preparePiCommitRpc, { agentId: agent.id, cwd: agent.cwd });
+  };
+  client.addSlashCommand({
+    name: "commit",
+    description: "预览 Pi 拟定的提交说明和文件 diff，确认后提交",
+    argumentHint: "",
+    context: "agent",
+    async onSubmit({ agent, rpc }) { await commit(agent, rpc); },
+  });
+  client.addCommandCenterItem({
+    id: "vibe-review-pi-commit",
+    title: "预览 Pi 提交",
+    icon: "GitCommitHorizontal",
+    context: "agent",
+    async onSelect({ agent, rpc }) { await commit(agent, rpc); },
   });
 
   client.addCommandCenterItem({

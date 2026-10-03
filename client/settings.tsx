@@ -2,11 +2,12 @@ import type { ComponentType } from "react";
 import { useSettings } from "@getpaseo/plugin/client";
 import { SettingsCard, SettingsInput, SettingsRow } from "@getpaseo/plugin/client/ui";
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
-import { llmSettings } from "../shared/settings";
+import { llmSettings, piCommitSettings } from "../shared/settings";
 
 /** 设置界面：OpenAI 兼容接口的 base url / model / api key。 */
 export const LlmSettingsScreen: ComponentType<PluginSurfaceProps> = () => {
   const settings = useSettings(llmSettings);
+  const pi = useSettings(piCommitSettings);
 
   if (settings.status === "loading") return null;
   if (settings.status === "error" || settings.status === "invalid") {
@@ -47,6 +48,22 @@ export const LlmSettingsScreen: ComponentType<PluginSurfaceProps> = () => {
           />
         </SettingsRow>
       </SettingsCard>
+      {pi.status === "ready" ? (
+        <SettingsCard>
+          <SettingsRow label="Pi 可执行文件" hint="用于 /commit；填写 pi 或绝对路径" error={pi.saveError}>
+            <SettingsInput label="piExecutable" initialValue={pi.values.executable} placeholder="pi"
+              onChangeText={(text) => { void pi.save({ ...pi.values, executable: text }, pi.revision); }} />
+          </SettingsRow>
+          <SettingsRow label="Pi Provider" hint="留空使用 Pi 默认配置">
+            <SettingsInput label="piProvider" initialValue={pi.values.provider} placeholder="例如 openai-codex"
+              onChangeText={(text) => { void pi.save({ ...pi.values, provider: text }, pi.revision); }} />
+          </SettingsRow>
+          <SettingsRow label="Pi Model" hint="留空使用 Pi 默认模型">
+            <SettingsInput label="piModel" initialValue={pi.values.model} placeholder="模型 ID"
+              onChangeText={(text) => { void pi.save({ ...pi.values, model: text }, pi.revision); }} />
+          </SettingsRow>
+        </SettingsCard>
+      ) : pi.status === "error" || pi.status === "invalid" ? <SettingsRow label="Pi 配置" error={pi.error} /> : null}
     </>
   );
 };

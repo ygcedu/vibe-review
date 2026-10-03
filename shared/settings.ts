@@ -19,3 +19,16 @@ export const llmSettings: SettingsDefinition<typeof llmConfigSchema> = defineSet
   version: 1,
   schema: llmConfigSchema,
 });
+
+export const piCommitConfigSchema = z.object({
+  executable: z.string().default("pi"),
+  provider: z.string().default(""),
+  model: z.string().default(""),
+});
+export type PiCommitConfig = z.infer<typeof piCommitConfigSchema>;
+export const piCommitSettings = defineSettings({
+  id: "vibe-review-pi-commit",
+  scope: "host",
+  version: 1,
+  schema: piCommitConfigSchema,
+});
