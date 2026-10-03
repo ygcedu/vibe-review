@@ -46,29 +46,31 @@ export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.i
     ).finally(() => setBusy(false));
   };
 
+  const promptToggle = promptPreview ? <TouchableOpacity accessibilityRole="button" accessibilityLabel={showPrompt ? "收起 commit 任务提示词" : "查看 commit 任务提示词"} onPress={() => setShowPrompt((value) => !value)} style={styles.promptToggle}>
+    <Text style={styles.promptToggleText}>{showPrompt ? "收起 commit 任务提示词" : "查看 commit 任务提示词"}</Text>
+  </TouchableOpacity> : null;
+
   return <View style={styles.card}>
     {done ? submitted ? <>
       <Text selectable style={styles.done}>已提交 · {submitted[1]}</Text>
       <Text selectable style={styles.doneMessage}>{submitted[2]}</Text>
     </> : <Text selectable style={styles.done}>{done}</Text> : <>
-      <Text style={styles.heading}>确认 Pi 提交</Text>
+      <Text style={styles.heading}>提交预览</Text>
       <Text style={styles.label}>Commit message</Text>
       <Text selectable style={styles.message}>{message}</Text>
       <Text style={styles.files}>{files.length} 个文件 · 请展开查看具体 diff</Text>
       {diff === null && !error ? <Text style={styles.muted}>正在读取 diff…</Text> : null}
       {diff ? <View style={styles.diff}><FileTree files={parseDiffFiles(diff)} /></View> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
-      <View style={styles.actions}>
+    </>}
+    {!done || promptToggle ? <View style={styles.actions}>
+      {promptToggle}
+      {!done ? <View style={styles.actionButtons}>
         <TouchableOpacity onPress={dismiss} disabled={busy} style={styles.cancel}><Text style={styles.cancelText}>取消</Text></TouchableOpacity>
         <TouchableOpacity onPress={submit} disabled={busy || !diff || Boolean(error)} style={[styles.confirm, (busy || !diff || error) ? styles.disabled : null]}><Text style={styles.confirmText}>{busy ? "处理中…" : "确认提交"}</Text></TouchableOpacity>
-      </View>
-    </>}
-    {promptPreview ? <>
-      <TouchableOpacity accessibilityRole="button" accessibilityLabel={showPrompt ? "收起 Pi 提示词" : "查看 Pi 提示词"} onPress={() => setShowPrompt((value) => !value)} style={styles.promptToggle}>
-        <Text style={styles.promptToggleText}>{showPrompt ? "收起 Pi 提示词" : "查看 Pi 提示词"}</Text>
-      </TouchableOpacity>
-      {showPrompt ? <ScrollView style={styles.promptBox} nestedScrollEnabled><Text selectable style={styles.promptText}>{promptPreview}</Text></ScrollView> : null}
-    </> : null}
+      </View> : null}
+    </View> : null}
+    {showPrompt && promptPreview ? <ScrollView style={styles.promptBox} nestedScrollEnabled><Text selectable style={styles.promptText}>{promptPreview}</Text></ScrollView> : null}
   </View>;
 }
 
@@ -83,7 +85,8 @@ const styles = StyleSheet.create({
   error: { color: "#b91c1c", fontSize: 12 },
   done: { color: "#166534", fontSize: 13 },
   doneMessage: { color: "#166534", fontSize: 13, lineHeight: 20 },
-  actions: { flexDirection: "row", justifyContent: "flex-end", gap: 8 },
+  actions: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 },
+  actionButtons: { flexDirection: "row", gap: 8, marginLeft: "auto" },
   cancel: { minHeight: 36, paddingHorizontal: 15, justifyContent: "center", borderRadius: 8, backgroundColor: "#f3f4f6" },
   cancelText: { color: "#374151", fontSize: 13, fontWeight: "600" },
   confirm: { minHeight: 36, paddingHorizontal: 15, justifyContent: "center", borderRadius: 8, backgroundColor: "#4f46e5" },
