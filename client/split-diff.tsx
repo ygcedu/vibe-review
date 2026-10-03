@@ -380,7 +380,7 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
         {verticalScrollbar("before", 0)}
         {verticalScrollbar("after", width - 8)}
         {!wrapLines ? (
-        <View pointerEvents={Platform.OS === "web" ? "box-none" : "auto"} style={[styles.codeRow, Platform.OS === "web" ? { position: "absolute", top: viewportHeight - 18, left: 0, zIndex: 3, width, height: 18 } : { width }]}>
+        <View pointerEvents="box-none" style={[styles.codeRow, { position: "absolute", top: (Platform.OS === "web" ? viewportHeight : nativeViewportHeight) - 18, left: 0, zIndex: 3, width, height: 18 }]}>
           <View pointerEvents={Platform.OS === "web" ? "box-none" : "auto"} style={{ width: leftWidth - LINE_NUMBER_WIDTH }}>
             {Platform.OS === "web" ? horizontalScrollbar("before", leftWidth - LINE_NUMBER_WIDTH) : <ScrollView horizontal ref={beforeFooter} onScroll={(event) => syncScroll("before", event)} scrollEventThrottle={16} style={styles.footerScroll}><View style={{ width: Math.max(leftWidth - LINE_NUMBER_WIDTH, minCodeWidths.before), height: 1 }} /></ScrollView>}
           </View>
@@ -408,7 +408,7 @@ const styles = StyleSheet.create({
   horizontalThumb: { position: "absolute", bottom: 2, height: 6, borderRadius: 3, cursor: "pointer" },
   leftVerticalScroll: { direction: "rtl" },
   leftVerticalContent: { direction: "ltr" },
-  footerScroll: { height: 18, backgroundColor: "#f8fafc" },
+  footerScroll: { height: 18 },
   connector: { width: CONNECTOR_WIDTH, overflow: "hidden", backgroundColor: "#fff", position: "relative" },
   connectorDrawing: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, pointerEvents: "none" },
   connectorLine: { position: "absolute", top: 0, bottom: 0, left: CONNECTOR_WIDTH / 2, width: 1, backgroundColor: "rgba(71,85,105,0.18)" },
