@@ -119,7 +119,7 @@ async function runReview(
     );
   } catch (error) {
     console.error("[vibe-review] LLM distill failed, falling back to raw task:", error);
-    distilled = { goal: summary.task.slice(0, 80) || "完成用户任务", drifts: [], narrative: "", result: "unknown", promptNoDiff: "" };
+    distilled = { goal: summary.task.slice(0, 80) || "完成用户任务", drifts: [], narrative: "", result: "unknown", followups: ["请确认本轮任务是否已经完成；如有遗漏，请继续处理并说明结果。"], promptNoDiff: "" };
   }
 
   // 中断信号（工具卡 running / turn failed / canceled）是确定的事实，不靠 LLM 猜；
@@ -155,13 +155,14 @@ async function runReview(
         result: distilled.result,
         drifts: distilled.drifts,
         narrative: distilled.narrative,
+        followups: distilled.followups,
         diff: lastTurnDiff || undefined,
         diffIncomplete,
         detail: distilled.promptNoDiff,
       },
     });
     console.log(
-      `[vibe-review] appended review: verdict=${result.verdict} completed=${result.completed} drift=${result.drift} seq=${appendResult.seq}`,
+      `[vibe-review] appended review: verdict=${result.verdict} completed=${result.completed} drift=${result.drift} followups=${distilled.followups.length} seq=${appendResult.seq}`,
     );
   } catch (error) {
     console.error("[vibe-review] timeline append failed:", error);

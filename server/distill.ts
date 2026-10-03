@@ -1,7 +1,8 @@
 import type { LlmConfig } from "../shared/settings";
+import { parseFirstJsonObject } from "./llm-response.ts";
 
-/** 解析 LLM 的四行文本（goal/drifts/narrative/result），容错全角冒号、ASCII 冒号与多余空行。 */
-function parseDistillText(text: string): { goal: string; drifts: string; narrative: string; result: string } {
+/** 解析 LLM 的固定字段，容错全角冒号与多余空行。 */
+function parseDistillText(text: string): { goal: string; drifts: string; narrative: string; result: string; followups: string[] } {
   // 全角冒号在 key 位置归一成 ASCII，让 grab 只处理一种冒号
   const norm = text.replace(/\r/g, "").replace(/([A-Za-z]+)：/g, "$1:");
   const grab = (key: string, nextKey?: string): string => {
@@ -19,8 +20,21 @@ function parseDistillText(text: string): { goal: string; drifts: string; narrati
     goal: grab("goal", "drifts"),
     drifts: grab("drifts", "narrative"),
     narrative: grab("narrative", "result"),
-    result: grab("result"),
+    result: grab("result", "followups"),
+    followups: parseFollowups(grab("followups")),
   };
+}
+
+function parseFollowups(raw: string): string[] {
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (!Array.isArray(value)) return [];
+    return [...new Set(value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean))]
+      .slice(0, 3)
+      .map((item) => item.slice(0, 160));
+  } catch {
+    return [];
+  }
 }
 
 export interface DistilledTask {
@@ -32,6 +46,8 @@ export interface DistilledTask {
   narrative: string;
   /** 本轮最终结果：done（正常交付）/ partial（部分完成）/ none（未完成/中断）。 */
   result: "done" | "partial" | "none" | "unknown";
+  /** 提供给用户选择的下一条消息建议，默认只给最值得问的一条。 */
+  followups: string[];
   /** 展示用：同 prompt，但去掉 diff 原文一节（卡片展开详情）。 */
   promptNoDiff: string;
 }
@@ -52,11 +68,12 @@ export function buildDistillPrompt(
   const assistantText = assistantMessages.join("\n");
 
   return [
-    "你是对话审核助手。总结这轮任务、agent 执行过程和结果。严格按下面的固定格式输出四行，不要 JSON、不要 markdown、不要其它解释：",
+    "你是对话审核助手。总结这轮任务、agent 执行过程和结果。严格按下面的固定格式输出五个字段，不要 markdown、不要其它解释：",
     "goal: 结合最近几轮上下文，最新一条用户消息里用户真正要解决什么问题（1 句话，≤40 字）",
     "drifts: agent 做了哪些与目标无关的改动（逗号分隔，没有则写 无）",
     "narrative: 4-6 句中文客观描述「这轮要解决什么 → agent 具体做了什么（改了哪些文件、跑了什么命令）→ 结果如何 → 中间遇到哪些报错/失败、是否修复 → 结束时是正常交付还是中断」，只陈述事实不评价",
     "result: 本轮最终结果，只填一个词：done（正常交付、目标达成）/ partial（部分完成，还有遗漏）/ none（未完成、异常中断或 agent 断开未回复）；信息不足填 unknown",
+    "followups: 给用户可直接发送的后续提问或指令，输出 JSON 字符串数组。优先只给最有价值的 1 条；仅当有彼此独立且重要的后续方向时给 2–3 条。必须基于本轮事实，不编造新需求，不重复已完成任务。",
     "",
     "<user_messages>",
     userMessages.map((m, i) => `${i + 1}. ${m}`).join("\n") || "(无)",
@@ -72,11 +89,12 @@ export function buildDistillPrompt(
     signals.join("；") || "(未检测到)",
     "</interruption_signals>",
     "",
-    '固定输出格式（四行，冒号后用英文半角冒号+空格）：',
+    '固定输出格式（五个字段，冒号后用英文半角冒号+空格）：',
     'goal: ...',
     'drifts: ...',
     'narrative: ...',
     'result: ...',
+    'followups: ["..."]',
   ].join("\n");
 }
 
@@ -119,16 +137,16 @@ export async function distillTask(
     body: JSON.stringify({
       model: config.model,
       messages: [{ role: "user", content: prompt }],
-      max_tokens: 500,
+      max_tokens: 750,
       temperature: 0.1,
     }),
   });
   if (!res.ok) throw new Error(`LLM distill HTTP ${res.status}`);
   const raw = await res.text();
   // Response body may be truncated by SSE residue; take only the first JSON object.
-  const data = JSON.parse(raw.slice(0, raw.indexOf("data:")) || raw) as {
+  const data = parseFirstJsonObject<{
     choices?: Array<{ message?: { content?: string } }>;
-  };
+  }>(raw);
   const text = data.choices?.[0]?.message?.content ?? "";
   const fields = parseDistillText(text);
   if (!fields.goal && !fields.narrative) {
@@ -137,6 +155,7 @@ export async function distillTask(
       drifts: [],
       narrative: "",
       result: "unknown",
+      followups: ["请确认本轮任务是否已经完成；如有遗漏，请继续处理并说明结果。"],
       promptNoDiff,
     };
   }
@@ -153,6 +172,9 @@ export async function distillTask(
     drifts,
     narrative: fields.narrative,
     result,
+    followups: fields.followups.length ? fields.followups : [result === "done"
+      ? "请在实际使用中验证这次结果，并指出还需要调整的地方。"
+      : "请继续完成本轮尚未完成的部分，并说明验证结果。"],
     promptNoDiff,
   };
 }

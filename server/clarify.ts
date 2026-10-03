@@ -1,4 +1,5 @@
 import type { LlmConfig } from "../shared/settings";
+import { parseFirstJsonObject } from "./llm-response.ts";
 
 type Result = { status: "suggested" | "clear" | "uncertain"; suggestion: string; reason: string };
 
@@ -26,9 +27,9 @@ export async function clarifyDraft(config: LlmConfig, text: string, context: str
   if (!response.ok) throw new Error(`措辞建议请求失败（HTTP ${response.status}）`);
   const responseText = await response.text();
   // Some OpenAI-compatible endpoints append SSE residue after the first JSON response.
-  const body = JSON.parse(responseText.slice(0, responseText.indexOf("data:")) || responseText) as {
+  const body = parseFirstJsonObject<{
     choices?: Array<{ message?: { content?: string } }>;
-  };
+  }>(responseText);
   const raw = body.choices?.[0]?.message?.content?.trim() ?? "";
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");

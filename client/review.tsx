@@ -6,6 +6,8 @@ import { output } from "zod";
 import { reviewResultSchema } from "../shared/review";
 import { parseDiffFiles } from "./diff";
 import { FileTree } from "./file-tree";
+import { copyText } from "@getpaseo/plugin/client/react-native";
+import { fillVisibleComposer } from "./composer-fill";
 
 type ReviewResultData = output<typeof reviewResultSchema>;
 
@@ -40,11 +42,24 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
   const v = verdictStyle[data.verdict];
   const drift = driftLabel[data.drift as keyof typeof driftLabel] ?? data.drift;
   const [expanded, setExpanded] = useState(false);
+  const [followupFeedback, setFollowupFeedback] = useState("");
   const diffFiles = parseDiffFiles(data.diff);
   const totalAdded = diffFiles.reduce((total, file) => total + file.added, 0);
   const totalRemoved = diffFiles.reduce((total, file) => total + file.removed, 0);
 
+  const useFollowup = (suggestion: string) => {
+    if (props.layout.platform === "web") {
+      setFollowupFeedback(fillVisibleComposer(suggestion) ? "已填入输入框" : "无法确定当前输入框，请先关闭其他会话分栏。" );
+      return;
+    }
+    void copyText(suggestion).then(
+      () => setFollowupFeedback("已复制追问，请粘贴到输入框。"),
+      () => setFollowupFeedback("复制失败，请长按文字复制。"),
+    );
+  };
+
   return (
+    <View style={styles.reviewGroup}>
     <View style={[styles.container, { backgroundColor: v.bg }]}>
       <View style={styles.header}>
         <Text style={[styles.title, { color: v.text }]}>
@@ -125,14 +140,26 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
         </>
       ) : null}
     </View>
+    {data.followups?.length ? (
+      <View style={styles.followups}>
+        <Text style={styles.followupsHeading}>接下来可以问</Text>
+        {data.followups.map((suggestion, index) => (
+          <TouchableOpacity key={`${index}-${suggestion}`} activeOpacity={0.75} onPress={() => useFollowup(suggestion)} accessibilityRole="button" accessibilityLabel={`${props.layout.platform === "web" ? "填入" : "复制"}追问：${suggestion}`} style={styles.followupBubble}>
+            <Text style={styles.followupText}>{suggestion}</Text>
+          </TouchableOpacity>
+        ))}
+        {followupFeedback ? <Text style={styles.followupFeedback}>{followupFeedback}</Text> : null}
+      </View>
+    ) : null}
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
+  reviewGroup: { marginVertical: 4, gap: 8 },
   container: {
     borderRadius: 8,
     padding: 12,
-    marginVertical: 4,
     gap: 6,
   },
   header: {
@@ -206,4 +233,9 @@ const styles = StyleSheet.create({
     opacity: 0.85,
     fontFamily: "monospace",
   },
+  followups: { alignItems: "flex-start", gap: 6, paddingHorizontal: 2 },
+  followupsHeading: { color: "#6b7280", fontSize: 11, fontWeight: "600" },
+  followupBubble: { alignSelf: "flex-start", maxWidth: "90%", paddingHorizontal: 12, paddingVertical: 9, borderRadius: 9, backgroundColor: "#f3f4f6", borderWidth: StyleSheet.hairlineWidth, borderColor: "#d1d5db" },
+  followupText: { color: "#374151", fontSize: 12, lineHeight: 18 },
+  followupFeedback: { color: "#6b7280", fontSize: 11 },
 });
