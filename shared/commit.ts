@@ -41,7 +41,7 @@ export const COMMIT_PREVIEW_KIND = "pi-commit-preview";
 export const getPiCommitPreviewRpc = defineRpc({
   name: "vibe-review.get-pi-commit-preview",
   input: z.object({ agentId: z.string(), proposalId: z.string() }),
-  output: z.object({ diff: z.string(), result: z.string().optional() }),
+  output: z.object({ state: z.enum(["pending", "finished", "stale"]), diff: z.string().optional(), result: z.string().optional() }),
 });
 
 export const cancelPiCommitRpc = defineRpc({

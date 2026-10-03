@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
-import { useRpc, type PluginTimelineItemProps } from "@getpaseo/plugin/client";
+import { usePaseo, useRpc, type PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import type { z } from "zod";
 import { cancelPiCommitRpc, commitPreviewSchema, confirmPiCommitRpc, getPiCommitPreviewRpc } from "../shared/commit";
 import { parseDiffFiles } from "./diff";
@@ -13,6 +13,9 @@ export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.i
   const [done, setDone] = useState("");
   const [showPrompt, setShowPrompt] = useState(false);
   const [previewRequest, setPreviewRequest] = useState(0);
+  const [previewState, setPreviewState] = useState<"loading" | "pending" | "finished" | "stale" | "unavailable">("loading");
+  const [messageFocused, setMessageFocused] = useState(false);
+  const paseo = usePaseo();
   const getPreview = useRpc(getPiCommitPreviewRpc);
   const getPreviewRef = useRef(getPreview);
   getPreviewRef.current = getPreview;
@@ -28,12 +31,18 @@ export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.i
     let timer: ReturnType<typeof setTimeout> | undefined;
     const load = (attempt: number) => {
       void getPreviewRef.current({ agentId, proposalId }).then(
-        (result) => { if (active) { setError(""); if (result.result) setDone(result.result); else setDiff(result.diff); } },
+        (result) => {
+          if (!active) return;
+          setError("");
+          setPreviewState(result.state);
+          if (result.state === "finished") setDone(result.result ?? "已结束提交预览。");
+          if (result.state === "pending") setDiff(result.diff ?? null);
+        },
         (reason: unknown) => {
           if (!active) return;
           const message = reason instanceof Error ? reason.message : String(reason);
           if (attempt < 2 && /Transport closed|connection closed/i.test(message)) timer = setTimeout(() => load(attempt + 1), 500 * (attempt + 1));
-          else setError(message);
+          else { setPreviewState("unavailable"); setError(message); }
         },
       );
     };
@@ -41,11 +50,26 @@ export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.i
     return () => { active = false; if (timer) clearTimeout(timer); };
   }, [agentId, proposalId, previewRequest]);
 
+  useEffect(() => {
+    if (previewState !== "pending" && previewState !== "finished") return;
+    let active = true;
+    const subscription = paseo.agents.ref(agentId).timeline.subscribe(({ event }: { event: { type: string; item?: { type: string } } }) => {
+      if (event.type === "turn_started" || (event.type === "timeline" && event.item?.type === "user_message")) setPreviewState("stale");
+    });
+    // Recheck after subscribing so a turn started between the first RPC and
+    // subscription readiness cannot leave an old preview visible.
+    void subscription.ready.then(() => getPreviewRef.current({ agentId, proposalId })).then(
+      (result: { state: "pending" | "finished" | "stale" }) => { if (active && result.state === "stale") setPreviewState("stale"); },
+      () => { if (active) setPreviewState("unavailable"); },
+    );
+    return () => { active = false; subscription(); };
+  }, [paseo, agentId, proposalId, previewState]);
+
   const submit = () => {
-    if (busy || !diff || !validMessage) return;
+    if (busy || previewState !== "pending" || !diff || !validMessage) return;
     setBusy(true);
     void confirm({ agentId, proposalId, message: editedMessage.trim() }).then(
-      (result) => setDone(`已提交：${result.summary}`),
+      (result) => { setDone(`已提交：${result.summary}`); setPreviewState("finished"); },
       (reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason)),
     ).finally(() => setBusy(false));
   };
@@ -53,7 +77,7 @@ export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.i
     if (busy) return;
     setBusy(true);
     void cancel({ agentId, proposalId }).then(
-      () => setDone("已取消提交。"),
+      () => { setDone("已取消提交。"); setPreviewState("finished"); },
       (reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason)),
     ).finally(() => setBusy(false));
   };
@@ -62,6 +86,8 @@ export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.i
     <Text style={styles.promptToggleText}>{showPrompt ? "收起 commit 任务提示词" : "查看 commit 任务提示词"}</Text>
   </TouchableOpacity> : null;
 
+  if (previewState === "loading" || previewState === "stale" || previewState === "unavailable") return null;
+
   return <View style={styles.card}>
     {done ? submitted ? <>
       <Text selectable style={styles.done}>已提交 · {submitted[1]}</Text>
@@ -69,7 +95,7 @@ export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.i
     </> : <Text selectable style={styles.done}>{done}</Text> : <>
       <Text style={styles.heading}>提交预览</Text>
       <Text style={styles.label}>Commit message</Text>
-      <TextInput accessibilityLabel="Commit message" value={editedMessage} onChangeText={setEditedMessage} editable={!busy} maxLength={80} selectTextOnFocus style={styles.messageInput} />
+      <TextInput accessibilityLabel="Commit message" value={editedMessage} onChangeText={setEditedMessage} onFocus={() => setMessageFocused(true)} onBlur={() => setMessageFocused(false)} editable={!busy} maxLength={80} selectTextOnFocus style={[styles.messageInput, messageFocused && styles.messageInputFocused]} />
       {!validMessage ? <Text style={styles.error}>请输入不超过 80 个字符的提交标题。</Text> : null}
       <Text style={styles.files}>{files.length} 个文件 · 请展开查看具体 diff</Text>
       {diff === null && !error ? <Text style={styles.muted}>正在读取 diff…</Text> : null}
@@ -92,7 +118,8 @@ const styles = StyleSheet.create({
   card: { alignSelf: "stretch", backgroundColor: "#fff", borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: "#d8dee6", padding: 14, gap: 10 },
   heading: { color: "#111827", fontSize: 15, fontWeight: "700" },
   label: { color: "#6b7280", fontSize: 11, fontWeight: "600" },
-  messageInput: { color: "#1f2937", fontSize: 13, lineHeight: 19, borderWidth: StyleSheet.hairlineWidth, borderColor: "#d8dee6", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8 },
+  messageInput: { color: "#1f2937", fontSize: 13, lineHeight: 19, borderWidth: 1, borderColor: "#d8dee6", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, outlineWidth: 0 },
+  messageInputFocused: { borderColor: "#15803d" },
   files: { color: "#6b7280", fontSize: 12 },
   diff: { backgroundColor: "#f8fafc", borderRadius: 8, overflow: "hidden" },
   muted: { color: "#6b7280", fontSize: 12 },

@@ -10,7 +10,7 @@ import { preparePiCommitRpc, piCommitStatusRpc, getPendingCommitDiffRpc, confirm
 import { preparePiCommit, confirmPiCommit, hasPendingCodeChanges } from "./server/pi-commit";
 import { loadCommitProposal, removeCommitProposal, saveCommitProposal } from "./server/commit-proposals";
 import { recentCommitContext } from "./server/commit-context";
-import { isLatestReviewTurn } from "./server/commit-availability";
+import { isCurrentCommitPreview, isLatestReviewTurn } from "./server/commit-availability";
 import { buildTaskSummary, isSessionControlCommand } from "./server/inspect";
 
 export default function contribute(server: PluginServerContext) {
@@ -35,6 +35,14 @@ export default function contribute(server: PluginServerContext) {
   });
 
   server.on("agent.turn_started", async (event) => {
+    try {
+      const staleProposal = await loadCommitProposal(event.agent.id);
+      if (staleProposal) await removeCommitProposal(event.agent.id, staleProposal.id);
+    } catch (error) {
+      console.warn("[vibe-review] stale Pi preview cleanup failed:", error);
+    }
+    commitStatuses.delete(event.agent.id);
+    pendingDiffs.delete(event.agent.id);
     try {
       const snapshot = await captureWorktree(event.agent.cwd);
       await replaceTurnSnapshot(event.agent.id, { turnId: event.turnId, snapshot });
@@ -106,6 +114,7 @@ export default function contribute(server: PluginServerContext) {
     if (!agent || agent.cwd !== cwd) throw new Error("当前 agent 的工作目录已变化，请重试");
     const payload = await ref.timeline.refetch();
     const entries = (payload as unknown as { entries?: Array<{ item: { type: string; kind?: string; data?: { scoredAt?: string; turnId?: string } }; turnId?: string }> }).entries ?? [];
+    const userMessageCount = entries.filter(({ item }) => item.type === "user_message").length;
     if (scoredAt && (agent.activeTurn || !isLatestReviewTurn(entries, scoredAt))) throw new Error("这张审核卡片已不是最后一轮，请使用最新轮次的提交入口。");
     if (activeCommits.has(agentId)) throw new Error("Pi 已在这个会话中执行提交");
     if (await pendingProposal(agentId)) throw new Error("请先确认或取消当前提交预览");
@@ -121,6 +130,11 @@ export default function contribute(server: PluginServerContext) {
         const proposal = await preparePiCommit(agentId, cwd, state.values, recentCommitContext(timeline), (stage) => {
           commitStatuses.set(agentId, { kind: "preparing", stage, startedAt });
         }, (diff) => pendingDiffs.set(agentId, diff));
+        const latestTimeline = await ref.timeline.refetch();
+        const latestEntries = (latestTimeline as unknown as { entries?: Array<{ item: { type: string } }> }).entries ?? [];
+        if (ref.current()?.activeTurn || latestEntries.filter(({ item }) => item.type === "user_message").length !== userMessageCount) {
+          throw new Error("会话已进入新轮次，本次提交预览已取消。");
+        }
         await saveCommitProposal(proposal);
         try {
           await context.paseo.agents.ref(agentId).timeline.append({
@@ -165,24 +179,23 @@ export default function contribute(server: PluginServerContext) {
   });
 
   server.handle(getPiCommitPreviewRpc, async ({ agentId, proposalId }, context) => {
-    const proposal = await loadCommitProposal(agentId, proposalId);
-    if (!proposal || proposal.agentId !== agentId || Date.now() > proposal.expiresAt) {
-      const payload = await context.paseo.agents.ref(agentId).timeline.refetch();
-      const items = (payload as unknown as { entries?: Array<{ item: { type?: string; kind?: string; data?: { proposalId?: string; summary?: string; ok?: boolean } } }> }).entries?.map(({ item }) => item) ?? [];
-      let result = items.findLast((item) => item.type === "plugin" && item.kind === COMMIT_RESULT_KIND && item.data?.proposalId === proposalId)?.data;
-      // Older result rows had no proposalId. Associate only the first commit row
-      // following this preview, and stop at the next preview to avoid mixing runs.
-      if (!result) {
-        const previewIndex = items.findIndex((item) => item.type === "plugin" && item.kind === COMMIT_PREVIEW_KIND && item.data?.proposalId === proposalId);
-        if (previewIndex >= 0) {
-          const next = items.slice(previewIndex + 1).find((item) => item.type === "plugin" && (item.kind === COMMIT_RESULT_KIND || item.kind === COMMIT_PREVIEW_KIND));
-          if (next?.kind === COMMIT_RESULT_KIND && !next.data?.proposalId) result = next.data;
-        }
-      }
-      if (result?.summary) return { diff: "", result: result.ok ? `已提交：${result.summary}` : result.summary };
-      throw new Error("提交预览已失效，请重新生成。");
+    const ref = context.paseo.agents.ref(agentId);
+    const payload = await ref.timeline.refetch();
+    const items = (payload as unknown as { entries?: Array<{ item: { type?: string; kind?: string; data?: { proposalId?: string; summary?: string; ok?: boolean } } }> }).entries?.map(({ item }) => item) ?? [];
+    const agent = ref.current() ?? (await ref.refresh())?.agent;
+    if (agent?.activeTurn || !isCurrentCommitPreview(items, proposalId)) return { state: "stale" as const };
+    const previewIndex = items.findIndex((item) => item.type === "plugin" && item.kind === COMMIT_PREVIEW_KIND && item.data?.proposalId === proposalId);
+    let result = items.findLast((item) => item.type === "plugin" && item.kind === COMMIT_RESULT_KIND && item.data?.proposalId === proposalId)?.data;
+    // Older result rows had no proposalId. Associate only the first commit row
+    // following this preview, and stop at the next preview to avoid mixing runs.
+    if (!result && previewIndex >= 0) {
+      const next = items.slice(previewIndex + 1).find((item) => item.type === "plugin" && (item.kind === COMMIT_RESULT_KIND || item.kind === COMMIT_PREVIEW_KIND));
+      if (next?.kind === COMMIT_RESULT_KIND && !next.data?.proposalId) result = next.data;
     }
-    return { diff: proposal.diff };
+    if (result?.summary) return { state: "finished" as const, result: result.ok ? `已提交：${result.summary}` : result.summary };
+    const proposal = await loadCommitProposal(agentId, proposalId);
+    if (!proposal || proposal.agentId !== agentId) return { state: "stale" as const };
+    return { state: "pending" as const, diff: proposal.diff };
   });
 
   server.handle(cancelPiCommitRpc, async ({ agentId, proposalId }, context) => {
@@ -201,6 +214,11 @@ export default function contribute(server: PluginServerContext) {
     const ref = context.paseo.agents.ref(agentId);
     const agent = ref.current() ?? (await ref.refresh())?.agent;
     if (agent?.cwd !== proposal.cwd) throw new Error("工作目录已变化，请重新生成提交预览。");
+    const timeline = await ref.timeline.refetch();
+    const items = (timeline as unknown as { entries?: Array<{ item: { type?: string; kind?: string; data?: { proposalId?: string } } }> }).entries?.map(({ item }) => item) ?? [];
+    if (agent?.activeTurn || !isCurrentCommitPreview(items, proposalId)) {
+      throw new Error("这张提交预览已不是当前轮次，请重新生成。");
+    }
     if (activeConfirmations.has(proposalId)) throw new Error("正在提交，请稍候。");
     activeConfirmations.add(proposalId);
     try {
