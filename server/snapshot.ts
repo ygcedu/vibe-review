@@ -63,6 +63,19 @@ export async function diffSnapshots(before: WorktreeSnapshot, after: WorktreeSna
   ], before);
 }
 
+/** Compare HEAD with a private worktree snapshot without touching the user's index. */
+export async function diffHeadToSnapshot(snapshot: WorktreeSnapshot, paths?: string[]): Promise<string> {
+  return git(snapshot.cwd, [
+    "diff", "--no-ext-diff", "--no-renames", "--no-color", "--unified=3",
+    "HEAD", snapshot.tree, "--", ...(paths?.length ? paths : ["."]),
+  ], snapshot);
+}
+
+export async function changedPathsFromHead(snapshot: WorktreeSnapshot): Promise<string[]> {
+  const names = await git(snapshot.cwd, ["diff", "--no-renames", "--name-only", "-z", "HEAD", snapshot.tree, "--", "."], snapshot);
+  return names.split("\0").filter(Boolean);
+}
+
 export async function disposeSnapshot(snapshot: WorktreeSnapshot): Promise<void> {
   await rm(snapshot.tempDir, { recursive: true, force: true });
 }
