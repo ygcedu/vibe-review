@@ -11,6 +11,13 @@ export const reviewResultSchema = z.object({
   turnId: z.string().optional(),
   goal: z.string().optional(),
   result: z.enum(["done", "partial", "none", "unknown"]).optional(),
+  taskType: z.enum(["verification_required", "simple_reply", "other"]).optional(),
+  verification: z.object({
+    status: z.enum(["passed", "failed", "unavailable"]),
+    summary: z.string(),
+    evidence: z.array(z.string()),
+    provider: z.string(),
+  }).optional(),
   drifts: z.array(z.string()).optional(),
   narrative: z.string().optional(),
   followups: z.array(z.string()).max(3).optional(),

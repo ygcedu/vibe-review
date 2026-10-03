@@ -5,10 +5,13 @@ import { notify } from "./notify";
 import { distillTask, type DistilledTask } from "./distill";
 import type { LlmConfig } from "../shared/settings";
 import { REVIEW_KIND, REVIEW_VERSION } from "../shared/review";
+import type { VerificationRequest, VerificationResult } from "./verify";
+import { appendReviewWithRetry } from "./review-append";
 
 /** Settings access, injected from the server entry point. */
 export interface RunContext {
   getLlmConfig(): Promise<LlmConfig>;
+  verifyTask(agentId: string, request: VerificationRequest): Promise<VerificationResult>;
 }
 
 /** Auto follow-up only for spawned task agents (labeled by Paseo), never the user's main session. */
@@ -120,7 +123,7 @@ async function runReview(
     );
   } catch (error) {
     console.error("[vibe-review] LLM distill failed, falling back to raw task:", error);
-    distilled = { goal: summary.task.slice(0, 80) || "完成用户任务", drifts: [], narrative: "", result: "unknown", followups: ["请确认本轮任务是否已经完成；如有遗漏，请继续处理并说明结果。"], promptNoDiff: "" };
+    distilled = { goal: summary.task.slice(0, 80) || "完成用户任务", drifts: [], narrative: "", result: "unknown", taskType: "other", followups: ["请确认本轮任务是否已经完成；如有遗漏，请继续处理并说明结果。"], promptNoDiff: "" };
   }
 
   // 中断信号（工具卡 running / turn failed / canceled）是确定的事实，不靠 LLM 猜；
@@ -128,6 +131,35 @@ async function runReview(
   const interrupted = summary.runningTools > 0 || outcome?.kind === "failed" || outcome?.kind === "canceled";
   if (interrupted && (distilled.result === "unknown" || distilled.result === "done")) {
     distilled.result = "none";
+  }
+
+  // The classifier can mistake a code-changing turn for a simple reply. A
+  // measured workspace diff is definitive evidence that the turn needs a card.
+  if (distilled.taskType === "simple_reply" && lastTurnDiff?.trim()) {
+    console.warn("[vibe-review] overriding simple_reply because files changed:", agentId, turnId);
+    distilled.taskType = "other";
+  }
+
+  if (distilled.taskType === "simple_reply" && !interrupted) {
+    console.log("[vibe-review] simple reply; no review or verification needed:", agentId, turnId);
+    return;
+  }
+
+  let verification: VerificationResult | undefined;
+  if (distilled.taskType === "verification_required" && !interrupted) {
+    try {
+      verification = await run.verifyTask(agentId, {
+        goal: distilled.goal,
+        narrative: distilled.narrative,
+        assistantMessages: summary.assistantMessages,
+        diff: lastTurnDiff,
+      });
+    } catch (error) {
+      console.error("[vibe-review] independent verification failed:", error);
+      verification = { status: "unavailable", summary: error instanceof Error ? error.message.slice(0, 300) : "验证任务无法运行。", evidence: [], provider: "" };
+    }
+    if (distilled.result === "done" && verification.status === "failed") distilled.result = "partial";
+    if (distilled.result === "done" && verification.status === "unavailable") distilled.result = "unknown";
   }
 
   const { verdict, completed, drift } = verdictOf(distilled);
@@ -140,7 +172,7 @@ async function runReview(
   };
 
   try {
-    const appendResult = await paseo.agents.ref(agentId).timeline.append({
+    const appendResult = await appendReviewWithRetry(paseo, agentId, {
       type: "plugin",
       id: `vibe-review-${turnId ?? Date.now()}`,
       kind: REVIEW_KIND,
@@ -154,6 +186,8 @@ async function runReview(
         turnId: turnId ?? undefined,
         goal: distilled.goal,
         result: distilled.result,
+        taskType: distilled.taskType,
+        verification,
         drifts: distilled.drifts,
         narrative: distilled.narrative,
         followups: distilled.followups,
@@ -163,7 +197,7 @@ async function runReview(
       },
     });
     console.log(
-      `[vibe-review] appended review: verdict=${result.verdict} completed=${result.completed} drift=${result.drift} followups=${distilled.followups.length} seq=${appendResult.seq}`,
+      `[vibe-review] appended review: verdict=${result.verdict} completed=${result.completed} drift=${result.drift} followups=${distilled.followups.length} seq=${appendResult?.seq ?? "already-present"}`,
     );
   } catch (error) {
     console.error("[vibe-review] timeline append failed:", error);

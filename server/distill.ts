@@ -2,7 +2,7 @@ import type { LlmConfig } from "../shared/settings";
 import { parseFirstJsonObject } from "./llm-response.ts";
 
 /** 解析 LLM 的固定字段，容错全角冒号与多余空行。 */
-function parseDistillText(text: string): { goal: string; drifts: string; narrative: string; result: string; followups: string[] } {
+function parseDistillText(text: string): { goal: string; drifts: string; narrative: string; result: string; taskType: string; followups: string[] } {
   // 全角冒号在 key 位置归一成 ASCII，让 grab 只处理一种冒号
   const norm = text.replace(/\r/g, "").replace(/([A-Za-z]+)：/g, "$1:");
   const grab = (key: string, nextKey?: string): string => {
@@ -20,7 +20,8 @@ function parseDistillText(text: string): { goal: string; drifts: string; narrati
     goal: grab("goal", "drifts"),
     drifts: grab("drifts", "narrative"),
     narrative: grab("narrative", "result"),
-    result: grab("result", "followups"),
+    result: grab("result", norm.includes("task_type:") ? "task_type" : "followups"),
+    taskType: grab("task_type", "followups"),
     followups: parseFollowups(grab("followups")),
   };
 }
@@ -46,6 +47,8 @@ export interface DistilledTask {
   narrative: string;
   /** 本轮最终结果：done（正常交付）/ partial（部分完成）/ none（未完成/中断）。 */
   result: "done" | "partial" | "none" | "unknown";
+  /** Whether an independent Browser/Computer check is warranted. */
+  taskType: "verification_required" | "simple_reply" | "other";
   /** 提供给用户选择的下一条消息建议，默认只给最值得问的一条。 */
   followups: string[];
   /** 展示用：同 prompt，但去掉 diff 原文一节（卡片展开详情）。 */
@@ -68,11 +71,12 @@ export function buildDistillPrompt(
   const assistantText = assistantMessages.join("\n");
 
   return [
-    "你是对话审核助手。总结这轮任务、agent 执行过程和结果。严格按下面的固定格式输出五个字段，不要 markdown、不要其它解释：",
+    "你是对话审核助手。总结这轮任务、agent 执行过程和结果。严格按下面的固定格式输出六个字段，不要 markdown、不要其它解释：",
     "goal: 结合最近几轮上下文，最新一条用户消息里用户真正要解决什么问题（1 句话，≤40 字）",
     "drifts: agent 做了哪些与目标无关的改动（逗号分隔，没有则写 无）",
     "narrative: 4-6 句中文客观描述「这轮要解决什么 → agent 具体做了什么（改了哪些文件、跑了什么命令）→ 结果如何 → 中间遇到哪些报错/失败、是否修复 → 结束时是正常交付还是中断」，只陈述事实不评价",
     "result: 本轮最终结果，只填一个词：done（正常交付、目标达成）/ partial（部分完成，还有遗漏）/ none（未完成、异常中断或 agent 断开未回复）；信息不足填 unknown",
+    "task_type: 只填 verification_required（改动或声明的效果需要在浏览器/电脑中实际检查）/ simple_reply（只是回答、解释或确认，且没有文件改动，无需操作验证）/ other（其余不能通过浏览器/电脑直接验证的任务）。有文件改动时绝不能选 simple_reply。不要把仅凭文字回答可判断的任务归为待验证。",
     "followups: 给用户可直接发送的后续提问或指令，输出 JSON 字符串数组。优先只给最有价值的 1 条；仅当有彼此独立且重要的后续方向时给 2–3 条。必须基于本轮事实，不编造新需求，不重复已完成任务。不要建议提交代码，卡片会单独提供提交入口。",
     "",
     "<user_messages>",
@@ -89,11 +93,12 @@ export function buildDistillPrompt(
     signals.join("；") || "(未检测到)",
     "</interruption_signals>",
     "",
-    '固定输出格式（五个字段，冒号后用英文半角冒号+空格）：',
+    '固定输出格式（六个字段，冒号后用英文半角冒号+空格）：',
     'goal: ...',
     'drifts: ...',
     'narrative: ...',
     'result: ...',
+    'task_type: ...',
     'followups: ["..."]',
   ].join("\n");
 }
@@ -155,6 +160,7 @@ export async function distillTask(
       drifts: [],
       narrative: "",
       result: "unknown",
+      taskType: "other",
       followups: ["请确认本轮任务是否已经完成；如有遗漏，请继续处理并说明结果。"],
       promptNoDiff,
     };
@@ -167,11 +173,14 @@ export async function distillTask(
   const rawResult = fields.result.toLowerCase().trim();
   const result: DistilledTask["result"] =
     rawResult === "done" ? "done" : rawResult === "partial" ? "partial" : rawResult === "none" ? "none" : "unknown";
+  const rawTaskType = fields.taskType.toLowerCase().trim();
+  const taskType: DistilledTask["taskType"] = rawTaskType === "verification_required" || rawTaskType === "simple_reply" ? rawTaskType : "other";
   return {
     goal,
     drifts,
     narrative: fields.narrative,
     result,
+    taskType,
     followups: fields.followups.length ? fields.followups : [result === "done"
       ? "请在实际使用中验证这次结果，并指出还需要调整的地方。"
       : "请继续完成本轮尚未完成的部分，并说明验证结果。"],

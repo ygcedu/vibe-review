@@ -31,6 +31,14 @@ const resultLabel = {
   unknown: "无法判断",
 } as const;
 
+const taskTypeLabel = {
+  verification_required: "待验证",
+  simple_reply: "简单回复",
+  other: "其他任务",
+} as const;
+
+const verificationLabel = { passed: "验证通过", failed: "验证未通过", unavailable: "未能验证" } as const;
+
 function formatTime(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
@@ -194,6 +202,7 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
         <Text style={[styles.stat, { color: v.text }]}>
           偏离 {drift}
         </Text>
+        {data.taskType ? <><Text style={[styles.dot, { color: v.text }]}>·</Text><Text style={[styles.stat, { color: v.text }]}>{taskTypeLabel[data.taskType]}</Text></> : null}
       </View>
       {data.narrative ? (
         <Text selectable style={[styles.narrative, { color: v.text, opacity: 0.9 }]}>
@@ -213,6 +222,12 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
           ))}
         </View>
       ) : null}
+      {data.verification ? <View style={styles.verification}>
+        <Text selectable style={[styles.verificationSummary, { color: v.text }]}>
+          {verificationLabel[data.verification.status]} · {data.verification.summary}
+        </Text>
+        {data.verification.evidence.map((fact, index) => <Text selectable key={`${index}-${fact}`} style={[styles.verificationEvidence, { color: v.text }]}>· {fact}</Text>)}
+      </View> : null}
       {data.detail ? (
         <>
           <TouchableOpacity
@@ -336,6 +351,9 @@ const styles = StyleSheet.create({
     fontSize: 10,
     opacity: 0.8,
   },
+  verification: { gap: 3, paddingTop: 4 },
+  verificationSummary: { fontSize: 11, fontWeight: "600" },
+  verificationEvidence: { fontSize: 10, opacity: 0.85 },
   detail: {
     gap: 4,
     borderTopWidth: StyleSheet.hairlineWidth,

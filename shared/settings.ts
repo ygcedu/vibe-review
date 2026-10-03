@@ -32,3 +32,17 @@ export const piCommitSettings = defineSettings({
   version: 1,
   schema: piCommitConfigSchema,
 });
+
+export const verificationConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  provider: z.string().default("codex"),
+  model: z.string().default("gpt-6-sol"),
+  modeId: z.string().default("full-access"),
+});
+export type VerificationConfig = z.infer<typeof verificationConfigSchema>;
+export const verificationSettings = defineSettings({
+  id: "vibe-review-verification",
+  scope: "host",
+  version: 1,
+  schema: verificationConfigSchema,
+});

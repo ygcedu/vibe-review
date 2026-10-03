@@ -1,6 +1,6 @@
-import type { PluginServerContext } from "@getpaseo/plugin/server";
+import type { PluginHandlerContext, PluginServerContext } from "@getpaseo/plugin/server";
 import { reviewAgentRpc, REVIEW_KIND } from "./shared/review";
-import { llmSettings, piCommitSettings, type LlmConfig } from "./shared/settings";
+import { llmSettings, piCommitSettings, verificationSettings, type LlmConfig, type VerificationConfig } from "./shared/settings";
 import { queueReview, reviewAgent, type RunContext } from "./server/review";
 import { captureWorktree, diffSnapshots, disposeSnapshot, type WorktreeSnapshot } from "./server/snapshot";
 import { replaceTurnSnapshot, takeTurnSnapshot } from "./server/turn-snapshots";
@@ -12,10 +12,12 @@ import { loadCommitProposal, removeCommitProposal, saveCommitProposal } from "./
 import { recentCommitContext } from "./server/commit-context";
 import { isCurrentCommitPreview, isLatestReviewTurn } from "./server/commit-availability";
 import { buildTaskSummary, isSessionControlCommand } from "./server/inspect";
+import { VERIFIER_LABEL, verifyWithPaseoProvider } from "./server/verify";
 
 export default function contribute(server: PluginServerContext) {
   const settings = server.registerSettings(llmSettings);
   const piSettings = server.registerSettings(piCommitSettings);
+  const verifySettings = server.registerSettings(verificationSettings);
   const activeCommits = new Set<string>();
   const activeConfirmations = new Set<string>();
   const commitStatuses = new Map<string, { kind: "preparing" | "ready" | "failed"; stage: string; startedAt: number }>();
@@ -30,11 +32,17 @@ export default function contribute(server: PluginServerContext) {
     return state.values;
   }
 
-  const ctx = (): RunContext => ({
+  const ctx = (paseo: PluginHandlerContext["paseo"]): RunContext => ({
     getLlmConfig: llmConfig,
+    verifyTask: async (agentId, request) => {
+      const state = await verifySettings.read();
+      if (state.status !== "ready") throw new Error(`验证配置无效：${state.error}`);
+      return verifyWithPaseoProvider(paseo, agentId, state.values as VerificationConfig, request);
+    },
   });
 
   server.on("agent.turn_started", async (event) => {
+    if ((event.agent as { labels?: Record<string, string> }).labels?.[VERIFIER_LABEL] === "true") return;
     try {
       const staleProposal = await loadCommitProposal(event.agent.id);
       if (staleProposal) await removeCommitProposal(event.agent.id, staleProposal.id);
@@ -53,6 +61,7 @@ export default function contribute(server: PluginServerContext) {
   });
 
   server.on("agent.turn_ended", async (event, context) => {
+    if ((event.agent as { labels?: Record<string, string> }).labels?.[VERIFIER_LABEL] === "true") return;
     console.log("[vibe-review] turn_ended", event.agent.id, event.outcome.kind);
     let started: { turnId: string | null; snapshot: WorktreeSnapshot } | undefined;
     try {
@@ -89,11 +98,11 @@ export default function contribute(server: PluginServerContext) {
         : event.outcome.kind === "canceled"
           ? { kind: "canceled", error: { message: event.outcome.reason } }
         : undefined;
-    queueReview(context.paseo, event.agent.id, event.timeline, event.turnId, labels, ctx(), outcome, fileChanges);
+    queueReview(context.paseo, event.agent.id, event.timeline, event.turnId, labels, ctx(context.paseo), outcome, fileChanges);
   });
 
   server.handle(reviewAgentRpc, async ({ agentId }, context) => {
-    await reviewAgent(agentId, context, ctx());
+    await reviewAgent(agentId, context, ctx(context.paseo));
     return { ok: true as const };
   });
 
