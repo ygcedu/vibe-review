@@ -4,6 +4,8 @@ import { llmSettings, type LlmConfig } from "./shared/settings";
 import { queueReview, reviewAgent, type RunContext } from "./server/review";
 import { captureWorktree, diffSnapshots, disposeSnapshot, type WorktreeSnapshot } from "./server/snapshot";
 import { replaceTurnSnapshot, takeTurnSnapshot } from "./server/turn-snapshots";
+import { clarifyRpc } from "./shared/clarify";
+import { clarifyDraft } from "./server/clarify";
 
 export default function contribute(server: PluginServerContext) {
   const settings = server.registerSettings(llmSettings);
@@ -67,6 +69,17 @@ export default function contribute(server: PluginServerContext) {
   server.handle(reviewAgentRpc, async ({ agentId }, context) => {
     await reviewAgent(agentId, context, ctx());
     return { ok: true as const };
+  });
+
+  server.handle(clarifyRpc, async ({ agentId, text }, context) => {
+    const payload = await context.paseo.agents.ref(agentId).timeline.refetch();
+    const items = (payload as unknown as { entries?: Array<{ item: { type?: string; text?: string } }> }).entries ?? [];
+    const recent = items
+      .map(({ item }) => item)
+      .filter((item) => (item.type === "user_message" || item.type === "assistant_message") && typeof item.text === "string")
+      .slice(-6)
+      .map((item) => `${item.type === "user_message" ? "用户" : "助手"}: ${item.text!.slice(0, 1000)}`);
+    return clarifyDraft(await llmConfig(), text, recent);
   });
 
   return () => {};
