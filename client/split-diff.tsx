@@ -66,6 +66,20 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
   const [hoveredHorizontal, setHoveredHorizontal] = useState<"before" | "after" | null>(null);
   const horizontalDrag = useRef<{ side: "before" | "after"; startX: number; startOffset: number } | null>(null);
   const [horizontalOffsets, setHorizontalOffsets] = useState({ before: 0, after: 0 });
+  const [scrollbarsVisible, setScrollbarsVisible] = useState(false);
+  const scrollbarHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showScrollbars = () => {
+    if (Platform.OS !== "web") return;
+    setScrollbarsVisible(true);
+    if (scrollbarHideTimer.current) clearTimeout(scrollbarHideTimer.current);
+    scrollbarHideTimer.current = setTimeout(() => {
+      if (scrollbarDrag.current || horizontalDrag.current) showScrollbars();
+      else setScrollbarsVisible(false);
+    }, 1400);
+  };
+  useEffect(() => () => {
+    if (scrollbarHideTimer.current) clearTimeout(scrollbarHideTimer.current);
+  }, []);
   const viewportNode = useRef<View>(null);
   const connectorDrawing = useRef<View>(null);
   const beforeVertical = useRef<ScrollView>(null);
@@ -106,6 +120,7 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
     drawConnector(requestedVertical.current);
   }, [beforeRows, changeBounds, waveBounds, viewportHeight]);
   const applyVerticalPosition = (position: number) => {
+    showScrollbars();
     const visibleHeight = Platform.OS === "web" ? viewportHeight : nativeViewportHeight;
     const end = verticalTrack[verticalTrack.length - 1]?.virtualEnd ?? 0;
     const next = Math.max(0, Math.min(Math.max(0, end - visibleHeight), position));
@@ -232,6 +247,7 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
   const beforeMaxScroll = Math.max(0, minCodeWidths.before - (leftWidth - LINE_NUMBER_WIDTH));
   const afterMaxScroll = Math.max(0, minCodeWidths.after - (rightWidth - LINE_NUMBER_WIDTH));
   const applyHorizontalScroll = (side: "before" | "after", requestedX: number) => {
+    showScrollbars();
     const targetSide = side === "before" ? "after" : "before";
     const previousX = horizontalPositions.current[side];
     const sourceMax = side === "before" ? beforeMaxScroll : afterMaxScroll;
@@ -295,7 +311,7 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
       const offset = Math.max(0, Math.min(maxOffset, drag.startOffset + (event.nativeEvent.clientY - drag.startY) / thumbTravel * maxOffset));
       applyVerticalPosition(positionForOffset(verticalTrack, side, offset));
     };
-    return <View key={`${side}-scrollbar`} style={[styles.scrollbarTrack, { left, height: viewportHeight }]} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={() => { scrollbarDrag.current = null; }} onPointerCancel={() => { scrollbarDrag.current = null; }}>
+    return <View key={`${side}-scrollbar`} pointerEvents={scrollbarsVisible ? "auto" : "none"} style={[styles.scrollbarTrack, { left, height: viewportHeight, opacity: scrollbarsVisible ? 1 : 0 }, { transition: "opacity 400ms ease-out" } as ViewStyle]} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={() => { scrollbarDrag.current = null; }} onPointerCancel={() => { scrollbarDrag.current = null; }}>
       <View style={[styles.scrollbarThumb, { top, height: thumbHeight, backgroundColor: hoveredScrollbar === side ? "rgba(100,116,139,0.65)" : "rgba(100,116,139,0.42)" }]} onPointerEnter={() => setHoveredScrollbar(side)} onPointerLeave={() => setHoveredScrollbar((current) => current === side ? null : current)} />
     </View>;
   };
@@ -321,7 +337,7 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
       const offset = Math.max(0, Math.min(maxOffset, drag.startOffset + (event.nativeEvent.clientX - drag.startX) / thumbTravel * maxOffset));
       applyHorizontalScroll(side, offset);
     };
-    return <View style={[styles.horizontalTrack, { width: trackWidth }]} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={() => { horizontalDrag.current = null; }} onPointerCancel={() => { horizontalDrag.current = null; }}>
+    return <View pointerEvents={scrollbarsVisible ? "auto" : "none"} style={[styles.horizontalTrack, { width: trackWidth, opacity: scrollbarsVisible ? 1 : 0 }, { transition: "opacity 400ms ease-out" } as ViewStyle]} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={() => { horizontalDrag.current = null; }} onPointerCancel={() => { horizontalDrag.current = null; }}>
       <View style={[styles.horizontalThumb, { left, width: thumbWidth, backgroundColor: hoveredHorizontal === side ? "rgba(100,116,139,0.65)" : "rgba(100,116,139,0.42)" }]} onPointerEnter={() => setHoveredHorizontal(side)} onPointerLeave={() => setHoveredHorizontal((current) => current === side ? null : current)} />
     </View>;
   };
@@ -330,6 +346,7 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
     <View
       ref={viewportNode}
       style={styles.viewport}
+      onPointerMove={showScrollbars}
       onLayout={(event) => {
         const nextWidth = event.nativeEvent.layout.width;
         widthRef.current = nextWidth;
@@ -363,13 +380,13 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
         {verticalScrollbar("before", 0)}
         {verticalScrollbar("after", width - 8)}
         {!wrapLines ? (
-        <View style={[styles.codeRow, { width }]}>
-          <View style={{ width: leftWidth - LINE_NUMBER_WIDTH }}>
+        <View pointerEvents={Platform.OS === "web" ? "box-none" : "auto"} style={[styles.codeRow, Platform.OS === "web" ? { position: "absolute", top: viewportHeight - 18, left: 0, zIndex: 3, width, height: 18 } : { width }]}>
+          <View pointerEvents={Platform.OS === "web" ? "box-none" : "auto"} style={{ width: leftWidth - LINE_NUMBER_WIDTH }}>
             {Platform.OS === "web" ? horizontalScrollbar("before", leftWidth - LINE_NUMBER_WIDTH) : <ScrollView horizontal ref={beforeFooter} onScroll={(event) => syncScroll("before", event)} scrollEventThrottle={16} style={styles.footerScroll}><View style={{ width: Math.max(leftWidth - LINE_NUMBER_WIDTH, minCodeWidths.before), height: 1 }} /></ScrollView>}
           </View>
-          <View style={{ width: LINE_NUMBER_WIDTH + CONNECTOR_WIDTH }} />
-          <View style={{ width: LINE_NUMBER_WIDTH }} />
-          <View style={{ width: rightWidth - LINE_NUMBER_WIDTH }}>
+          <View pointerEvents="none" style={{ width: LINE_NUMBER_WIDTH + CONNECTOR_WIDTH }} />
+          <View pointerEvents="none" style={{ width: LINE_NUMBER_WIDTH }} />
+          <View pointerEvents={Platform.OS === "web" ? "box-none" : "auto"} style={{ width: rightWidth - LINE_NUMBER_WIDTH }}>
             {Platform.OS === "web" ? horizontalScrollbar("after", rightWidth - LINE_NUMBER_WIDTH) : <ScrollView horizontal ref={afterFooter} onScroll={(event) => syncScroll("after", event)} scrollEventThrottle={16} style={styles.footerScroll}><View style={{ width: Math.max(rightWidth - LINE_NUMBER_WIDTH, minCodeWidths.after), height: 1 }} /></ScrollView>}
           </View>
         </View>
@@ -387,7 +404,7 @@ const styles = StyleSheet.create({
   verticalScroll: { backgroundColor: "#fff" },
   scrollbarTrack: { position: "absolute", top: 0, width: 8, zIndex: 2 },
   scrollbarThumb: { position: "absolute", left: 1, width: 6, borderRadius: 3, cursor: "pointer" },
-  horizontalTrack: { height: 18, backgroundColor: "#f8fafc", position: "relative" },
+  horizontalTrack: { height: 18, position: "relative" },
   horizontalThumb: { position: "absolute", top: 6, height: 6, borderRadius: 3, cursor: "pointer" },
   leftVerticalScroll: { direction: "rtl" },
   leftVerticalContent: { direction: "ltr" },
