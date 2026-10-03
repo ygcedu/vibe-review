@@ -20,7 +20,7 @@ export default function contribute(server: PluginServerContext) {
   const verifySettings = server.registerSettings(verificationSettings);
   const activeCommits = new Set<string>();
   const activeConfirmations = new Set<string>();
-  const commitStatuses = new Map<string, { kind: "preparing" | "ready" | "failed"; stage: string; startedAt: number }>();
+  const commitStatuses = new Map<string, { kind: "preparing" | "ready" | "finished" | "failed"; stage: string; startedAt: number }>();
   const pendingDiffs = new Map<string, string>();
   const pendingProposal = async (agentId: string) => Boolean(await loadCommitProposal(agentId));
 
@@ -211,8 +211,10 @@ export default function contribute(server: PluginServerContext) {
     if (activeConfirmations.has(proposalId)) throw new Error("正在提交，请稍候。");
     const proposal = await loadCommitProposal(agentId, proposalId);
     if (proposal?.agentId === agentId) {
-      await removeCommitProposal(agentId, proposalId); commitStatuses.delete(agentId); pendingDiffs.delete(agentId);
       await context.paseo.agents.ref(agentId).timeline.append({ type: "plugin", id: `vibe-review-pi-commit-${Date.now()}`, kind: COMMIT_RESULT_KIND, version: 1, data: { ok: false, summary: "已取消提交。", proposalId } });
+      await removeCommitProposal(agentId, proposalId);
+      commitStatuses.set(agentId, { kind: "finished", stage: "提交预览已取消。", startedAt: Date.now() });
+      pendingDiffs.delete(agentId);
     }
     return { ok: true as const };
   });
@@ -232,10 +234,10 @@ export default function contribute(server: PluginServerContext) {
     activeConfirmations.add(proposalId);
     try {
       const summary = await confirmPiCommit({ ...proposal, message });
-      await removeCommitProposal(agentId, proposalId);
-      commitStatuses.delete(agentId);
-      pendingDiffs.delete(agentId);
       await ref.timeline.append({ type: "plugin", id: `vibe-review-pi-commit-${Date.now()}`, kind: COMMIT_RESULT_KIND, version: 1, data: { ok: true, summary, proposalId } });
+      await removeCommitProposal(agentId, proposalId);
+      commitStatuses.set(agentId, { kind: "finished", stage: "提交已完成。", startedAt: Date.now() });
+      pendingDiffs.delete(agentId);
       return { ok: true as const, summary };
     } finally {
       activeConfirmations.delete(proposalId);

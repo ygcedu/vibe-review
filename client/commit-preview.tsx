@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
-import { usePaseo, useRpc, type PluginTimelineItemProps } from "@getpaseo/plugin/client";
+import { useRpc, type PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import type { z } from "zod";
 import { cancelPiCommitRpc, commitPreviewSchema, confirmPiCommitRpc, getPiCommitPreviewRpc } from "../shared/commit";
 import { parseDiffFiles } from "./diff";
@@ -15,7 +15,6 @@ export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.i
   const [previewRequest, setPreviewRequest] = useState(0);
   const [previewState, setPreviewState] = useState<"loading" | "pending" | "finished" | "stale" | "unavailable">("loading");
   const [messageFocused, setMessageFocused] = useState(false);
-  const paseo = usePaseo();
   const getPreview = useRpc(getPiCommitPreviewRpc);
   const getPreviewRef = useRef(getPreview);
   getPreviewRef.current = getPreview;
@@ -51,19 +50,24 @@ export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.i
   }, [agentId, proposalId, previewRequest]);
 
   useEffect(() => {
-    if (previewState !== "pending" && previewState !== "finished") return;
+    if (previewState !== "pending") return;
     let active = true;
-    const subscription = paseo.agents.ref(agentId).timeline.subscribe(({ event }: { event: { type: string; item?: { type: string } } }) => {
-      if (event.type === "turn_started" || (event.type === "timeline" && event.item?.type === "user_message")) setPreviewState("stale");
-    });
-    // Recheck after subscribing so a turn started between the first RPC and
-    // subscription readiness cannot leave an old preview visible.
-    void subscription.ready.then(() => getPreviewRef.current({ agentId, proposalId })).then(
-      (result: { state: "pending" | "finished" | "stale" }) => { if (active && result.state === "stale") setPreviewState("stale"); },
-      () => { if (active) setPreviewState("unavailable"); },
-    );
-    return () => { active = false; subscription(); };
-  }, [paseo, agentId, proposalId, previewState]);
+    const refresh = () => {
+      void getPreviewRef.current({ agentId, proposalId }).then((result) => {
+        if (!active) return;
+        if (result.state === "finished") {
+          setDone(result.result ?? "已结束提交预览。");
+          setPreviewState("finished");
+        } else if (result.state === "stale") {
+          setPreviewState("stale");
+        } else if (result.diff) {
+          setDiff(result.diff);
+        }
+      }, () => { /* Retain the visible preview and retry after reconnect. */ });
+    };
+    const timer = setInterval(refresh, 3_000);
+    return () => { active = false; clearInterval(timer); };
+  }, [agentId, proposalId, previewState]);
 
   const submit = () => {
     if (busy || previewState !== "pending" || !diff || !validMessage) return;
@@ -86,7 +90,13 @@ export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.i
     <Text style={styles.promptToggleText}>{showPrompt ? "收起 commit 任务提示词" : "查看 commit 任务提示词"}</Text>
   </TouchableOpacity> : null;
 
-  if (previewState === "loading" || previewState === "stale" || previewState === "unavailable") return null;
+  if (previewState === "loading" || previewState === "stale") return null;
+  if (previewState === "unavailable") return <View style={styles.card}>
+    <Text style={styles.error}>暂时无法读取提交预览。{error}</Text>
+    <TouchableOpacity accessibilityRole="button" onPress={() => { setError(""); setPreviewState("loading"); setPreviewRequest((value) => value + 1); }} style={styles.retry}>
+      <Text style={styles.promptToggleText}>重新读取预览</Text>
+    </TouchableOpacity>
+  </View>;
 
   return <View style={styles.card}>
     {done ? submitted ? <>

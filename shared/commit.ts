@@ -11,7 +11,7 @@ export const piCommitStatusRpc = defineRpc({
   name: "vibe-review.pi-commit-status",
   input: z.object({ agentId: z.string() }),
   output: z.object({
-    kind: z.enum(["idle", "preparing", "ready", "failed"]),
+    kind: z.enum(["idle", "preparing", "ready", "finished", "failed"]),
     stage: z.string(),
     startedAt: z.number().optional(),
     diffReady: z.boolean().optional(),

@@ -8,7 +8,7 @@ import { parseDiffFiles } from "./diff";
 import { FileTree } from "./file-tree";
 import { copyText } from "@getpaseo/plugin/client/react-native";
 import { fillVisibleComposer } from "./composer-fill";
-import { commitAvailabilityRpc, preparePiCommitRpc, piCommitStatusRpc, getPendingCommitDiffRpc } from "../shared/commit";
+import { commitAvailabilityRpc, preparePiCommitRpc, piCommitStatusRpc, getPendingCommitDiffRpc, COMMIT_PREVIEW_KIND, COMMIT_RESULT_KIND } from "../shared/commit";
 
 type ReviewResultData = output<typeof reviewResultSchema>;
 
@@ -117,11 +117,27 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
     const refresh = () => {
       void getCommitStatusRef.current({ agentId: props.agentId }).then((status) => {
         if (!active) return;
-        if (status.kind === "idle") {
-          setCommitProgress((current) => current?.kind === "preparing"
-            ? { kind: "failed", stage: "预览任务已中断，请重试。", startedAt: current.startedAt }
-            : null);
+        if (status.kind === "ready" || status.kind === "finished") {
+          // The timeline preview card is now the source of truth. It may be
+          // rendered on another device before this polling request resolves.
+          setCommitProgress(null);
           setPendingDiff(null);
+        } else if (status.kind === "idle") {
+          void paseo.agents.ref(props.agentId).timeline.refetch({ limit: 50 }).then((timeline: { entries: Array<{ item: { type: string; kind?: string; data?: { scoredAt?: string } } }> }) => {
+            if (!active) return;
+            const items = timeline.entries.map((entry) => entry.item);
+            const reviewIndex = items.findLastIndex((item) => item.type === "plugin" && item.kind === "review-result" && item.data?.scoredAt === data.scoredAt);
+            const completed = reviewIndex >= 0 && items.slice(reviewIndex + 1).some((item) => item.type === "plugin" &&
+              (item.kind === COMMIT_PREVIEW_KIND || item.kind === COMMIT_RESULT_KIND));
+            if (completed) {
+              setCommitProgress(null);
+              setPendingDiff(null);
+            } else {
+              setCommitProgress((current) => current?.kind === "preparing" && Date.now() - current.startedAt > 10_000
+                ? { kind: "failed", stage: "预览任务已中断，请重试。", startedAt: current.startedAt }
+                : current);
+            }
+          }).catch(() => { /* Keep polling while the mobile connection recovers. */ });
         } else {
           const next = { kind: status.kind, stage: status.stage, startedAt: status.startedAt ?? Date.now() };
           setCommitProgress((current) => {
@@ -137,14 +153,15 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
             );
           }
         }
-      }, (error: unknown) => {
-        if (active) setCommitProgress({ kind: "failed", stage: error instanceof Error ? error.message : String(error), startedAt: Date.now() });
+      }, () => {
+        if (active) setCommitProgress((current) => current?.kind === "preparing"
+          ? { ...current, stage: "连接暂时中断，正在重新同步…" } : current);
       });
     };
     refresh();
     const timer = setInterval(refresh, 2_000);
     return () => { active = false; clearInterval(timer); };
-  }, [props.agentId, commitRunning, commitProgress?.kind]);
+  }, [paseo, props.agentId, data.scoredAt, commitRunning, commitProgress?.kind]);
   const diffFiles = parseDiffFiles(data.diff);
   const totalAdded = diffFiles.reduce((total, file) => total + file.added, 0);
   const totalRemoved = diffFiles.reduce((total, file) => total + file.removed, 0);
