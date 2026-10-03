@@ -312,7 +312,7 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
       applyVerticalPosition(positionForOffset(verticalTrack, side, offset));
     };
     return <View key={`${side}-scrollbar`} pointerEvents={scrollbarsVisible ? "auto" : "none"} style={[styles.scrollbarTrack, { left, height: viewportHeight, opacity: scrollbarsVisible ? 1 : 0 }, { transition: "opacity 400ms ease-out" } as ViewStyle]} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={() => { scrollbarDrag.current = null; }} onPointerCancel={() => { scrollbarDrag.current = null; }}>
-      <View style={[styles.scrollbarThumb, { top, height: thumbHeight, backgroundColor: hoveredScrollbar === side ? "rgba(100,116,139,0.65)" : "rgba(100,116,139,0.42)" }]} onPointerEnter={() => setHoveredScrollbar(side)} onPointerLeave={() => setHoveredScrollbar((current) => current === side ? null : current)} />
+      <View style={[styles.scrollbarThumb, side === "before" ? { left: 2 } : { right: 2 }, { top, height: thumbHeight, backgroundColor: hoveredScrollbar === side ? "rgba(100,116,139,0.65)" : "rgba(100,116,139,0.42)" }]} onPointerEnter={() => setHoveredScrollbar(side)} onPointerLeave={() => setHoveredScrollbar((current) => current === side ? null : current)} />
     </View>;
   };
   const horizontalScrollbar = (side: "before" | "after", trackWidth: number) => {
@@ -403,9 +403,9 @@ const styles = StyleSheet.create({
   viewport: { position: "relative", minHeight: 32 },
   verticalScroll: { backgroundColor: "#fff" },
   scrollbarTrack: { position: "absolute", top: 0, width: 8, zIndex: 2 },
-  scrollbarThumb: { position: "absolute", left: 1, width: 6, borderRadius: 3, cursor: "pointer" },
+  scrollbarThumb: { position: "absolute", width: 6, borderRadius: 3, cursor: "pointer" },
   horizontalTrack: { height: 18, position: "relative" },
-  horizontalThumb: { position: "absolute", top: 6, height: 6, borderRadius: 3, cursor: "pointer" },
+  horizontalThumb: { position: "absolute", bottom: 2, height: 6, borderRadius: 3, cursor: "pointer" },
   leftVerticalScroll: { direction: "rtl" },
   leftVerticalContent: { direction: "ltr" },
   footerScroll: { height: 18, backgroundColor: "#f8fafc" },
