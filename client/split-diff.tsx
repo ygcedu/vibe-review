@@ -244,6 +244,11 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
     setHorizontalOffsets({ before: horizontalPositions.current.before, after: horizontalPositions.current.after });
   };
   const syncScroll = (side: "before" | "after", event: NativeSyntheticEvent<NativeScrollEvent>) => applyHorizontalScroll(side, event.nativeEvent.contentOffset.x);
+  const renderPane = (side: "before" | "after", paneWidth: number) => {
+    const paneRows = side === "before" ? beforeRows : afterRows;
+    if (wrapLines) return <WrapPane rows={paneRows} side={side} width={paneWidth} tokens={tokens} onChange={onChange} onWave={onWave} />;
+    return <NoWrapPane rows={paneRows} side={side} width={paneWidth} contentWidth={Math.max(paneWidth - LINE_NUMBER_WIDTH, minCodeWidths[side])} tokens={tokens} scrollRef={side === "before" ? beforeScroll : afterScroll} onScroll={(event) => syncScroll(side, event)} onChange={onChange} onWave={onWave} waveBounds={Platform.OS === "web" ? waveBounds : nativeWaveBounds} />;
+  };
   const webPointerHandlers = Platform.OS === "web" ? {
     onPointerDown: (event: RNPointerEvent) => {
       event.preventDefault();
@@ -325,21 +330,21 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
         {Platform.OS === "web" ? <View style={[styles.codeRow, { width, height: viewportHeight }]}>
           <ScrollView key={`before-${wrapLines}`} nativeID="vibe-review-before-vertical" ref={beforeVertical} style={[styles.verticalScroll, styles.leftVerticalScroll, { width: leftWidth, height: viewportHeight }]} nestedScrollEnabled showsVerticalScrollIndicator={false} scrollEventThrottle={16} onContentSizeChange={(_width, height) => onPaneHeight("before", height)}>
             <View style={[{ width: leftWidth }, Platform.OS === "web" && styles.leftVerticalContent]}>
-              {wrapLines ? <WrapPane rows={beforeRows} side="before" width={leftWidth} tokens={tokens} onChange={onChange} onWave={onWave} /> : <NoWrapPane rows={beforeRows} side="before" width={leftWidth} contentWidth={Math.max(leftWidth - LINE_NUMBER_WIDTH, minCodeWidths.before)} tokens={tokens} scrollRef={beforeScroll} onScroll={(event) => syncScroll("before", event)} onChange={onChange} onWave={onWave} waveBounds={waveBounds} />}
+              {renderPane("before", leftWidth)}
             </View>
           </ScrollView>
           <View style={[styles.connector, { height: viewportHeight }]}><View style={styles.connectorLine} /><View ref={connectorDrawing} style={styles.connectorDrawing} /></View>
           <ScrollView key={`after-${wrapLines}`} nativeID="vibe-review-after-vertical" ref={afterVertical} style={[styles.verticalScroll, { width: rightWidth, height: viewportHeight }]} nestedScrollEnabled showsVerticalScrollIndicator={false} scrollEventThrottle={16} onContentSizeChange={(_width, height) => onPaneHeight("after", height)}>
-            {wrapLines ? <WrapPane rows={afterRows} side="after" width={rightWidth} tokens={tokens} onChange={onChange} onWave={onWave} /> : <NoWrapPane rows={afterRows} side="after" width={rightWidth} contentWidth={Math.max(rightWidth - LINE_NUMBER_WIDTH, minCodeWidths.after)} tokens={tokens} scrollRef={afterScroll} onScroll={(event) => syncScroll("after", event)} onChange={onChange} onWave={onWave} waveBounds={waveBounds} />}
+            {renderPane("after", rightWidth)}
           </ScrollView>
         </View> : <ScrollView key={`native-${wrapLines}`} style={{ width, height: nativeViewportHeight, backgroundColor: "#fff" }} nestedScrollEnabled showsVerticalScrollIndicator scrollEventThrottle={16}>
           <View style={[styles.codeRow, { width, alignItems: "flex-start" }]}>
             <View style={{ width: leftWidth }} onLayout={(event) => onPaneHeight("before", event.nativeEvent.layout.height)}>
-              {wrapLines ? <WrapPane rows={beforeRows} side="before" width={leftWidth} tokens={tokens} onChange={onChange} onWave={onWave} /> : <NoWrapPane rows={beforeRows} side="before" width={leftWidth} contentWidth={Math.max(leftWidth - LINE_NUMBER_WIDTH, minCodeWidths.before)} tokens={tokens} scrollRef={beforeScroll} onScroll={(event) => syncScroll("before", event)} onChange={onChange} onWave={onWave} waveBounds={nativeWaveBounds} />}
+              {renderPane("before", leftWidth)}
             </View>
             <Connector rows={beforeRows} bounds={nativeChangeBounds} waveBounds={nativeWaveBounds} offsets={{ before: 0, after: 0 }} height={nativeContentHeight} />
             <View style={{ width: rightWidth }} onLayout={(event) => onPaneHeight("after", event.nativeEvent.layout.height)}>
-              {wrapLines ? <WrapPane rows={afterRows} side="after" width={rightWidth} tokens={tokens} onChange={onChange} onWave={onWave} /> : <NoWrapPane rows={afterRows} side="after" width={rightWidth} contentWidth={Math.max(rightWidth - LINE_NUMBER_WIDTH, minCodeWidths.after)} tokens={tokens} scrollRef={afterScroll} onScroll={(event) => syncScroll("after", event)} onChange={onChange} onWave={onWave} waveBounds={nativeWaveBounds} />}
+              {renderPane("after", rightWidth)}
             </View>
           </View>
         </ScrollView>}

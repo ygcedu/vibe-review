@@ -129,31 +129,35 @@ export function NoWrapPane({ rows, side, width, contentWidth, tokens, scrollRef,
   </View>;
 }
 
-function connectorSegments(rows: PaneRow[], bounds: ChangeBounds, waveBounds: WaveBounds, offsets: { before: number; after: number }, height: number) {
+type ConnectorSegment =
+  | { key: string; kind: "change"; color: string; before: Bounds; after: Bounds }
+  | { key: string; kind: "wave"; color: string; before: Bounds; after: Bounds };
+
+/** Both renderers consume these same viewport-relative endpoints. */
+function connectorSegments(rows: PaneRow[], bounds: ChangeBounds, waveBounds: WaveBounds, offsets: { before: number; after: number }, height: number): ConnectorSegment[] {
   return rows.flatMap((row) => {
     if (row.kind !== "change" && row.kind !== "wave") return [];
     const pair = (row.kind === "change" ? bounds : waveBounds)[row.index];
     if (!pair?.before || !pair.after) return [];
     const before = { top: pair.before.top - offsets.before, bottom: pair.before.bottom - offsets.before };
     const after = { top: pair.after.top - offsets.after, bottom: pair.after.bottom - offsets.after };
-    if (Math.max(before.bottom, after.bottom) < 0 || Math.min(before.top, after.top) > height) return [];
-    return [{ row, before, after }];
+    if (before.bottom < 0 || before.top > height || after.bottom < 0 || after.top > height) return [];
+    return [{ key: row.key, kind: row.kind, color: row.kind === "wave" ? WAVE_COLOR : changeColors[row.tone], before, after }];
   });
 }
 
 export function Connector({ rows, bounds, waveBounds, offsets, height }: { rows: PaneRow[]; bounds: ChangeBounds; waveBounds: WaveBounds; offsets: { before: number; after: number }; height: number }) {
   return <View style={[styles.connector, { height }]}>
-    {connectorSegments(rows, bounds, waveBounds, offsets, height).flatMap(({ row, before, after }) => {
-      if (row.kind === "change") {
-        const color = changeColors[row.tone];
+    {connectorSegments(rows, bounds, waveBounds, offsets, height).flatMap(({ key, kind, color, before, after }) => {
+      if (kind === "change") {
         const topMin = Math.min(before.top, after.top);
         const topMax = Math.max(before.top, after.top);
         const bottomMin = Math.min(before.bottom, after.bottom);
         const bottomMax = Math.max(before.bottom, after.bottom);
         if (topMax <= bottomMin) return [
-          topMax > topMin ? <Image key={`${row.key}-top`} source={{ uri: before.top < after.top ? topRising : topFalling }} resizeMode="stretch" style={{ position: "absolute", top: topMin, width: CONNECTOR_WIDTH, height: topMax - topMin, tintColor: color }} /> : null,
-          bottomMin > topMax ? <View key={`${row.key}-middle`} style={{ position: "absolute", top: topMax, width: CONNECTOR_WIDTH, height: bottomMin - topMax, backgroundColor: color }} /> : null,
-          bottomMax > bottomMin ? <Image key={`${row.key}-bottom`} source={{ uri: before.bottom < after.bottom ? bottomRising : bottomFalling }} resizeMode="stretch" style={{ position: "absolute", top: bottomMin, width: CONNECTOR_WIDTH, height: bottomMax - bottomMin, tintColor: color }} /> : null,
+          topMax > topMin ? <Image key={`${key}-top`} source={{ uri: before.top < after.top ? topRising : topFalling }} resizeMode="stretch" style={{ position: "absolute", top: topMin, width: CONNECTOR_WIDTH, height: topMax - topMin, tintColor: color }} /> : null,
+          bottomMin > topMax ? <View key={`${key}-middle`} style={{ position: "absolute", top: topMax, width: CONNECTOR_WIDTH, height: bottomMin - topMax, backgroundColor: color }} /> : null,
+          bottomMax > bottomMin ? <Image key={`${key}-bottom`} source={{ uri: before.bottom < after.bottom ? bottomRising : bottomFalling }} resizeMode="stretch" style={{ position: "absolute", top: bottomMin, width: CONNECTOR_WIDTH, height: bottomMax - bottomMin, tintColor: color }} /> : null,
         ];
       }
       // Very short change blocks may have no full-width middle section.
@@ -161,9 +165,9 @@ export function Connector({ rows, bounds, waveBounds, offsets, height }: { rows:
       return Array.from({ length: CONNECTOR_WIDTH / stripWidth }, (_, index) => {
         const x = index * stripWidth;
         const ratio = (x + stripWidth / 2) / CONNECTOR_WIDTH;
-        const top = before.top + (after.top - before.top) * ratio + (row.kind === "wave" ? WAVE_HEIGHT / 2 : 0);
-        const bottom = row.kind === "wave" ? top + 1 : before.bottom + (after.bottom - before.bottom) * ratio;
-        return <View key={`${row.key}-${index}`} style={{ position: "absolute", left: x, top, width: stripWidth, height: Math.max(1, bottom - top), backgroundColor: row.kind === "wave" ? WAVE_COLOR : changeColors[row.tone] }} />;
+        const top = before.top + (after.top - before.top) * ratio + (kind === "wave" ? WAVE_HEIGHT / 2 : 0);
+        const bottom = kind === "wave" ? top + 1 : before.bottom + (after.bottom - before.bottom) * ratio;
+        return <View key={`${key}-${index}`} style={{ position: "absolute", left: x, top, width: stripWidth, height: Math.max(1, bottom - top), backgroundColor: color }} />;
       });
     })}
     <View style={styles.connectorLine} />
@@ -172,17 +176,12 @@ export function Connector({ rows, bounds, waveBounds, offsets, height }: { rows:
 
 export function connectorSvg(rows: PaneRow[], bounds: ChangeBounds, waveBounds: WaveBounds, offsets: { before: number; after: number }, height: number): string {
   const shapes: string[] = [];
-  for (const row of rows) {
-    if (row.kind !== "change" && row.kind !== "wave") continue;
-    const pair = row.kind === "change" ? bounds[row.index] : waveBounds[row.index];
-    if (!pair?.before || !pair.after) continue;
-    const before = { top: pair.before.top - offsets.before, bottom: pair.before.bottom - offsets.before };
-    const after = { top: pair.after.top - offsets.after, bottom: pair.after.bottom - offsets.after };
-    if (before.bottom < 0 || before.top > height || after.bottom < 0 || after.top > height) continue;
-    if (row.kind === "change") {
-      shapes.push(`<path d="M0 ${before.top} L${CONNECTOR_WIDTH} ${after.top} L${CONNECTOR_WIDTH} ${after.bottom} L0 ${before.bottom} Z" fill="${changeColors[row.tone]}"/>`);
+  for (const segment of connectorSegments(rows, bounds, waveBounds, offsets, height)) {
+    const { before, after, color } = segment;
+    if (segment.kind === "change") {
+      shapes.push(`<path d="M0 ${before.top} L${CONNECTOR_WIDTH} ${after.top} L${CONNECTOR_WIDTH} ${after.bottom} L0 ${before.bottom} Z" fill="${color}"/>`);
     } else {
-      shapes.push(`<path d="M0 ${before.top + WAVE_HEIGHT / 2} L${CONNECTOR_WIDTH} ${after.top + WAVE_HEIGHT / 2}" fill="none" stroke="${WAVE_COLOR}" stroke-width="1"/>`);
+      shapes.push(`<path d="M0 ${before.top + WAVE_HEIGHT / 2} L${CONNECTOR_WIDTH} ${after.top + WAVE_HEIGHT / 2}" fill="none" stroke="${color}" stroke-width="1"/>`);
     }
   }
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${CONNECTOR_WIDTH}" height="${height}" viewBox="0 0 ${CONNECTOR_WIDTH} ${height}">${shapes.join("")}</svg>`;
