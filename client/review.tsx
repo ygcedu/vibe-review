@@ -146,6 +146,7 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
         {data.followups.map((suggestion, index) => (
           <TouchableOpacity key={`${index}-${suggestion}`} activeOpacity={0.75} onPress={() => useFollowup(suggestion)} accessibilityRole="button" accessibilityLabel={`${props.layout.platform === "web" ? "填入" : "复制"}追问：${suggestion}`} style={styles.followupBubble}>
             <Text style={styles.followupText}>{suggestion}</Text>
+            <Text style={styles.followupArrow}>↗</Text>
           </TouchableOpacity>
         ))}
         {followupFeedback ? <Text style={styles.followupFeedback}>{followupFeedback}</Text> : null}
@@ -233,9 +234,10 @@ const styles = StyleSheet.create({
     opacity: 0.85,
     fontFamily: "monospace",
   },
-  followups: { alignItems: "flex-start", gap: 6, paddingHorizontal: 2 },
-  followupsHeading: { color: "#6b7280", fontSize: 11, fontWeight: "600" },
-  followupBubble: { alignSelf: "flex-start", maxWidth: "90%", paddingHorizontal: 12, paddingVertical: 9, borderRadius: 9, backgroundColor: "#f3f4f6", borderWidth: StyleSheet.hairlineWidth, borderColor: "#d1d5db" },
-  followupText: { color: "#374151", fontSize: 12, lineHeight: 18 },
+  followups: { alignItems: "flex-start", gap: 7, paddingHorizontal: 2 },
+  followupsHeading: { color: "#6b7280", fontSize: 12, fontWeight: "600", marginBottom: 1 },
+  followupBubble: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 10, maxWidth: "90%", minHeight: 38, paddingHorizontal: 13, paddingVertical: 9, borderRadius: 10, backgroundColor: "#fff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#d8dee6" },
+  followupText: { color: "#1f2937", fontSize: 13, lineHeight: 19, fontWeight: "500", flexShrink: 1 },
+  followupArrow: { color: "#9ca3af", fontSize: 14, lineHeight: 19 },
   followupFeedback: { color: "#6b7280", fontSize: 11 },
 });
