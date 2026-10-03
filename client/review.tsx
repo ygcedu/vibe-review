@@ -81,7 +81,9 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
     return () => { active = false; clearInterval(timer); };
   }, [props.agentId, data.scoredAt]);
   useEffect(() => {
-    if (!commitProgress) return;
+    // The start RPC installs server status before it resolves. Polling earlier
+    // can observe idle and falsely report an interrupted preview.
+    if (commitRunning || commitProgress?.kind !== "preparing") return;
     let active = true;
     const refresh = () => {
       void getCommitStatusRef.current({ agentId: props.agentId }).then((status) => {
@@ -113,7 +115,7 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
     refresh();
     const timer = setInterval(refresh, 2_000);
     return () => { active = false; clearInterval(timer); };
-  }, [props.agentId, Boolean(commitProgress)]);
+  }, [props.agentId, commitRunning, commitProgress?.kind]);
   const diffFiles = parseDiffFiles(data.diff);
   const totalAdded = diffFiles.reduce((total, file) => total + file.added, 0);
   const totalRemoved = diffFiles.reduce((total, file) => total + file.removed, 0);
