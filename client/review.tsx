@@ -38,7 +38,9 @@ const verificationLabel = { passed: "通过", failed: "未通过", unavailable: 
 function openVerifier(serverId: string, agentId: string, workspaceId: string): void {
   const target = { serverId, agentId };
   if (Platform.OS === "web" && typeof window !== "undefined") {
-    window.location.assign(`/h/${encodeURIComponent(serverId)}/workspace/${encodeURIComponent(workspaceId)}?open=${encodeURIComponent(`agent:${agentId}`)}`);
+    const route = `/h/${encodeURIComponent(serverId)}/workspace/${encodeURIComponent(workspaceId)}?open=${encodeURIComponent(`agent:${agentId}`)}`;
+    window.history.pushState({}, "", route);
+    window.dispatchEvent(new PopStateEvent("popstate"));
   } else {
     void Linking.openURL(buildAgentDeepLink(target));
   }
