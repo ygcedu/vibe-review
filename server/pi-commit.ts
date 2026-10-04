@@ -9,9 +9,17 @@ import { captureWorktree, changedPathsFromHead, diffHeadToSnapshot, disposeSnaps
 const exec = promisify(execFile);
 const timeout = 3 * 60_000;
 const proposalSchema = z.object({
-  message: z.string().trim().min(1).max(80),
+  message: z.string().trim().min(1),
   files: z.array(z.string()).min(1),
 });
+
+function fitCommitMessage(message: string): string {
+  const singleLine = message.replace(/\s+/g, " ").trim();
+  if (singleLine.length <= 80) return singleLine;
+  const prefix = singleLine.slice(0, 80);
+  const wordBreak = prefix.lastIndexOf(" ");
+  return (wordBreak >= 40 ? prefix.slice(0, wordBreak) : prefix).replace(/[\s,，、:：;；-]+$/, "");
+}
 
 export interface CommitProposal {
   id: string;
@@ -132,14 +140,16 @@ export async function preparePiCommit(agentId: string, cwd: string, config: PiCo
       const excerpt = stdout.trim().replace(/\s+/g, " ").slice(0, 160);
       throw new Error(excerpt ? `Pi 返回了非 JSON 内容：${excerpt}。请重试预览。` : "Pi 没有返回 JSON 提交建议，请重试预览。");
     }
-    const suggestion = proposalSchema.parse(parsed);
+    const parsedSuggestion = proposalSchema.safeParse(parsed);
+    if (!parsedSuggestion.success) throw new Error("Pi 返回的提交建议缺少有效标题或文件列表，请重试预览。");
+    const suggestion = parsedSuggestion.data;
     const allowed = new Set(available);
     const files = [...new Set(suggestion.files)];
     if (files.some((path) => !allowed.has(path))) throw new Error("Pi 选择了候选列表之外的文件，请重新生成预览。");
     const diff = await diffHeadToSnapshot(snapshot, files);
     return {
       id: randomUUID(), agentId, cwd, head: headOutput.trim(),
-      message: suggestion.message.replace(/[\r\n]+/g, " "), files, diff, promptPreview,
+      message: fitCommitMessage(suggestion.message), files, diff, promptPreview,
       expiresAt: Date.now() + 10 * 60_000,
     };
   } finally {

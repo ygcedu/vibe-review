@@ -14,11 +14,11 @@ function connectionLost(error: unknown): boolean {
 }
 
 /** A plugin session can reconnect during a long verification; retry only transport failures. */
-export async function appendReviewWithRetry(paseo: PaseoApi, agentId: string, item: AppendableReviewItem): Promise<{ seq: number; epoch: string } | null> {
+export async function appendReviewWithRetry(paseo: PaseoApi, agentId: string, item: AppendableReviewItem, replace = false): Promise<{ seq: number; epoch: string } | null> {
   const agent = paseo.agents.ref(agentId);
   for (let attempt = 0; attempt < 4; attempt++) {
     try {
-      if (attempt > 0) {
+      if (attempt > 0 && !replace) {
         const page = await agent.timeline.refetch();
         if (page.entries?.some(({ item: existing }) => existing.type === "plugin" && existing.id === item.id)) return null;
       }

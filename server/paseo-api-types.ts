@@ -17,6 +17,7 @@ export interface PaseoAgentRef {
   send(text: string, options?: object): Promise<void>;
   current(): { labels?: Record<string, string> } | null;
   refresh(requestId?: string): Promise<unknown>;
+  archive(): Promise<{ archivedAt: string }>;
 }
 
 export interface PaseoApi {

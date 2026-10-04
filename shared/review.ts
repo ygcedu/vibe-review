@@ -18,6 +18,8 @@ export const reviewResultSchema = z.object({
     evidence: z.array(z.string()),
     provider: z.string(),
   }).optional(),
+  verificationState: z.enum(["running", "canceled", "complete"]).optional(),
+  verificationAgentId: z.string().optional(),
   drifts: z.array(z.string()).optional(),
   narrative: z.string().optional(),
   followups: z.array(z.string()).max(3).optional(),
@@ -36,5 +38,11 @@ export const REVIEW_VERSION = 1;
 export const reviewAgentRpc = defineRpc({
   name: "vibe-review.run",
   input: z.object({ agentId: z.string() }),
+  output: z.object({ ok: z.literal(true) }),
+});
+
+export const cancelVerificationRpc = defineRpc({
+  name: "vibe-review.cancel-verification",
+  input: z.object({ agentId: z.string(), scoredAt: z.string() }),
   output: z.object({ ok: z.literal(true) }),
 });

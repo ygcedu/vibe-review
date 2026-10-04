@@ -1,7 +1,7 @@
 import type { PluginHandlerContext, PluginServerContext } from "@getpaseo/plugin/server";
-import { reviewAgentRpc, REVIEW_KIND } from "./shared/review";
+import { cancelVerificationRpc, reviewAgentRpc } from "./shared/review";
 import { llmSettings, piCommitSettings, verificationSettings, type LlmConfig, type VerificationConfig } from "./shared/settings";
-import { queueReview, reviewAgent, type RunContext } from "./server/review";
+import { cancelVerification, queueReview, reviewAgent, type RunContext } from "./server/review";
 import { captureWorktree, diffSnapshots, disposeSnapshot, type WorktreeSnapshot } from "./server/snapshot";
 import { replaceTurnSnapshot, takeTurnSnapshot } from "./server/turn-snapshots";
 import { clarifyRpc } from "./shared/clarify";
@@ -34,10 +34,10 @@ export default function contribute(server: PluginServerContext) {
 
   const ctx = (paseo: PluginHandlerContext["paseo"]): RunContext => ({
     getLlmConfig: llmConfig,
-    verifyTask: async (agentId, request) => {
+    verifyTask: async (agentId, request, control) => {
       const state = await verifySettings.read();
       if (state.status !== "ready") throw new Error(`验证配置无效：${state.error}`);
-      return verifyWithPaseoProvider(paseo, agentId, state.values as VerificationConfig, request);
+      return verifyWithPaseoProvider(paseo, agentId, state.values as VerificationConfig, request, control);
     },
   });
 
@@ -103,6 +103,11 @@ export default function contribute(server: PluginServerContext) {
 
   server.handle(reviewAgentRpc, async ({ agentId }, context) => {
     await reviewAgent(agentId, context, ctx(context.paseo));
+    return { ok: true as const };
+  });
+
+  server.handle(cancelVerificationRpc, async ({ agentId, scoredAt }, context) => {
+    await cancelVerification(context.paseo, agentId, scoredAt);
     return { ok: true as const };
   });
 

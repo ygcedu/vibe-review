@@ -3,11 +3,12 @@ import { View, Text, StyleSheet, TouchableOpacity, useColorScheme } from "react-
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePaseo, useRpc, type PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import { output } from "zod";
-import { reviewResultSchema } from "../shared/review";
+import { cancelVerificationRpc, reviewResultSchema } from "../shared/review";
 import { parseDiffFiles } from "./diff";
 import { FileTree } from "./file-tree";
 import { copyText } from "@getpaseo/plugin/client/react-native";
 import { fillVisibleComposer } from "./composer-fill";
+import { RunningAccent } from "./running-accent";
 import { commitAvailabilityRpc, preparePiCommitRpc, piCommitStatusRpc, getPendingCommitDiffRpc, COMMIT_PREVIEW_KIND, COMMIT_RESULT_KIND } from "../shared/commit";
 
 type ReviewResultData = output<typeof reviewResultSchema>;
@@ -66,6 +67,8 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
   const [expanded, setExpanded] = useState(false);
   const [showPrompt, setShowPrompt] = useState(false);
   const [followupFeedback, setFollowupFeedback] = useState("");
+  const [cancelingVerification, setCancelingVerification] = useState(false);
+  const [verificationError, setVerificationError] = useState("");
   const [commitCwd, setCommitCwd] = useState<string | null>(null);
   const [commitTargetCwd, setCommitTargetCwd] = useState<string | null>(null);
   const [commitRunning, setCommitRunning] = useState(false);
@@ -75,6 +78,7 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
   const paseo = usePaseo();
   const pendingDiffRequested = useRef(false);
   const checkCommit = useRpc(commitAvailabilityRpc);
+  const cancelVerification = useRpc(cancelVerificationRpc);
   const checkCommitRef = useRef(checkCommit);
   checkCommitRef.current = checkCommit;
   const preparePiCommit = useRpc(preparePiCommitRpc);
@@ -165,11 +169,12 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
   const diffFiles = parseDiffFiles(data.diff);
   const totalAdded = diffFiles.reduce((total, file) => total + file.added, 0);
   const totalRemoved = diffFiles.reduce((total, file) => total + file.removed, 0);
-  const followups = data.followups ?? [];
+  const verificationRunning = data.verificationState === "running";
+  const followups = verificationRunning ? [] : data.followups ?? [];
   const otherFollowups = commitCwd ? followups.filter((suggestion) => !/提交|commit/i.test(suggestion)) : followups;
   const visibleFollowups = (otherFollowups.length ? otherFollowups : followups).slice(0, commitCwd ? 2 : 3);
   const pendingDiffFiles = useMemo(() => pendingDiff ? parseDiffFiles(pendingDiff) : [], [pendingDiff]);
-  const hasAnalysis = Boolean(data.narrative || data.summary || data.drifts?.length || data.verification?.evidence.length || data.verification?.summary || data.detail);
+  const hasAnalysis = Boolean(data.narrative || data.summary || data.drifts?.length || data.verification || data.detail);
 
   const useFollowup = (suggestion: string) => {
     if (props.layout.platform === "web") {
@@ -196,9 +201,19 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
     ).finally(() => setCommitRunning(false));
   };
 
+  const stopVerification = () => {
+    if (cancelingVerification || !verificationRunning) return;
+    setCancelingVerification(true);
+    setVerificationError("");
+    void cancelVerification({ agentId: props.agentId, scoredAt: data.scoredAt }).catch((error: unknown) => {
+      setVerificationError(error instanceof Error ? error.message : String(error));
+    }).finally(() => setCancelingVerification(false));
+  };
+
   return (
     <View style={styles.reviewGroup}>
     <View style={[styles.container, { backgroundColor: cardColors.background, borderColor: cardColors.border }]}>
+      {verificationRunning ? <RunningAccent color={accent} /> : null}
       <View style={styles.header}>
         <Text style={[styles.title, { color: accent, backgroundColor: dark ? v.darkTint : v.tint }]}>
           {v.label}
@@ -223,12 +238,21 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
           </Text>
         )}
         {data.drift !== "in_scope" ? <Text style={[styles.stat, { color: accent }]}>{drift}</Text> : null}
-        {data.taskType === "verification_required" && !data.verification
+        {data.taskType === "verification_required" && !data.verification && !data.verificationState
           ? <Text style={[styles.stat, { color: cardColors.muted }]}>{taskTypeLabel[data.taskType]}</Text> : null}
         {data.verification ? <Text style={[styles.stat, { color: data.verification.status === "passed" ? (dark ? "#86efac" : "#15803d") : accent }]}>
           {verificationLabel[data.verification.status]}
         </Text> : null}
+        {verificationRunning ? <Text style={[styles.stat, { color: accent }]}>验证中</Text> : null}
+        {data.verificationState === "canceled" ? <Text style={[styles.stat, { color: cardColors.muted }]}>已取消验证</Text> : null}
       </View>
+      {verificationRunning ? <View style={styles.verificationActions}>
+        <Text style={[styles.verificationPending, { color: cardColors.muted }]}>独立验证正在进行，完成后结果会更新在这张卡片中。</Text>
+        <TouchableOpacity accessibilityRole="button" accessibilityLabel="取消独立验证" disabled={cancelingVerification} onPress={stopVerification} style={[styles.cancelVerification, { borderColor: cardColors.border }]}>
+          <Text style={[styles.cancelVerificationText, { color: cardColors.text }]}>{cancelingVerification ? "正在取消…" : "取消验证"}</Text>
+        </TouchableOpacity>
+      </View> : null}
+      {verificationError ? <Text selectable style={styles.verificationError}>{verificationError}</Text> : null}
       {hasAnalysis ? <TouchableOpacity style={[styles.expandBtn, { borderTopColor: cardColors.divider }]}
         activeOpacity={0.7} accessibilityRole="button" accessibilityLabel={expanded ? "收起评估详情" : "查看评估详情"}
         onPress={() => setExpanded((value) => !value)}>
@@ -236,22 +260,32 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
         <Text style={[styles.expandChevron, { color: cardColors.muted }]}>{expanded ? "⌃" : "⌄"}</Text>
       </TouchableOpacity> : null}
       {expanded ? <View style={styles.analysis}>
-        {data.narrative || data.summary ? <Text selectable style={[styles.narrative, { color: cardColors.text }]}>
-          {data.narrative || data.summary}
-        </Text> : null}
-        {data.drifts?.map((item, index) => <Text selectable key={`${index}-${item}`} style={[styles.analysisItem, { color: cardColors.muted }]}>
-          偏离 · {item}
-        </Text>)}
-        {data.verification ? <View style={styles.verification}>
-          <Text selectable style={[styles.verificationSummary, { color: cardColors.text }]}>{data.verification.summary}</Text>
-          {data.verification.evidence.map((fact, index) => <Text selectable key={`${index}-${fact}`} style={[styles.analysisItem, { color: cardColors.muted }]}>· {fact}</Text>)}
-        </View> : null}
-        {data.detail ? <>
+        {data.narrative || data.summary || data.drifts?.length || data.detail ? <View style={[styles.detailSection, { backgroundColor: dark ? "#263241" : "#f8fafc", borderColor: cardColors.border }]}>
+          <Text style={[styles.detailSectionTitle, { color: cardColors.muted }]}>模型评估</Text>
+          {data.narrative || data.summary ? <Text selectable style={[styles.narrative, { color: cardColors.text }]}>
+            {data.narrative || data.summary}
+          </Text> : null}
+          {data.drifts?.map((item, index) => <Text selectable key={`${index}-${item}`} style={[styles.analysisItem, { color: cardColors.muted }]}>
+            偏离 · {item}
+          </Text>)}
+          {data.detail ? <>
           <TouchableOpacity accessibilityRole="button" onPress={() => setShowPrompt((value) => !value)} style={styles.promptToggle}>
             <Text style={[styles.promptToggleText, { color: cardColors.muted }]}>{showPrompt ? "收起审核提示词" : "查看审核提示词"}</Text>
           </TouchableOpacity>
           {showPrompt ? <Text selectable style={[styles.detailText, { color: cardColors.muted }]}>{data.detail}</Text> : null}
-        </> : null}
+          </> : null}
+        </View> : null}
+        {data.verification ? <View style={[styles.detailSection, { backgroundColor: dark ? "#263241" : "#f8fafc", borderColor: cardColors.border }]}>
+          <View style={styles.detailSectionHeader}>
+            <Text style={[styles.detailSectionTitle, { color: cardColors.muted }]}>独立验证</Text>
+            <Text style={[styles.detailStatus, { color: data.verification.status === "passed" ? (dark ? "#86efac" : "#15803d") : accent }]}>{verificationLabel[data.verification.status]}</Text>
+          </View>
+          <Text selectable style={[styles.verificationSummary, { color: cardColors.text }]}>{data.verification.summary}</Text>
+          {data.verification.evidence.map((fact, index) => <Text selectable key={`${index}-${fact}`} style={[styles.analysisItem, { color: cardColors.muted }]}>· {fact}</Text>)}
+        </View> : null}
+        {data.verificationState === "canceled" ? <View style={[styles.detailSection, { backgroundColor: dark ? "#263241" : "#f8fafc", borderColor: cardColors.border }]}>
+          <Text style={[styles.detailSectionTitle, { color: cardColors.muted }]}>独立验证 · 已取消</Text>
+        </View> : null}
       </View> : null}
     </View>
     {diffFiles.length ? (
@@ -267,7 +301,7 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
     ) : data.diffIncomplete ? (
       <Text style={styles.missingDiff}>文件变更可能未被记录</Text>
     ) : null}
-    {commitCwd || visibleFollowups.length || commitProgress ? (
+    {!verificationRunning && (commitCwd || visibleFollowups.length || commitProgress) ? (
       <View style={styles.followups}>
         <Text style={styles.followupsHeading}>接下来可以问</Text>
         {commitCwd && !commitProgress ? (
@@ -339,6 +373,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
   },
+  verificationActions: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 },
+  verificationPending: { fontSize: 11, lineHeight: 17, flexShrink: 1 },
+  cancelVerification: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 7, paddingHorizontal: 10, paddingVertical: 6 },
+  cancelVerificationText: { fontSize: 11, fontWeight: "600" },
+  verificationError: { color: "#b91c1c", fontSize: 11 },
   narrative: {
     fontSize: 13,
     lineHeight: 20,
@@ -362,8 +401,11 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   analysis: { gap: 10, paddingBottom: 12 },
+  detailSection: { gap: 8, borderWidth: StyleSheet.hairlineWidth, borderRadius: 9, paddingHorizontal: 12, paddingVertical: 11 },
+  detailSectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  detailSectionTitle: { fontSize: 11, fontWeight: "700" },
+  detailStatus: { fontSize: 11, fontWeight: "700" },
   analysisItem: { fontSize: 12, lineHeight: 18 },
-  verification: { gap: 5 },
   verificationSummary: { fontSize: 12, fontWeight: "600", lineHeight: 18 },
   promptToggle: { alignSelf: "flex-start", paddingVertical: 5 },
   promptToggleText: { fontSize: 12, fontWeight: "600" },

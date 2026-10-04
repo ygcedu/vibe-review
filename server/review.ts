@@ -1,17 +1,74 @@
 import type { AgentTimelineItem } from "@getpaseo/protocol/agent-types";
 import type { PaseoApi } from "./paseo-api-types";
-import { buildTaskSummary, isSessionControlCommand } from "./inspect";
-import { notify } from "./notify";
-import { distillTask, type DistilledTask } from "./distill";
+import { buildTaskSummary, isSessionControlCommand } from "./inspect.ts";
+import { notify } from "./notify.ts";
+import { distillTask, type DistilledTask } from "./distill.ts";
 import type { LlmConfig } from "../shared/settings";
-import { REVIEW_KIND, REVIEW_VERSION } from "../shared/review";
-import type { VerificationRequest, VerificationResult } from "./verify";
-import { appendReviewWithRetry } from "./review-append";
+import { reviewResultSchema, REVIEW_KIND, REVIEW_VERSION } from "../shared/review.ts";
+import type { output } from "zod";
+import type { VerificationControl, VerificationRequest, VerificationResult } from "./verify";
+import { appendReviewWithRetry } from "./review-append.ts";
 
 /** Settings access, injected from the server entry point. */
 export interface RunContext {
   getLlmConfig(): Promise<LlmConfig>;
-  verifyTask(agentId: string, request: VerificationRequest): Promise<VerificationResult>;
+  verifyTask(agentId: string, request: VerificationRequest, control?: VerificationControl): Promise<VerificationResult>;
+}
+
+type ReviewCardData = output<typeof reviewResultSchema>;
+type ActiveVerification = { canceled: boolean; verifierAgentId?: string; card: ReviewCardData; writeQueue: Promise<unknown> };
+const activeVerifications = new Map<string, ActiveVerification>();
+const verificationKey = (agentId: string, scoredAt: string) => `${agentId}:${scoredAt}`;
+
+function queueVerificationCardWrite(paseo: PaseoApi, agentId: string, cardId: string, active: ActiveVerification, data: ReviewCardData, skipIfCanceled = true): Promise<unknown> {
+  const write = active.writeQueue.catch(() => undefined).then(() => {
+    if (skipIfCanceled && active.canceled) return null;
+    return appendReviewWithRetry(paseo, agentId, {
+      type: "plugin", id: cardId, kind: REVIEW_KIND, version: REVIEW_VERSION, data,
+    }, true);
+  });
+  active.writeQueue = write;
+  return write;
+}
+
+/** Cancel only the verification attached to this card, including after plugin reload. */
+export async function cancelVerification(paseo: PaseoApi, agentId: string, scoredAt: string): Promise<void> {
+  const key = verificationKey(agentId, scoredAt);
+  const live = activeVerifications.get(key);
+  if (live?.canceled) return;
+  if (live) live.canceled = true;
+  const ref = paseo.agents.ref(agentId);
+  const page = await ref.timeline.refetch().catch((error) => {
+    if (live) live.canceled = false;
+    throw error;
+  });
+  const item = page.entries?.map(({ item }) => item).find((entry) => entry.type === "plugin" && entry.kind === REVIEW_KIND &&
+    (entry.data as { scoredAt?: string }).scoredAt === scoredAt);
+  if (!item || item.type !== "plugin") {
+    if (live) live.canceled = false;
+    throw new Error("审核卡片已失效，请刷新后重试。");
+  }
+  const card = reviewResultSchema.safeParse(item.data);
+  if (!card.success) {
+    if (live) live.canceled = false;
+    throw new Error("审核卡片数据无效，请刷新后重试。");
+  }
+  if (card.data.verificationState !== "running") {
+    if (live) live.canceled = false;
+    throw new Error("验证已结束。");
+  }
+  const verifierId = live?.verifierAgentId ?? card.data.verificationAgentId;
+  try {
+    if (verifierId) await paseo.agents.ref(verifierId).archive();
+  } catch (error) {
+    if (live) live.canceled = false;
+    throw error;
+  }
+  const canceledCard: ReviewCardData = { ...card.data, verificationState: "canceled", verificationAgentId: undefined, followups: live?.card.followups ?? card.data.followups };
+  if (live) await queueVerificationCardWrite(paseo, agentId, item.id, live, canceledCard, false);
+  else await appendReviewWithRetry(paseo, agentId, {
+    type: "plugin", id: item.id, kind: REVIEW_KIND, version: REVIEW_VERSION, data: canceledCard,
+  }, true);
 }
 
 /** Auto follow-up only for spawned task agents (labeled by Paseo), never the user's main session. */
@@ -145,23 +202,6 @@ async function runReview(
     return;
   }
 
-  let verification: VerificationResult | undefined;
-  if (distilled.taskType === "verification_required" && !interrupted) {
-    try {
-      verification = await run.verifyTask(agentId, {
-        goal: distilled.goal,
-        narrative: distilled.narrative,
-        assistantMessages: summary.assistantMessages,
-        diff: lastTurnDiff,
-      });
-    } catch (error) {
-      console.error("[vibe-review] independent verification failed:", error);
-      verification = { status: "unavailable", summary: error instanceof Error ? error.message.slice(0, 300) : "验证任务无法运行。", evidence: [], provider: "" };
-    }
-    if (distilled.result === "done" && verification.status === "failed") distilled.result = "partial";
-    if (distilled.result === "done" && verification.status === "unavailable") distilled.result = "unknown";
-  }
-
   const { verdict, completed, drift } = verdictOf(distilled);
   const result: ReviewResult = {
     verdict,
@@ -171,36 +211,90 @@ async function runReview(
     scoredAt: new Date().toISOString(),
   };
 
+  const cardId = `vibe-review-${turnId ?? Date.now()}`;
+  const needsVerification = distilled.taskType === "verification_required" && !interrupted;
+  const card: ReviewCardData = {
+    verdict: result.verdict,
+    completed: result.completed,
+    drift: result.drift,
+    summary: result.summary,
+    scoredAt: result.scoredAt,
+    turnId: turnId ?? undefined,
+    goal: distilled.goal,
+    result: distilled.result,
+    taskType: distilled.taskType,
+    verificationState: needsVerification ? "running" : undefined,
+    drifts: distilled.drifts,
+    narrative: distilled.narrative,
+    followups: distilled.followups,
+    diff: lastTurnDiff || undefined,
+    diffIncomplete,
+    detail: distilled.promptNoDiff,
+  };
+  const key = verificationKey(agentId, result.scoredAt);
+  const active: ActiveVerification | undefined = needsVerification
+    ? { canceled: false, card: { ...card, followups: distilled.followups }, writeQueue: Promise.resolve() }
+    : undefined;
+  if (active) activeVerifications.set(key, active);
   try {
     const appendResult = await appendReviewWithRetry(paseo, agentId, {
       type: "plugin",
-      id: `vibe-review-${turnId ?? Date.now()}`,
+      id: cardId,
       kind: REVIEW_KIND,
       version: REVIEW_VERSION,
-      data: {
-        verdict: result.verdict,
-        completed: result.completed,
-        drift: result.drift,
-        summary: result.summary,
-        scoredAt: result.scoredAt,
-        turnId: turnId ?? undefined,
-        goal: distilled.goal,
-        result: distilled.result,
-        taskType: distilled.taskType,
-        verification,
-        drifts: distilled.drifts,
-        narrative: distilled.narrative,
-        followups: distilled.followups,
-        diff: lastTurnDiff || undefined,
-        diffIncomplete,
-        detail: distilled.promptNoDiff,
-      },
+      data: card,
     });
     console.log(
       `[vibe-review] appended review: verdict=${result.verdict} completed=${result.completed} drift=${result.drift} followups=${distilled.followups.length} seq=${appendResult?.seq ?? "already-present"}`,
     );
   } catch (error) {
     console.error("[vibe-review] timeline append failed:", error);
+    if (active) activeVerifications.delete(key);
+    return;
+  }
+
+  if (active) {
+    if (active.canceled) {
+      activeVerifications.delete(key);
+      return;
+    }
+    let verification: VerificationResult;
+    try {
+      verification = await run.verifyTask(agentId, {
+        goal: distilled.goal,
+        narrative: distilled.narrative,
+        assistantMessages: summary.assistantMessages,
+        diff: lastTurnDiff,
+      }, {
+        isCanceled: () => active.canceled,
+        onAgentCreated: async (verifierAgentId) => {
+          active.verifierAgentId = verifierAgentId;
+          if (active.canceled) return;
+          await queueVerificationCardWrite(paseo, agentId, cardId, active, { ...card, verificationAgentId: verifierAgentId });
+        },
+      });
+    } catch (error) {
+      console.error("[vibe-review] independent verification failed:", error);
+      verification = { status: "unavailable", summary: error instanceof Error ? error.message.slice(0, 300) : "验证任务无法运行。", evidence: [], provider: "" };
+    }
+    try {
+      if (!active.canceled) {
+        if (distilled.result === "done" && verification.status === "failed") distilled.result = "partial";
+        if (distilled.result === "done" && verification.status === "unavailable") distilled.result = "unknown";
+        const finalVerdict = verdictOf(distilled);
+        await queueVerificationCardWrite(paseo, agentId, cardId, active, {
+            ...card, verdict: finalVerdict.verdict, completed: finalVerdict.completed,
+            result: distilled.result, verificationState: "complete", verificationAgentId: undefined,
+            verification, followups: distilled.followups,
+          });
+        result.verdict = finalVerdict.verdict;
+        result.completed = finalVerdict.completed;
+      }
+    } catch (error) {
+      console.error("[vibe-review] verification card update failed:", error);
+    } finally {
+      activeVerifications.delete(key);
+    }
   }
 
   if (result.verdict === "pass") return;

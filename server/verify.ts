@@ -58,6 +58,11 @@ export interface VerificationRequest {
   diff?: string;
 }
 
+export interface VerificationControl {
+  isCanceled(): boolean;
+  onAgentCreated(agentId: string): void | Promise<void>;
+}
+
 /** A model claim alone is never evidence of a browser/computer check. */
 export function usedVerificationTool(timeline: readonly AgentTimelineItem[]): boolean {
   return timeline.some((item) => {
@@ -75,12 +80,14 @@ export async function verifyWithPaseoProvider(
   parentAgentId: string,
   config: VerificationConfig,
   request: VerificationRequest,
+  control?: VerificationControl,
 ): Promise<VerificationResult> {
   const provider = config.model.trim() ? `${config.provider.trim()}/${config.model.trim()}` : config.provider.trim();
   if (!config.enabled || !config.provider.trim()) return { status: "unavailable", summary: "未配置验证 Provider。", evidence: [], provider };
   const parent = paseo.agents.ref(parentAgentId);
   const snapshot = parent.current() ?? (await parent.refresh())?.agent;
   if (!snapshot?.workspaceId) return { status: "unavailable", summary: "无法确定原会话所在工作区。", evidence: [], provider };
+  if (control?.isCanceled()) return { status: "unavailable", summary: "验证已取消。", evidence: [], provider };
 
   const prompt = [
     "请独立验证下述任务本轮声称的结果。只读检查，禁止修改文件、发送消息、提交或执行破坏性操作。",
@@ -109,6 +116,8 @@ export async function verifyWithPaseoProvider(
   });
   console.log("[vibe-review] verification agent created:", agent.id, provider);
   try {
+    await control?.onAgentCreated(agent.id);
+    if (control?.isCanceled()) return { status: "unavailable", summary: "验证已取消。", evidence: [], provider };
     const deadline = Date.now() + 6 * 60_000;
     const waitForVerifier = () => retryAfterReconnect<any>(
       () => agent.waitForFinish(Math.max(1, deadline - Date.now())), deadline);

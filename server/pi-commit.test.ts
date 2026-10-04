@@ -99,6 +99,29 @@ test("changed worktree invalidates confirmation", async () => {
   }
 });
 
+test("an overlong Pi title becomes an editable preview instead of a schema error", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "vibe-review-pi-long-title-"));
+  try {
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: dir, encoding: "utf8" }).trim();
+    git("init", "-q");
+    git("config", "user.name", "Test");
+    git("config", "user.email", "test@example.invalid");
+    await writeFile(join(dir, "file.txt"), "before\n");
+    git("add", ".");
+    git("commit", "-qm", "initial");
+    await writeFile(join(dir, "file.txt"), "after\n");
+    const stub = join(dir, "fake-pi");
+    await writeFile(stub, fakePiScript(`fix: ${"improve preview validation ".repeat(5)}`, ["file.txt"]));
+    await chmod(stub, 0o755);
+    const proposal = await preparePiCommit("agent-1", dir, { executable: stub, provider: "", model: "" });
+    assert.ok(proposal.message.length <= 80);
+    assert.match(proposal.message, /^fix: improve preview validation/);
+    assert.deepEqual(proposal.files, ["file.txt"]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("Pi model errors are reported instead of JSON parse errors", async () => {
   const dir = await mkdtemp(join(tmpdir(), "vibe-review-pi-error-"));
   try {
