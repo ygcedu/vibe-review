@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { AgentTimelineItem } from "@getpaseo/protocol/agent-types";
 import type { PaseoApi } from "./paseo-api-types.ts";
-import { cancelVerification, queueReview, type RunContext } from "./review.ts";
+import { cancelVerification, reconcileVerification, queueReview, type RunContext } from "./review.ts";
 
 const modelReply = [
   "goal: 检查页面按钮",
@@ -92,4 +92,26 @@ test("cancel archives the verifier and keeps later verification from overwriting
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("a finished verifier restores a running card after plugin reload", async () => {
+  const scoredAt = new Date().toISOString();
+  let card = { type: "plugin", id: "review-1", kind: "review-result", data: {
+    verdict: "pass", completed: 1, drift: "in_scope", summary: "检查按钮", scoredAt,
+    result: "done", verificationState: "running", verificationStage: "正在选择验证方式…",
+    verificationAgentId: "verifier-1", followups: [],
+  } } as { type: "plugin"; id: string; kind: string; data: Record<string, unknown> };
+  const paseo = { agents: { ref: (id: string) => id === "verifier-1" ? {
+    current: () => ({ status: "idle", activeTurn: null, config: { provider: "test/model" } }),
+    refresh: async () => ({ agent: { status: "idle", activeTurn: null, config: { provider: "test/model" } } }),
+    waitForFinish: async () => ({ status: "idle", lastMessage: JSON.stringify({ status: "passed", summary: "按钮可见", evidence: ["页面快照包含按钮"], cases: [{ name: "按钮", steps: ["打开页面"], expected: "可见", actual: "可见", status: "passed" }] }) }),
+    timeline: { refetch: async () => ({ entries: [{ item: { type: "tool_call", name: "browser_snapshot", status: "completed" } }] }) },
+  } : { timeline: {
+    refetch: async () => ({ entries: [{ item: card }] }),
+    append: async (next: typeof card) => { card = next; return { seq: 2, epoch: "test" }; },
+  } } } } as unknown as Parameters<typeof reconcileVerification>[0];
+  await reconcileVerification(paseo, "parent-1", scoredAt);
+  assert.equal(card.data.verificationState, "complete");
+  assert.equal((card.data.verification as { summary: string }).summary, "按钮可见");
+  assert.equal(card.data.verificationAgentId, undefined);
 });

@@ -3,7 +3,7 @@ import { ActivityIndicator, View, Text, StyleSheet, TouchableOpacity, useColorSc
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePaseo, useRpc, type PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import { output } from "zod";
-import { cancelVerificationRpc, reviewResultSchema } from "../shared/review";
+import { cancelVerificationRpc, reconcileVerificationRpc, reviewResultSchema } from "../shared/review";
 import { parseDiffFiles } from "./diff";
 import { FileTree } from "./file-tree";
 import { copyText } from "@getpaseo/plugin/client/react-native";
@@ -78,6 +78,16 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
   const pendingDiffRequested = useRef(false);
   const checkCommit = useRpc(commitAvailabilityRpc);
   const cancelVerification = useRpc(cancelVerificationRpc);
+  const reconcileVerification = useRpc(reconcileVerificationRpc);
+  const reconcileVerificationRef = useRef(reconcileVerification);
+  reconcileVerificationRef.current = reconcileVerification;
+  useEffect(() => {
+    if (data.verificationState !== "running") return;
+    const refresh = () => { void reconcileVerificationRef.current({ agentId: props.agentId, scoredAt: data.scoredAt }).catch(() => {}); };
+    refresh();
+    const timer = setInterval(refresh, 15_000);
+    return () => clearInterval(timer);
+  }, [props.agentId, data.scoredAt, data.verificationState]);
   const checkCommitRef = useRef(checkCommit);
   checkCommitRef.current = checkCommit;
   const preparePiCommit = useRpc(preparePiCommitRpc);

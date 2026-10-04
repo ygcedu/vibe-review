@@ -1,8 +1,8 @@
 import type { PluginHandlerContext, PluginServerContext } from "@getpaseo/plugin/server";
-import { cancelVerificationRpc, reviewAgentRpc } from "./shared/review";
+import { cancelVerificationRpc, reconcileVerificationRpc, reviewAgentRpc } from "./shared/review";
 import { llmSettings, piCommitSettings, verificationSettings, type LlmConfig, type VerificationConfig } from "./shared/settings";
 import { promptTemplateSettings } from "./shared/prompts";
-import { cancelVerification, queueReview, reviewAgent, type RunContext } from "./server/review";
+import { cancelVerification, reconcileVerification, queueReview, reviewAgent, type RunContext } from "./server/review";
 import { captureWorktree, diffSnapshots, disposeSnapshot, type WorktreeSnapshot } from "./server/snapshot";
 import { replaceTurnSnapshot, takeTurnSnapshot } from "./server/turn-snapshots";
 import { clarifyRpc } from "./shared/clarify";
@@ -115,6 +115,11 @@ export default function contribute(server: PluginServerContext) {
 
   server.handle(cancelVerificationRpc, async ({ agentId, scoredAt }, context) => {
     await cancelVerification(context.paseo, agentId, scoredAt);
+    return { ok: true as const };
+  });
+
+  server.handle(reconcileVerificationRpc, async ({ agentId, scoredAt }, context) => {
+    await reconcileVerification(context.paseo, agentId, scoredAt);
     return { ok: true as const };
   });
 

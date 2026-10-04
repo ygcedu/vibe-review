@@ -175,14 +175,32 @@ export async function verifyWithPaseoProvider(
     if (run.status !== "idle") return { status: "unavailable", summary: run.error || `验证任务状态：${run.status}`, evidence: [], provider };
     await control?.onProgress?.("正在整理验证结果…");
     const timeline = await retryAfterReconnect<any>(() => agent.timeline.refetch({ limit: 200 }), deadline);
-    const items = timeline.entries.map((entry: { item: AgentTimelineItem }) => entry.item);
+    return parseVerificationResult(timeline.entries.map((entry: { item: AgentTimelineItem }) => entry.item), run.lastMessage ?? "", provider, agent.id);
+  } finally {
+    unsubscribe?.();
+    await agent.archive().catch((error: unknown) => console.warn("[vibe-review] verification agent archive failed:", error));
+  }
+}
+
+export async function recoverFinishedVerification(paseo: PluginHandlerContext["paseo"], verifierId: string): Promise<VerificationResult | null> {
+  const agent = paseo.agents.ref(verifierId);
+  const snapshot = (await agent.refresh())?.agent ?? agent.current();
+  if (!snapshot || snapshot.activeTurn || snapshot.status === "running" || snapshot.status === "permission") return null;
+  const provider = snapshot.config?.provider ?? "";
+  const run = await agent.waitForFinish(1000);
+  if (run.status !== "idle") return { status: "unavailable", summary: run.error || `验证任务状态：${run.status}`, evidence: [], provider };
+  const timeline = await agent.timeline.refetch({ limit: 200 });
+  return parseVerificationResult(timeline.entries.map(({ item }: { item: AgentTimelineItem }) => item), run.lastMessage ?? "", provider, verifierId);
+}
+
+function parseVerificationResult(items: readonly AgentTimelineItem[], message: string, provider: string, agentId: string): VerificationResult {
     if (!usedVerificationTool(items)) return { status: "unavailable", summary: "验证 agent 未实际使用工具检查结果。", evidence: [], provider };
     let output: { status?: string; summary?: string; evidence?: unknown; cases?: unknown };
     try {
-      output = parseFirstJsonObject(run.lastMessage ?? "");
+      output = parseFirstJsonObject(message);
     } catch (error) {
       if (!(error instanceof SyntaxError)) throw error;
-      console.warn("[vibe-review] verifier returned no parseable JSON:", agent.id);
+      console.warn("[vibe-review] verifier returned no parseable JSON:", agentId);
       return { status: "unavailable", summary: "验证 agent 已完成检查，但结果格式无法解析。请查看验证 agent 的执行记录。", evidence: [], provider };
     }
     const cases: VerificationCase[] = Array.isArray(output.cases) ? output.cases.filter((value): value is VerificationCase => {
@@ -208,8 +226,4 @@ export async function verifyWithPaseoProvider(
       return { status: "unavailable", summary: "验证 agent 未提供实际观察证据。", evidence, provider };
     }
     return { status, summary: (output.summary || "验证未提供结论。").slice(0, 400), evidence, provider, cases };
-  } finally {
-    unsubscribe?.();
-    await agent.archive().catch((error: unknown) => console.warn("[vibe-review] verification agent archive failed:", error));
-  }
 }

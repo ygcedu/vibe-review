@@ -1,4 +1,5 @@
 import type { AgentTimelineItem } from "@getpaseo/protocol/agent-types";
+import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import type { PaseoApi } from "./paseo-api-types";
 import { buildTaskSummary, isSessionControlCommand } from "./inspect.ts";
 import { notify } from "./notify.ts";
@@ -8,6 +9,7 @@ import { reviewResultSchema, REVIEW_KIND, REVIEW_VERSION } from "../shared/revie
 import type { output } from "zod";
 import type { VerificationControl, VerificationRequest, VerificationResult } from "./verify";
 import { appendReviewWithRetry } from "./review-append.ts";
+import { recoverFinishedVerification } from "./verify.ts";
 
 /** Settings access, injected from the server entry point. */
 export interface RunContext {
@@ -18,7 +20,48 @@ export interface RunContext {
 type ReviewCardData = output<typeof reviewResultSchema>;
 type ActiveVerification = { canceled: boolean; verifierAgentId?: string; cardId: string; card: ReviewCardData; writeQueue: Promise<unknown> };
 const activeVerifications = new Map<string, ActiveVerification>();
+const reconcilingVerifications = new Set<string>();
 const verificationKey = (agentId: string, scoredAt: string) => `${agentId}:${scoredAt}`;
+
+/** Restore a card whose verifier outlived the plugin process that created it. */
+export async function reconcileVerification(paseo: PluginHandlerContext["paseo"], agentId: string, scoredAt: string): Promise<void> {
+  const key = verificationKey(agentId, scoredAt);
+  if (activeVerifications.has(key) || reconcilingVerifications.has(key)) return;
+  reconcilingVerifications.add(key);
+  try {
+    const parent = paseo.agents.ref(agentId);
+    const findCard = async () => {
+      const page = await parent.timeline.refetch({ limit: 200 });
+      const item = page.entries.find(({ item }: { item: AgentTimelineItem }) => item.type === "plugin" && item.kind === REVIEW_KIND &&
+        (item.data as { scoredAt?: string }).scoredAt === scoredAt)?.item;
+      return item?.type === "plugin" ? item : undefined;
+    };
+    const item = await findCard();
+    if (!item) return;
+    const parsed = reviewResultSchema.safeParse(item.data);
+    if (!parsed.success || parsed.data.verificationState !== "running") return;
+    const card = parsed.data;
+    const verification = card.verificationAgentId
+      ? await recoverFinishedVerification(paseo, card.verificationAgentId)
+      : Date.now() - Date.parse(scoredAt) > 6 * 60_000
+        ? { status: "unavailable" as const, summary: "插件重载后无法找到原验证 agent，请重新发起验证。", evidence: [], provider: "" }
+        : null;
+    if (!verification) return;
+    if (activeVerifications.has(key)) return;
+    const latest = await findCard();
+    if (!latest || latest.data?.verificationState !== "running") return;
+    const result = card.result === "done" && verification.status === "failed" ? "partial"
+      : card.result === "done" && verification.status === "unavailable" ? "unknown" : card.result;
+    const finalVerdict = verdictOf({ result: result ?? "unknown", drifts: card.drifts ?? [] });
+    await appendReviewWithRetry(paseo, agentId, {
+      type: "plugin", id: item.id, kind: REVIEW_KIND, version: REVIEW_VERSION,
+      data: { ...card, verdict: finalVerdict.verdict, completed: finalVerdict.completed, result,
+        verificationState: "complete", verificationStage: undefined, verificationAgentId: undefined, verification },
+    }, true);
+  } finally {
+    reconcilingVerifications.delete(key);
+  }
+}
 
 function queueVerificationCardWrite(paseo: PaseoApi, agentId: string, cardId: string, active: ActiveVerification, data: ReviewCardData, skipIfCanceled = true): Promise<unknown> {
   const write = active.writeQueue.catch(() => undefined).then(() => {
