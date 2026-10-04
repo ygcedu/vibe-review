@@ -294,6 +294,12 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
             <Text style={[styles.detailStatus, { color: data.verification.status === "passed" ? (dark ? "#86efac" : "#15803d") : accent }]}>{verificationLabel[data.verification.status]}</Text>
           </View>
           <Text selectable style={[styles.verificationSummary, { color: cardColors.text }]}>{data.verification.summary}</Text>
+          {data.verification.cases?.map((item, index) => <View key={`${index}-${item.name}`} style={{ marginTop: 10 }}>
+            <Text selectable style={[styles.analysisItem, { color: cardColors.text }]}>{index + 1}. {item.name} · {item.status === "passed" ? "通过" : item.status === "failed" ? "失败" : "受阻"}</Text>
+            {item.steps.map((step, stepIndex) => <Text selectable key={stepIndex} style={[styles.analysisItem, { color: cardColors.muted }]}>步骤 {stepIndex + 1}：{step}</Text>)}
+            <Text selectable style={[styles.analysisItem, { color: cardColors.muted }]}>预期：{item.expected}</Text>
+            <Text selectable style={[styles.analysisItem, { color: cardColors.muted }]}>实际：{item.actual}</Text>
+          </View>)}
           {data.verification.evidence.map((fact, index) => <Text selectable key={`${index}-${fact}`} style={[styles.analysisItem, { color: cardColors.muted }]}>· {fact}</Text>)}
         </View> : null}
         {data.verificationState === "canceled" ? <View style={[styles.detailSection, { backgroundColor: dark ? "#263241" : "#f8fafc", borderColor: cardColors.border }]}>

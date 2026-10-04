@@ -49,6 +49,15 @@ export interface VerificationResult {
   summary: string;
   evidence: string[];
   provider: string;
+  cases?: VerificationCase[];
+}
+
+export interface VerificationCase {
+  name: string;
+  steps: string[];
+  expected: string;
+  actual: string;
+  status: "passed" | "failed" | "blocked";
 }
 
 export interface VerificationRequest {
@@ -68,18 +77,19 @@ function verificationToolStage(name: string): string | undefined {
   if (/browser_(?:list_tabs|new_tab)$/.test(name)) return "正在查找可用页面…";
   if (/browser_navigate$/.test(name)) return "正在打开待验证页面…";
   if (/browser_(?:snapshot|screenshot|scroll)$|cua_repl\.js|computer.*(?:snapshot|screenshot|observe)/i.test(name)) return "正在读取界面并核对实际效果…";
+  if (/(?:exec_command|shell|terminal|read_file|grep|search)/i.test(name)) return "正在检查代码或运行验证命令…";
   return undefined;
 }
 
-/** A model claim alone is never evidence of a browser/computer check. */
+/** A model claim alone is never evidence of an independent check. */
 export function usedVerificationTool(timeline: readonly AgentTimelineItem[]): boolean {
   return timeline.some((item) => {
     if (item.type !== "tool_call" || item.status !== "completed") return false;
     const detail = item.detail as { input?: { code?: string }; output?: { structuredContent?: { ok?: boolean } } } | undefined;
     if (detail?.output?.structuredContent?.ok === false) return false;
-    if (/browser_(?:snapshot|screenshot)$/.test(item.name)) return true;
+    if (/browser_(?:list_tabs|new_tab|navigate|scroll|wait)$/.test(item.name)) return false;
     if (item.name === "cua_repl.js") return /\.(?:getAXState|domSnapshot|getScreenshot)\s*\(/.test(detail?.input?.code ?? "");
-    return /computer(?:_use)?[._-]?(?:screenshot|snapshot|observe)/i.test(item.name);
+    return true;
   });
 }
 
@@ -99,9 +109,10 @@ export async function verifyWithPaseoProvider(
 
   const prompt = [
     "请独立验证下述任务本轮声称的结果。只读检查，禁止修改文件、发送消息、提交或执行破坏性操作。",
-    "必须使用 Paseo Browser 工具或 Provider 可用的 Computer Use 工具检查实际界面；先列出/打开相关页面，再读取 DOM/可访问性树，必要时才截图。",
-    "若 Paseo Browser 没有连接的浏览器宿主，请尝试 Computer Use；两者都不可用才返回 unavailable。不能凭文字推断 passed。",
-    "只输出一个 JSON 对象：{\"status\":\"passed|failed|unavailable\",\"summary\":\"简短结论\",\"evidence\":[\"实际观察到的事实\"]}。",
+    "先根据本轮可验证的主张和主要风险设计少量具体测试用例。每个用例写明操作步骤和可观察的预期结果，然后按步骤执行，记录实际结果及通过、失败或受阻。用例数量与深度由改动决定，不必机械覆盖无关场景。",
+    "界面效果可观察页面、DOM/可访问性树，必要时截图；代码质量可检查实际改动及相关上下文；功能行为可运行适当测试或进行实际操作。可组合多种方法。",
+    "以工具取得的一手观察作为结论依据，区分已验证事实和推测。不能只凭任务描述、agent 自述或测试存在就判 passed。若所需环境或工具不可用，说明未覆盖的内容并返回 unavailable；发现具体问题则返回 failed。",
+    '只输出一个 JSON 对象：{"status":"passed|failed|unavailable","summary":"简短结论","evidence":["实际观察到的事实"],"cases":[{"name":"用例名称","steps":["实际执行的步骤"],"expected":"预期结果","actual":"实际结果及证据","status":"passed|failed|blocked"}]}。有用例失败则总体 failed；关键用例受阻且无法判断则 unavailable；所有关键用例通过才 passed。',
     "<goal>", request.goal, "</goal>",
     "<claimed_result>", request.narrative, "</claimed_result>",
     "<assistant_messages>", request.assistantMessages.join("\n"), "</assistant_messages>",
@@ -169,16 +180,31 @@ export async function verifyWithPaseoProvider(
     await control?.onProgress?.("正在整理验证结果…");
     const timeline = await retryAfterReconnect<any>(() => agent.timeline.refetch({ limit: 200 }), deadline);
     const items = timeline.entries.map((entry: { item: AgentTimelineItem }) => entry.item);
-    if (!usedVerificationTool(items)) return { status: "unavailable", summary: "验证 agent 未实际调用 Browser 或 Computer 观察工具。", evidence: [], provider };
-    const output = parseFirstJsonObject<{ status?: string; summary?: string; evidence?: unknown }>(run.lastMessage ?? "");
-    const status = output.status === "passed" || output.status === "failed" ? output.status : "unavailable";
+    if (!usedVerificationTool(items)) return { status: "unavailable", summary: "验证 agent 未实际使用工具检查结果。", evidence: [], provider };
+    const output = parseFirstJsonObject<{ status?: string; summary?: string; evidence?: unknown; cases?: unknown }>(run.lastMessage ?? "");
+    const cases: VerificationCase[] = Array.isArray(output.cases) ? output.cases.filter((value): value is VerificationCase => {
+      if (!value || typeof value !== "object") return false;
+      const item = value as Partial<VerificationCase>;
+      return typeof item.name === "string" && Boolean(item.name.trim())
+        && Array.isArray(item.steps) && item.steps.length > 0 && item.steps.every((step) => typeof step === "string" && Boolean(step.trim()))
+        && typeof item.expected === "string" && Boolean(item.expected.trim())
+        && typeof item.actual === "string" && Boolean(item.actual.trim())
+        && (item.status === "passed" || item.status === "failed" || item.status === "blocked");
+    }).slice(0, 6).map((item) => ({
+      name: item.name.slice(0, 100), steps: item.steps.slice(0, 6).map((step) => step.slice(0, 300)),
+      expected: item.expected.slice(0, 400), actual: item.actual.slice(0, 400), status: item.status,
+    })) : [];
+    let status: VerificationResult["status"] = output.status === "passed" || output.status === "failed" ? output.status : "unavailable";
+    if (cases.some((item) => item.status === "failed")) status = "failed";
+    else if (cases.some((item) => item.status === "blocked")) status = "unavailable";
+    else if (status === "passed" && (cases.length === 0 || cases.some((item) => item.status !== "passed"))) status = "unavailable";
     const evidence = Array.isArray(output.evidence)
       ? output.evidence.filter((value): value is string => typeof value === "string" && Boolean(value.trim())).slice(0, 5).map((value) => value.slice(0, 400))
       : [];
     if (status !== "unavailable" && evidence.length === 0) {
       return { status: "unavailable", summary: "验证 agent 未提供实际观察证据。", evidence, provider };
     }
-    return { status, summary: (output.summary || "验证未提供结论。").slice(0, 400), evidence, provider };
+    return { status, summary: (output.summary || "验证未提供结论。").slice(0, 400), evidence, provider, cases };
   } finally {
     unsubscribe?.();
     await agent.archive().catch((error: unknown) => console.warn("[vibe-review] verification agent archive failed:", error));

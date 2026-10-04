@@ -287,7 +287,7 @@ async function runReview(
         onAgentCreated: async (verifierAgentId) => {
           active.verifierAgentId = verifierAgentId;
           if (active.canceled) return;
-          active.card = { ...active.card, verificationAgentId: verifierAgentId, verificationStage: "正在连接浏览器或电脑工具…" };
+          active.card = { ...active.card, verificationAgentId: verifierAgentId, verificationStage: "正在选择验证方式…" };
           await queueVerificationCardWrite(paseo, agentId, cardId, active, active.card);
         },
         onProgress: (stage) => {

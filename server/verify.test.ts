@@ -12,20 +12,22 @@ test("verifier lifecycle events are recognized without labels", () => {
 
 const observation = { type: "tool_call", name: "mcp__paseo__browser_snapshot", status: "completed" } as AgentTimelineItem;
 
-test("browser observation is required for a passed verification", async () => {
+test("an actual inspection tool is required for a passed verification", async () => {
   assert.equal(usedVerificationTool([observation]), true);
   assert.equal(usedVerificationTool([{ ...observation, status: "failed" } as AgentTimelineItem]), false);
-  assert.equal(usedVerificationTool([{ ...observation, name: "shell" } as AgentTimelineItem]), false);
+  assert.equal(usedVerificationTool([{ ...observation, name: "shell" } as AgentTimelineItem]), true);
+  assert.equal(usedVerificationTool([{ ...observation, name: "mcp__paseo__browser_navigate" } as AgentTimelineItem]), false);
   const noHost = { ...observation, detail: { type: "unknown", input: {}, output: { structuredContent: { ok: false } } } } as AgentTimelineItem;
   assert.equal(usedVerificationTool([noHost]), false);
   const computerObservation = { ...observation, name: "cua_repl.js", detail: { type: "unknown", input: { code: "await tab.getAXState();" }, output: {} } } as AgentTimelineItem;
   assert.equal(usedVerificationTool([computerObservation]), true);
+  assert.equal(usedVerificationTool([{ ...computerObservation, detail: { type: "unknown", input: { code: "await tab.goto('/');" }, output: {} } } as AgentTimelineItem]), false);
 
   let createdIn = "";
   let createdOptions: Record<string, unknown> = {};
   let archived = false;
   let items: AgentTimelineItem[] = [];
-  let lastMessage = '{"status":"passed","summary":"页面显示新按钮","evidence":["浏览器快照中找到按钮"]}';
+  let lastMessage = JSON.stringify({ status: "passed", summary: "页面显示新按钮", evidence: ["浏览器快照中找到按钮"], cases: [{ name: "按钮存在", steps: ["打开页面", "读取页面内容"], expected: "能找到按钮", actual: "找到按钮", status: "passed" }] });
   const verifier = {
     waitForFinish: async () => ({ status: "idle", lastMessage }),
     timeline: { refetch: async () => ({ entries: items.map((item) => ({ item })) }) },
@@ -44,9 +46,10 @@ test("browser observation is required for a passed verification", async () => {
 
   const withoutTool = await verifyWithPaseoProvider(paseo, "parent-1", config, request);
   assert.equal(withoutTool.status, "unavailable");
-  items = [observation];
+  items = [{ ...observation, name: "shell" } as AgentTimelineItem];
   const verified = await verifyWithPaseoProvider(paseo, "parent-1", config, request);
   assert.equal(verified.status, "passed");
+  assert.equal(verified.cases?.[0].name, "按钮存在");
   assert.equal(verified.provider, "codex/gpt-6-sol");
   assert.equal(createdIn, "workspace-1");
   assert.deepEqual(createdOptions.labels, { [VERIFIER_LABEL]: "true" });
@@ -58,7 +61,11 @@ test("browser observation is required for a passed verification", async () => {
   });
   assert.equal(createdOptions.autoArchive, undefined);
   assert.equal(archived, true);
-  lastMessage = '{"status":"passed","summary":"看起来正常","evidence":[]}';
+  assert.match(String(createdOptions.prompt), /代码质量可检查实际改动/);
+  assert.match(String(createdOptions.prompt), /功能行为可运行适当测试/);
+  lastMessage = '{"status":"passed","summary":"看起来正常","evidence":[],"cases":[]}';
+  assert.equal((await verifyWithPaseoProvider(paseo, "parent-1", config, request)).status, "unavailable");
+  lastMessage = '{"status":"passed","summary":"看起来正常","evidence":["运行了检查"],"cases":[]}';
   assert.equal((await verifyWithPaseoProvider(paseo, "parent-1", config, request)).status, "unavailable");
 });
 
@@ -68,7 +75,7 @@ test("verification resumes after a transient Paseo transport disconnect", async 
   const verifier = {
     waitForFinish: async () => {
       if (++waits === 1) throw Object.assign(new Error("Transport closed"), { code: "DAEMON_CONNECTION_LOST" });
-      return { status: "idle", lastMessage: '{"status":"passed","summary":"已检查设置页","evidence":["页面包含验证设置"]}' };
+      return { status: "idle", lastMessage: '{"status":"passed","summary":"已检查设置页","evidence":["页面包含验证设置"],"cases":[{"name":"设置页内容","steps":["读取设置页"],"expected":"设置存在","actual":"设置存在","status":"passed"}]}' };
     },
     timeline: { refetch: async () => ({ entries: [{ item: observation }] }) },
     archive: async () => { archived = true; },
@@ -97,7 +104,7 @@ test("full-access verifier answers provider permission requests without promptin
   const verifier = {
     waitForFinish: async () => ++waits === 1
       ? { status: "permission" }
-      : { status: "idle", lastMessage: '{"status":"passed","summary":"已核对页面","evidence":["快照中有目标按钮"]}' },
+      : { status: "idle", lastMessage: '{"status":"passed","summary":"已核对页面","evidence":["快照中有目标按钮"],"cases":[{"name":"按钮存在","steps":["读取页面"],"expected":"找到按钮","actual":"找到按钮","status":"passed"}]}' },
     refresh: async () => ({ agent: { pendingPermissions: [computerPermission] } }),
     current: () => null,
     respondToPermission: async ({ requestId }: { requestId: string }) => { approvals.push(requestId); },

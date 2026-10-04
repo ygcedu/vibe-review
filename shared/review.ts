@@ -17,6 +17,7 @@ export const reviewResultSchema = z.object({
     summary: z.string(),
     evidence: z.array(z.string()),
     provider: z.string(),
+    cases: z.array(z.object({ name: z.string(), steps: z.array(z.string()), expected: z.string(), actual: z.string(), status: z.enum(["passed", "failed", "blocked"]) })).optional(),
   }).optional(),
   verificationState: z.enum(["running", "canceled", "complete"]).optional(),
   verificationStage: z.string().optional(),

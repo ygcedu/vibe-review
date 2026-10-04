@@ -47,7 +47,7 @@ export const LlmSettingsScreen: ComponentType<PluginSurfaceProps> = () => {
       </SettingsSection>
 
       {verification.status === "ready" ? (
-        <SettingsSection title="独立验证" info="需要实际检查界面的任务，由单独的 Paseo Agent 验证"
+        <SettingsSection title="独立验证" info="由单独的 Paseo Agent 按任务检查界面、代码或功能"
           trailing={verification.values.enabled
             ? <SectionToggle expanded={showVerification} onPress={() => setShowVerification((value) => !value)} />
             : undefined}>
