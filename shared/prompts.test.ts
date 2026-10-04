@@ -7,6 +7,8 @@ test("templates keep required dynamic variables editable", () => {
   assert.deepEqual(missingPromptVariables("review", DEFAULT_REVIEW_PROMPT.replace("{{changedFiles}}", "")), ["changedFiles"]);
   assert.equal(promptTemplateSchema.safeParse({ review: DEFAULT_REVIEW_PROMPT.replace("{{changedFiles}}", "") }).success, false);
   assert.equal(renderPrompt("{{userMessages}} / {{changedFiles}}", { userMessages: "用户问题", changedFiles: "diff" }), "用户问题 / diff");
+  assert.deepEqual(missingPromptVariables("verification", DEFAULT_VERIFICATION_PROMPT), []);
+  assert.doesNotMatch(DEFAULT_VERIFICATION_PROMPT, /changedFiles|assistantMessages|<goal>|<claimed_result>/);
 });
 
 test("old instruction-only settings migrate without losing custom text", async () => {

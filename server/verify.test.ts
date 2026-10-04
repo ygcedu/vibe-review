@@ -62,9 +62,9 @@ test("an actual inspection tool is required for a passed verification", async ()
   });
   assert.equal(createdOptions.autoArchive, undefined);
   assert.equal(archived, true);
-  assert.match(String(createdOptions.prompt), /代码质量可检查实际改动/);
-  assert.match(String(createdOptions.prompt), /功能行为可运行适当测试/);
-  await verifyWithPaseoProvider(paseo, "parent-1", config, request, undefined, DEFAULT_VERIFICATION_PROMPT.replace("请独立验证", "自定义验证步骤：请独立验证"));
+  assert.match(String(createdOptions.prompt), /运行测试或操作功能/);
+  assert.doesNotMatch(String(createdOptions.prompt), /changed_files|assistant_messages/);
+  await verifyWithPaseoProvider(paseo, "parent-1", config, request, undefined, `自定义验证步骤：\n${DEFAULT_VERIFICATION_PROMPT}`);
   assert.match(String(createdOptions.prompt), /自定义验证步骤/);
   assert.match(String(createdOptions.prompt), /"cases"/);
   lastMessage = '{"status":"passed","summary":"看起来正常","evidence":[],"cases":[]}';

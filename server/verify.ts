@@ -113,8 +113,6 @@ export async function verifyWithPaseoProvider(
 
   const prompt = renderPrompt(instructionTemplate, {
     goal: request.goal, claimedResult: request.narrative,
-    assistantMessages: request.assistantMessages.join("\n"),
-    changedFiles: request.diff ? `<changed_files>\n${request.diff}\n</changed_files>` : "",
   });
 
   const agent = await paseo.workspaces.ref(snapshot.workspaceId).agents.create({

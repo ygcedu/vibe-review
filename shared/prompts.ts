@@ -12,6 +12,11 @@ export const REVIEW_CONTEXT = REVIEW_SEGMENTS.join("\n");
 
 const VERIFICATION_SEGMENTS = [
   "只读检查，禁止修改文件、发送消息、提交或执行破坏性操作。",
+  '只输出 JSON：{"status":"passed|failed|unavailable","summary":"结论","evidence":["观察到的事实"],"cases":[{"name":"用例","steps":["执行的步骤"],"expected":"预期","actual":"实际结果和证据","status":"passed|failed|blocked"}]}。有失败则 failed；关键用例受阻且无法判断则 unavailable；全部关键用例通过才 passed。',
+  "用户目标：\n{{goal}}", "声称完成的结果：\n{{claimedResult}}",
+];
+const LEGACY_VERIFICATION_SEGMENTS = [
+  "只读检查，禁止修改文件、发送消息、提交或执行破坏性操作。",
   '只输出一个 JSON 对象：{"status":"passed|failed|unavailable","summary":"简短结论","evidence":["实际观察到的事实"],"cases":[{"name":"用例名称","steps":["实际执行的步骤"],"expected":"预期结果","actual":"实际结果及证据","status":"passed|failed|blocked"}]}。有用例失败则总体 failed；关键用例受阻且无法判断则 unavailable；所有关键用例通过才 passed。',
   "<goal>\n{{goal}}\n</goal>", "<claimed_result>\n{{claimedResult}}\n</claimed_result>",
   "<assistant_messages>\n{{assistantMessages}}\n</assistant_messages>", "{{changedFiles}}",
@@ -37,9 +42,8 @@ export const DEFAULT_REVIEW_PROMPT = [
   "", REVIEW_CONTEXT,
 ].join("\n");
 export const DEFAULT_VERIFICATION_PROMPT = [
-  "请独立验证本轮声称的结果。先根据可验证主张和主要风险设计少量具体测试用例，每例写明操作步骤与可观察的预期结果。",
-  "按用例执行，记录实际结果及通过、失败或受阻状态。界面可检查页面及可访问性树，必要时截图；代码质量可检查实际改动和上下文；功能行为可运行适当测试或实际操作。按任务选择方法。",
-  "以工具取得的一手观察为依据，区分事实和推测。不能只凭 agent 自述判通过；关键用例受阻时说明未覆盖内容。",
+  "根据用户目标和声称结果，选少量关键用例独立验证。先写清每例的操作和预期，再实际执行；按任务需要检查界面、运行测试或操作功能。",
+  "只用亲自观察到的结果判断是否通过。无法检查时说明受阻原因和未验证的部分。",
   "", VERIFICATION_CONTEXT,
 ].join("\n");
 export const DEFAULT_PI_COMMIT_PROMPT = [
@@ -50,7 +54,7 @@ export const DEFAULT_PI_COMMIT_PROMPT = [
 
 const required = {
   review: ["userMessages", "assistantMessages", "changedFiles", "interruptionSignals"],
-  verification: ["goal", "claimedResult", "assistantMessages", "changedFiles"],
+  verification: ["goal", "claimedResult"],
   piCommit: ["candidateFiles", "diff", "recentMessages", "reviewContext"],
 } as const;
 export type PromptKind = keyof typeof required;
@@ -89,6 +93,22 @@ export function renderPrompt(template: string, variables: Record<string, string>
 // Preserve instruction-only settings written by v1 while adding editable variable positions.
 function migrateInstruction(kind: PromptKind, value: unknown, fromVersion: number): string {
   if (typeof value !== "string" || !value.trim()) return { review: DEFAULT_REVIEW_PROMPT, verification: DEFAULT_VERIFICATION_PROMPT, piCommit: DEFAULT_PI_COMMIT_PROMPT }[kind];
+  if (kind === "verification" && fromVersion < 6 && !promptEditableParts(kind, value)) {
+    let remainder = value;
+    const custom: string[] = [];
+    for (const segment of LEGACY_VERIFICATION_SEGMENTS) {
+      const index = remainder.indexOf(segment);
+      if (index < 0) { custom.length = 0; break; }
+      custom.push(remainder.slice(0, index));
+      remainder = remainder.slice(index + segment.length);
+    }
+    if (custom.length) {
+      custom.push(remainder);
+      const instruction = custom.join("\n").trim();
+      if (instruction.startsWith("请独立验证本轮声称的结果。先根据可验证主张和主要风险设计少量具体测试用例") && instruction.includes("以工具取得的一手观察为依据，区分事实和推测。")) return DEFAULT_VERIFICATION_PROMPT;
+      return instruction ? `${instruction}\n\n${VERIFICATION_CONTEXT}` : DEFAULT_VERIFICATION_PROMPT;
+    }
+  }
   const parts = promptEditableParts(kind, value);
   if (parts) {
     if (fromVersion >= 5) return value;
@@ -104,7 +124,7 @@ export const promptTemplateSchema = z.object({
 });
 export type PromptTemplates = z.infer<typeof promptTemplateSchema>;
 export const promptTemplateSettings = defineSettings({
-  id: "vibe-review-prompt-templates", scope: "host", version: 5, schema: promptTemplateSchema,
+  id: "vibe-review-prompt-templates", scope: "host", version: 6, schema: promptTemplateSchema,
   migrate: (values, fromVersion) => {
     const old = values as Partial<Record<PromptKind, unknown>>;
     return { review: migrateInstruction("review", old.review, fromVersion), verification: migrateInstruction("verification", old.verification, fromVersion), piCommit: migrateInstruction("piCommit", old.piCommit, fromVersion) };
