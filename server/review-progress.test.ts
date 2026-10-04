@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { AgentTimelineItem } from "@getpaseo/protocol/agent-types";
 import type { PaseoApi } from "./paseo-api-types.ts";
-import { cancelVerification, reconcileVerification, queueReview, type RunContext } from "./review.ts";
+import { cancelVerification, reconcileVerification, queueReview, verdictOf, type RunContext } from "./review.ts";
+
+test("a punctuation-only no-drift answer passes review", () => {
+  assert.deepEqual(verdictOf({ result: "done", drifts: ["无。"] }), { verdict: "pass", completed: 1, drift: "in_scope" });
+});
 
 const modelReply = [
   "goal: 检查页面按钮",

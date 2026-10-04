@@ -10,6 +10,7 @@ import type { output } from "zod";
 import type { VerificationControl, VerificationRequest, VerificationResult } from "./verify";
 import { appendReviewWithRetry } from "./review-append.ts";
 import { recoverFinishedVerification } from "./verify.ts";
+import { isNoDrift } from "../shared/drift.ts";
 
 /** Settings access, injected from the server entry point. */
 export interface RunContext {
@@ -156,8 +157,9 @@ export function verdictOf(
   distilled: { drifts: string[]; result: DistilledTask["result"] },
 ): { verdict: ReviewResult["verdict"]; completed: number; drift: "in_scope" | "minor_drift" | "major_drift" } {
   const completed = RESULT_SCORE[distilled.result];
+  const driftCount = distilled.drifts.filter((item) => !isNoDrift(item)).length;
   const drift: "in_scope" | "minor_drift" | "major_drift" =
-    distilled.drifts.length >= 2 ? "major_drift" : distilled.drifts.length === 1 ? "minor_drift" : "in_scope";
+    driftCount >= 2 ? "major_drift" : driftCount === 1 ? "minor_drift" : "in_scope";
 
   let verdict: ReviewResult["verdict"];
   if (drift === "major_drift" || distilled.result === "none") verdict = "reject";

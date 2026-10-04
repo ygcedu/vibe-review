@@ -36,6 +36,17 @@ test("a valid review without followups still yields one suggestion", async () =>
   }
 });
 
+test("punctuated no-drift answer is not counted as a deviation", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ choices: [{ message: { content: "goal: 修复登录\ndrifts: 无。\nnarrative: 已修复。\nresult: done" } }] }), { status: 200 });
+  try {
+    const result = await distillTask({ baseUrl: "https://example.test/v1", apiKey: "test", model: "test" }, ["修复登录"], ["已修复"]);
+    assert.deepEqual(result.drifts, []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("review template is used while the required output contract remains", () => {
   const prompt = buildDistillPrompt(["任务"], ["结果"], undefined, 0, undefined, false, DEFAULT_REVIEW_PROMPT.replace("你是对话审核助手。", "自定义评估标准。"));
   assert.match(prompt, /自定义评估标准/);

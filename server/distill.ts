@@ -1,6 +1,7 @@
 import type { LlmConfig } from "../shared/settings";
 import { DEFAULT_REVIEW_PROMPT, renderPrompt } from "../shared/prompts.ts";
 import { parseFirstJsonObject } from "./llm-response.ts";
+import { isNoDrift } from "../shared/drift.ts";
 
 /** 解析 LLM 的固定字段，容错全角冒号与多余空行。 */
 function parseDistillText(text: string): { goal: string; drifts: string; narrative: string; result: string; taskType: string; followups: string[] } {
@@ -149,7 +150,7 @@ export async function distillTask(
   const drifts = fields.drifts
     .split(/[,，]/)
     .map((s) => s.trim().slice(0, 80))
-    .filter((s) => s && s !== "无" && s !== "none");
+    .filter((s) => s && !isNoDrift(s));
   const rawResult = fields.result.toLowerCase().trim();
   const result: DistilledTask["result"] =
     rawResult === "done" ? "done" : rawResult === "partial" ? "partial" : rawResult === "none" ? "none" : "unknown";

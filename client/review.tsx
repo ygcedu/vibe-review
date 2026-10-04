@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import { isNoDrift } from "../shared/drift";
 import { View, Text, StyleSheet, TouchableOpacity, useColorScheme } from "react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePaseo, useRpc, type PluginTimelineItemProps } from "@getpaseo/plugin/client";
@@ -51,7 +52,8 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
 ) => {
   const { data } = props.item;
   const verificationRunning = data.verificationState === "running";
-  const displayVerdict = data.verificationState === "canceled" && data.verdict === "pass" ? "review" : data.verdict;
+  const legacyNoDrift = data.result === "done" && data.verification?.status === "passed" && !!data.drifts?.length && data.drifts.every(isNoDrift);
+  const displayVerdict = data.verificationState === "canceled" && data.verdict === "pass" ? "review" : legacyNoDrift ? "pass" : data.verdict;
   const v = verdictStyle[displayVerdict];
   const dark = useColorScheme() === "dark";
   const accent = dark ? v.darkAccent : v.accent;
@@ -260,12 +262,12 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
         {data.narrative || data.summary || data.drifts?.length || data.detail ? <View style={[styles.detailSection, { backgroundColor: dark ? "#263241" : "#f8fafc", borderColor: cardColors.border }]}>
           <Text style={[styles.detailSectionTitle, { color: cardColors.muted }]}>任务评估</Text>
           <Text style={[styles.analysisItem, { color: cardColors.muted }]}>
-            完成情况：{data.result ? resultLabel[data.result] : `${Math.round(data.completed * 100)}%`} · 目标范围：{driftLabel[data.drift]}
+            完成情况：{data.result ? resultLabel[data.result] : `${Math.round(data.completed * 100)}%`} · 目标范围：{legacyNoDrift ? driftLabel.in_scope : driftLabel[data.drift]}
           </Text>
           {data.narrative || data.summary ? <Text selectable style={[styles.narrative, { color: cardColors.text }]}>
             {data.narrative || data.summary}
           </Text> : null}
-          {data.drifts?.map((item, index) => <Text selectable key={`${index}-${item}`} style={[styles.analysisItem, { color: cardColors.muted }]}>
+          {data.drifts?.filter((item) => !isNoDrift(item)).map((item, index) => <Text selectable key={`${index}-${item}`} style={[styles.analysisItem, { color: cardColors.muted }]}>
             偏离 · {item}
           </Text>)}
           {data.detail ? <>
