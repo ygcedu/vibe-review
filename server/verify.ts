@@ -1,6 +1,7 @@
 import type { AgentPermissionRequest, AgentStreamEvent, AgentTimelineItem } from "@getpaseo/protocol/agent-types";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import type { VerificationConfig } from "../shared/settings";
+import { DEFAULT_VERIFICATION_PROMPT, renderPrompt } from "../shared/prompts.ts";
 import { parseFirstJsonObject } from "./llm-response.ts";
 
 export const VERIFIER_LABEL = "vibe-review.verification";
@@ -99,6 +100,7 @@ export async function verifyWithPaseoProvider(
   config: VerificationConfig,
   request: VerificationRequest,
   control?: VerificationControl,
+  instructionTemplate = DEFAULT_VERIFICATION_PROMPT,
 ): Promise<VerificationResult> {
   const provider = config.model.trim() ? `${config.provider.trim()}/${config.model.trim()}` : config.provider.trim();
   if (!config.enabled || !config.provider.trim()) return { status: "unavailable", summary: "未配置验证 Provider。", evidence: [], provider };
@@ -107,17 +109,11 @@ export async function verifyWithPaseoProvider(
   if (!snapshot?.workspaceId) return { status: "unavailable", summary: "无法确定原会话所在工作区。", evidence: [], provider };
   if (control?.isCanceled()) return { status: "unavailable", summary: "验证已取消。", evidence: [], provider };
 
-  const prompt = [
-    "请独立验证下述任务本轮声称的结果。只读检查，禁止修改文件、发送消息、提交或执行破坏性操作。",
-    "先根据本轮可验证的主张和主要风险设计少量具体测试用例。每个用例写明操作步骤和可观察的预期结果，然后按步骤执行，记录实际结果及通过、失败或受阻。用例数量与深度由改动决定，不必机械覆盖无关场景。",
-    "界面效果可观察页面、DOM/可访问性树，必要时截图；代码质量可检查实际改动及相关上下文；功能行为可运行适当测试或进行实际操作。可组合多种方法。",
-    "以工具取得的一手观察作为结论依据，区分已验证事实和推测。不能只凭任务描述、agent 自述或测试存在就判 passed。若所需环境或工具不可用，说明未覆盖的内容并返回 unavailable；发现具体问题则返回 failed。",
-    '只输出一个 JSON 对象：{"status":"passed|failed|unavailable","summary":"简短结论","evidence":["实际观察到的事实"],"cases":[{"name":"用例名称","steps":["实际执行的步骤"],"expected":"预期结果","actual":"实际结果及证据","status":"passed|failed|blocked"}]}。有用例失败则总体 failed；关键用例受阻且无法判断则 unavailable；所有关键用例通过才 passed。',
-    "<goal>", request.goal, "</goal>",
-    "<claimed_result>", request.narrative, "</claimed_result>",
-    "<assistant_messages>", request.assistantMessages.join("\n"), "</assistant_messages>",
-    ...(request.diff ? ["<changed_files>", request.diff, "</changed_files>"] : []),
-  ].join("\n");
+  const prompt = renderPrompt(instructionTemplate, {
+    goal: request.goal, claimedResult: request.narrative,
+    assistantMessages: request.assistantMessages.join("\n"),
+    changedFiles: request.diff ? `<changed_files>\n${request.diff}\n</changed_files>` : "",
+  });
 
   const agent = await paseo.workspaces.ref(snapshot.workspaceId).agents.create({
     config: {
@@ -181,7 +177,14 @@ export async function verifyWithPaseoProvider(
     const timeline = await retryAfterReconnect<any>(() => agent.timeline.refetch({ limit: 200 }), deadline);
     const items = timeline.entries.map((entry: { item: AgentTimelineItem }) => entry.item);
     if (!usedVerificationTool(items)) return { status: "unavailable", summary: "验证 agent 未实际使用工具检查结果。", evidence: [], provider };
-    const output = parseFirstJsonObject<{ status?: string; summary?: string; evidence?: unknown; cases?: unknown }>(run.lastMessage ?? "");
+    let output: { status?: string; summary?: string; evidence?: unknown; cases?: unknown };
+    try {
+      output = parseFirstJsonObject(run.lastMessage ?? "");
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+      console.warn("[vibe-review] verifier returned no parseable JSON:", agent.id);
+      return { status: "unavailable", summary: "验证 agent 已完成检查，但结果格式无法解析。请查看验证 agent 的执行记录。", evidence: [], provider };
+    }
     const cases: VerificationCase[] = Array.isArray(output.cases) ? output.cases.filter((value): value is VerificationCase => {
       if (!value || typeof value !== "object") return false;
       const item = value as Partial<VerificationCase>;

@@ -3,6 +3,7 @@ import { test } from "node:test";
 import type { AgentPermissionRequest, AgentTimelineItem } from "@getpaseo/protocol/agent-types";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import { isAllowedVerificationPermission, isVerifierHookAgent, usedVerificationTool, verifyWithPaseoProvider, VERIFIER_LABEL, VERIFIER_TITLE } from "./verify.ts";
+import { DEFAULT_VERIFICATION_PROMPT } from "../shared/prompts.ts";
 
 test("verifier lifecycle events are recognized without labels", () => {
   assert.equal(isVerifierHookAgent({ title: VERIFIER_TITLE, parentAgentId: "parent-1" }), true);
@@ -63,6 +64,9 @@ test("an actual inspection tool is required for a passed verification", async ()
   assert.equal(archived, true);
   assert.match(String(createdOptions.prompt), /代码质量可检查实际改动/);
   assert.match(String(createdOptions.prompt), /功能行为可运行适当测试/);
+  await verifyWithPaseoProvider(paseo, "parent-1", config, request, undefined, DEFAULT_VERIFICATION_PROMPT.replace("请独立验证", "自定义验证步骤：请独立验证"));
+  assert.match(String(createdOptions.prompt), /自定义验证步骤/);
+  assert.match(String(createdOptions.prompt), /"cases"/);
   lastMessage = '{"status":"passed","summary":"看起来正常","evidence":[],"cases":[]}';
   assert.equal((await verifyWithPaseoProvider(paseo, "parent-1", config, request)).status, "unavailable");
   lastMessage = '{"status":"passed","summary":"看起来正常","evidence":["运行了检查"],"cases":[]}';

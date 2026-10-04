@@ -5,6 +5,7 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { confirmPiCommit, hasPendingCodeChanges, piPreviewArgs, preparePiCommit } from "./pi-commit.ts";
+import { DEFAULT_PI_COMMIT_PROMPT } from "../shared/prompts.ts";
 
 const fakePiScript = (message: string, files: string[]) => `#!/bin/sh\ncat <<'JSON'\n${JSON.stringify({ type: "agent_start" })}\n${JSON.stringify({ type: "message_start" })}\n${JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: JSON.stringify({ message, files }) }] } })}\nJSON\n`;
 
@@ -32,6 +33,13 @@ test("preview prompt keeps the actual instructions while omitting diff content",
   assert.match(visible, /diff 内容已省略/);
   assert.match(visible, /目标：修复错误/);
   assert.match(visible, /fix: previous/);
+});
+
+test("Pi template changes instructions without removing the file and JSON constraints", () => {
+  const prompt = piPreviewArgs({ executable: "pi", provider: "", model: "" }, "diff", ["file.ts"], "", "", false, DEFAULT_PI_COMMIT_PROMPT.replace("请为当前改动", "自定义提交风格：请为当前改动")).at(-1)!;
+  assert.match(prompt, /自定义提交风格/);
+  assert.match(prompt, /files 只能从下方候选路径中选择/);
+  assert.match(prompt, /file.ts/);
 });
 
 test("preview is read-only; confirmation commits only selected files", async () => {

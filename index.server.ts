@@ -1,6 +1,7 @@
 import type { PluginHandlerContext, PluginServerContext } from "@getpaseo/plugin/server";
 import { cancelVerificationRpc, reviewAgentRpc } from "./shared/review";
 import { llmSettings, piCommitSettings, verificationSettings, type LlmConfig, type VerificationConfig } from "./shared/settings";
+import { promptTemplateSettings } from "./shared/prompts";
 import { cancelVerification, queueReview, reviewAgent, type RunContext } from "./server/review";
 import { captureWorktree, diffSnapshots, disposeSnapshot, type WorktreeSnapshot } from "./server/snapshot";
 import { replaceTurnSnapshot, takeTurnSnapshot } from "./server/turn-snapshots";
@@ -18,6 +19,7 @@ export default function contribute(server: PluginServerContext) {
   const settings = server.registerSettings(llmSettings);
   const piSettings = server.registerSettings(piCommitSettings);
   const verifySettings = server.registerSettings(verificationSettings);
+  const promptSettings = server.registerSettings(promptTemplateSettings);
   const activeCommits = new Set<string>();
   const activeConfirmations = new Set<string>();
   const commitStatuses = new Map<string, { kind: "preparing" | "ready" | "finished" | "failed"; stage: string; startedAt: number }>();
@@ -31,13 +33,18 @@ export default function contribute(server: PluginServerContext) {
     if (state.status !== "ready") throw new Error(`LLM settings invalid: ${state.error}`);
     return state.values;
   }
+  async function templates() {
+    const state = await promptSettings.read();
+    if (state.status !== "ready") throw new Error(`提示词模板配置无效：${state.error}`);
+    return state.values;
+  }
 
   const ctx = (paseo: PluginHandlerContext["paseo"]): RunContext => ({
-    getLlmConfig: llmConfig,
+    getLlmConfig: async () => ({ ...await llmConfig(), reviewPrompt: (await templates()).review }),
     verifyTask: async (agentId, request, control) => {
       const state = await verifySettings.read();
       if (state.status !== "ready") throw new Error(`验证配置无效：${state.error}`);
-      return verifyWithPaseoProvider(paseo, agentId, state.values as VerificationConfig, request, control);
+      return verifyWithPaseoProvider(paseo, agentId, state.values as VerificationConfig, request, control, (await templates()).verification);
     },
   });
 
@@ -143,7 +150,7 @@ export default function contribute(server: PluginServerContext) {
         const timeline = entries.map(({ item }) => item as import("@getpaseo/protocol/agent-types").AgentTimelineItem);
         const proposal = await preparePiCommit(agentId, cwd, state.values, recentCommitContext(timeline), (stage) => {
           commitStatuses.set(agentId, { kind: "preparing", stage, startedAt });
-        }, (diff) => pendingDiffs.set(agentId, diff));
+        }, (diff) => pendingDiffs.set(agentId, diff), (await templates()).piCommit);
         const latestTimeline = await ref.timeline.refetch();
         const latestEntries = (latestTimeline as unknown as { entries?: Array<{ item: { type: string } }> }).entries ?? [];
         if (ref.current()?.activeTurn || latestEntries.filter(({ item }) => item.type === "user_message").length !== userMessageCount) {

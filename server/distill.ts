@@ -1,4 +1,5 @@
 import type { LlmConfig } from "../shared/settings";
+import { DEFAULT_REVIEW_PROMPT, renderPrompt } from "../shared/prompts.ts";
 import { parseFirstJsonObject } from "./llm-response.ts";
 
 /** 解析 LLM 的固定字段，容错全角冒号与多余空行。 */
@@ -62,6 +63,7 @@ export function buildDistillPrompt(
   runningTools = 0,
   turnOutcome?: { kind: string; error?: { message?: string } },
   diffIncomplete = false,
+  instructionTemplate = DEFAULT_REVIEW_PROMPT,
 ): string {
   const signals: string[] = [];
   if (runningTools > 0) signals.push(`agent 断开时有 ${runningTools} 个工具调用停在 running、无最终答复 —— 属于异常中断，result 必须填 none`);
@@ -70,41 +72,17 @@ export function buildDistillPrompt(
 
   const assistantText = assistantMessages.join("\n");
 
-  return [
-    "你是对话审核助手。总结这轮任务、agent 执行过程和结果。严格按下面的固定格式输出六个字段，不要 markdown、不要其它解释：",
-    "goal: 结合最近几轮上下文，最新一条用户消息里用户真正要解决什么问题（1 句话，≤40 字）",
-    "drifts: agent 做了哪些与目标无关的改动（逗号分隔，没有则写 无）",
-    "narrative: 4-6 句中文客观描述「这轮要解决什么 → agent 具体做了什么（改了哪些文件、跑了什么命令）→ 结果如何 → 中间遇到哪些报错/失败、是否修复 → 结束时是正常交付还是中断」，只陈述事实不评价",
-    "result: 本轮最终结果，只填一个词：done（正常交付、目标达成）/ partial（部分完成，还有遗漏）/ none（未完成、异常中断或 agent 断开未回复）；信息不足填 unknown",
-    "task_type: 只填 verification_required（本轮声称的结果可通过独立检查验证，包括界面观察、代码检查、运行测试或功能试用）/ simple_reply（只是回答、解释或确认，且没有文件改动，无需操作验证）/ other（缺少可独立检查的结果或验证所需条件）。有文件改动时绝不能选 simple_reply。不要把仅凭文字回答可判断的任务归为待验证。",
-    "followups: 给用户可直接发送的后续提问或指令，输出 JSON 字符串数组。优先只给最有价值的 1 条；仅当有彼此独立且重要的后续方向时给 2–3 条。必须基于本轮事实，不编造新需求，不重复已完成任务。不要建议提交代码，卡片会单独提供提交入口。",
-    "",
-    "<user_messages>",
-    userMessages.map((m, i) => `${i + 1}. ${m}`).join("\n") || "(无)",
-    "</user_messages>",
-    "",
-    "<assistant_messages>",
-    assistantText || "(无)",
-    "</assistant_messages>",
-    "",
-    ...(lastTurnDiff !== undefined ? ["<changed_files>", lastTurnDiff || "(无记录)", "</changed_files>", ""] : []),
-    ...(diffIncomplete ? ["文件变更可能不完整。", ""] : []),
-    "<interruption_signals>",
-    signals.join("；") || "(未检测到)",
-    "</interruption_signals>",
-    "",
-    '固定输出格式（六个字段，冒号后用英文半角冒号+空格）：',
-    'goal: ...',
-    'drifts: ...',
-    'narrative: ...',
-    'result: ...',
-    'task_type: ...',
-    'followups: ["..."]',
-  ].join("\n");
+  return renderPrompt(instructionTemplate, {
+    userMessages: userMessages.map((m, i) => `${i + 1}. ${m}`).join("\n") || "(无)",
+    assistantMessages: assistantText || "(无)",
+    changedFiles: lastTurnDiff === undefined ? "" : `<changed_files>\n${lastTurnDiff || "(无记录)"}\n</changed_files>`,
+    diffWarning: diffIncomplete ? "文件变更可能不完整。" : "",
+    interruptionSignals: signals.join("；") || "(未检测到)",
+  });
 }
 
 export async function distillTask(
-  config: LlmConfig,
+  config: LlmConfig & { reviewPrompt?: string },
   userMessages: string[],
   assistantMessages: string[],
   extra?: {
@@ -121,6 +99,7 @@ export async function distillTask(
     extra?.runningTools ?? 0,
     extra?.turnOutcome,
     extra?.diffIncomplete ?? false,
+    config.reviewPrompt,
   );
   // 卡片展开详情：重新生成一份不含 changed_files 块的提示词，避免用正则去抠 diff 内容
   // （diff 里可能含有 </changed_files> 等字面量，正则不可靠）。
@@ -131,6 +110,7 @@ export async function distillTask(
     extra?.runningTools ?? 0,
     extra?.turnOutcome,
     extra?.diffIncomplete ?? false,
+    config.reviewPrompt,
   );
 
   const res = await fetch(`${config.baseUrl}/chat/completions`, {
