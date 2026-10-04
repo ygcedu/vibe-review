@@ -1,4 +1,4 @@
-import type { AgentPermissionRequest, AgentTimelineItem } from "@getpaseo/protocol/agent-types";
+import type { AgentPermissionRequest, AgentStreamEvent, AgentTimelineItem } from "@getpaseo/protocol/agent-types";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import type { VerificationConfig } from "../shared/settings";
 import { parseFirstJsonObject } from "./llm-response.ts";
@@ -61,6 +61,14 @@ export interface VerificationRequest {
 export interface VerificationControl {
   isCanceled(): boolean;
   onAgentCreated(agentId: string): void | Promise<void>;
+  onProgress?(stage: string): void | Promise<void>;
+}
+
+function verificationToolStage(name: string): string | undefined {
+  if (/browser_(?:list_tabs|new_tab)$/.test(name)) return "正在查找可用页面…";
+  if (/browser_navigate$/.test(name)) return "正在打开待验证页面…";
+  if (/browser_(?:snapshot|screenshot|scroll)$|cua_repl\.js|computer.*(?:snapshot|screenshot|observe)/i.test(name)) return "正在读取界面并核对实际效果…";
+  return undefined;
 }
 
 /** A model claim alone is never evidence of a browser/computer check. */
@@ -115,9 +123,20 @@ export async function verifyWithPaseoProvider(
     prompt,
   });
   console.log("[vibe-review] verification agent created:", agent.id, provider);
+  let unsubscribe: (() => void) | undefined;
   try {
     await control?.onAgentCreated(agent.id);
     if (control?.isCanceled()) return { status: "unavailable", summary: "验证已取消。", evidence: [], provider };
+    if (control?.onProgress && agent.timeline.subscribe) {
+      const subscription = agent.timeline.subscribe(({ event }: { event: AgentStreamEvent }) => {
+        if (event.type !== "timeline" || event.item.type !== "tool_call") return;
+        const stage = verificationToolStage(event.item.name);
+        if (stage) void Promise.resolve(control.onProgress?.(stage)).catch((error) =>
+          console.warn("[vibe-review] verification progress callback failed:", error));
+      });
+      unsubscribe = subscription;
+      void subscription.ready.catch((error: unknown) => console.warn("[vibe-review] verification progress subscription unavailable:", error));
+    }
     const deadline = Date.now() + 6 * 60_000;
     const waitForVerifier = () => retryAfterReconnect<any>(
       () => agent.waitForFinish(Math.max(1, deadline - Date.now())), deadline);
@@ -147,6 +166,7 @@ export async function verifyWithPaseoProvider(
       run = await waitForVerifier();
     }
     if (run.status !== "idle") return { status: "unavailable", summary: run.error || `验证任务状态：${run.status}`, evidence: [], provider };
+    await control?.onProgress?.("正在整理验证结果…");
     const timeline = await retryAfterReconnect<any>(() => agent.timeline.refetch({ limit: 200 }), deadline);
     const items = timeline.entries.map((entry: { item: AgentTimelineItem }) => entry.item);
     if (!usedVerificationTool(items)) return { status: "unavailable", summary: "验证 agent 未实际调用 Browser 或 Computer 观察工具。", evidence: [], provider };
@@ -160,6 +180,7 @@ export async function verifyWithPaseoProvider(
     }
     return { status, summary: (output.summary || "验证未提供结论。").slice(0, 400), evidence, provider };
   } finally {
+    unsubscribe?.();
     await agent.archive().catch((error: unknown) => console.warn("[vibe-review] verification agent archive failed:", error));
   }
 }

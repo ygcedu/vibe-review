@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, useColorScheme } from "react-native";
+import { ActivityIndicator, View, Text, StyleSheet, TouchableOpacity, useColorScheme } from "react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePaseo, useRpc, type PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import { output } from "zod";
@@ -8,7 +8,6 @@ import { parseDiffFiles } from "./diff";
 import { FileTree } from "./file-tree";
 import { copyText } from "@getpaseo/plugin/client/react-native";
 import { fillVisibleComposer } from "./composer-fill";
-import { RunningAccent } from "./running-accent";
 import { commitAvailabilityRpc, preparePiCommitRpc, piCommitStatusRpc, getPendingCommitDiffRpc, COMMIT_PREVIEW_KIND, COMMIT_RESULT_KIND } from "../shared/commit";
 
 type ReviewResultData = output<typeof reviewResultSchema>;
@@ -205,15 +204,26 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
     if (cancelingVerification || !verificationRunning) return;
     setCancelingVerification(true);
     setVerificationError("");
-    void cancelVerification({ agentId: props.agentId, scoredAt: data.scoredAt }).catch((error: unknown) => {
-      setVerificationError(error instanceof Error ? error.message : String(error));
-    }).finally(() => setCancelingVerification(false));
+    void (async () => {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          await cancelVerification({ agentId: props.agentId, scoredAt: data.scoredAt });
+          return;
+        } catch (error) {
+          if (/验证已结束/.test(String(error))) return;
+          if (!/Transport (?:closed|not connected)|status: disconnected/i.test(String(error)) || attempt === 2) {
+            setVerificationError("取消请求未能送达，请稍后重试。");
+            return;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+        }
+      }
+    })().finally(() => setCancelingVerification(false));
   };
 
   return (
     <View style={styles.reviewGroup}>
     <View style={[styles.container, { backgroundColor: cardColors.background, borderColor: cardColors.border }]}>
-      {verificationRunning ? <RunningAccent color={accent} /> : null}
       <View style={styles.header}>
         <Text style={[styles.title, { color: accent, backgroundColor: dark ? v.darkTint : v.tint }]}>
           {v.label}
@@ -243,16 +253,19 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
         {data.verification ? <Text style={[styles.stat, { color: data.verification.status === "passed" ? (dark ? "#86efac" : "#15803d") : accent }]}>
           {verificationLabel[data.verification.status]}
         </Text> : null}
-        {verificationRunning ? <Text style={[styles.stat, { color: accent }]}>验证中</Text> : null}
+        {verificationRunning ? <View style={styles.verificationIndicator}>
+          <ActivityIndicator size="small" color={accent} />
+          <Text style={[styles.stat, { color: accent }]}>验证中</Text>
+        </View> : null}
         {data.verificationState === "canceled" ? <Text style={[styles.stat, { color: cardColors.muted }]}>已取消验证</Text> : null}
       </View>
       {verificationRunning ? <View style={styles.verificationActions}>
-        <Text style={[styles.verificationPending, { color: cardColors.muted }]}>独立验证正在进行，完成后结果会更新在这张卡片中。</Text>
+        <Text style={[styles.verificationPending, { color: cardColors.muted }]}>{data.verificationStage || "正在启动独立验证…"}</Text>
         <TouchableOpacity accessibilityRole="button" accessibilityLabel="取消独立验证" disabled={cancelingVerification} onPress={stopVerification} style={[styles.cancelVerification, { borderColor: cardColors.border }]}>
           <Text style={[styles.cancelVerificationText, { color: cardColors.text }]}>{cancelingVerification ? "正在取消…" : "取消验证"}</Text>
         </TouchableOpacity>
       </View> : null}
-      {verificationError ? <Text selectable style={styles.verificationError}>{verificationError}</Text> : null}
+      {verificationRunning && verificationError ? <Text selectable style={styles.verificationError}>{verificationError}</Text> : null}
       {hasAnalysis ? <TouchableOpacity style={[styles.expandBtn, { borderTopColor: cardColors.divider }]}
         activeOpacity={0.7} accessibilityRole="button" accessibilityLabel={expanded ? "收起评估详情" : "查看评估详情"}
         onPress={() => setExpanded((value) => !value)}>
@@ -373,6 +386,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
   },
+  verificationIndicator: { flexDirection: "row", alignItems: "center", gap: 5 },
   verificationActions: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 },
   verificationPending: { fontSize: 11, lineHeight: 17, flexShrink: 1 },
   cancelVerification: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 7, paddingHorizontal: 10, paddingVertical: 6 },

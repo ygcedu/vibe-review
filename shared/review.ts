@@ -19,6 +19,7 @@ export const reviewResultSchema = z.object({
     provider: z.string(),
   }).optional(),
   verificationState: z.enum(["running", "canceled", "complete"]).optional(),
+  verificationStage: z.string().optional(),
   verificationAgentId: z.string().optional(),
   drifts: z.array(z.string()).optional(),
   narrative: z.string().optional(),

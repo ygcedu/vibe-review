@@ -34,22 +34,28 @@ test("review appears before verification and updates in place after it finishes"
     } }) } } as unknown as PaseoApi;
     const run: RunContext = {
       getLlmConfig: async () => ({ baseUrl: "http://example.test", model: "test", apiKey: "test" }),
-      verifyTask: async () => verification,
+      verifyTask: async (_agentId, _request, control) => {
+        await control?.onProgress?.("正在读取界面并核对实际效果…");
+        return verification;
+      },
     };
     const timeline = [
       { type: "user_message", text: "检查页面按钮" },
       { type: "assistant_message", text: "已经修改按钮。" },
     ] as AgentTimelineItem[];
     queueReview(paseo, "agent-review-test", timeline, "turn-review-test", undefined, run);
-    await until(() => rows.length === 1);
+    await until(() => rows.length >= 1);
     assert.equal(rows[0].data.verificationState, "running");
+    assert.equal(rows[0].data.verificationStage, "正在启动独立验证…");
     assert.equal(rows[0].data.verification, undefined);
     assert.deepEqual(rows[0].data.followups, ["按钮在手机上显示正常吗？"]);
-    finishVerification({ status: "passed", summary: "按钮已显示", evidence: ["页面可见按钮"], provider: "test" });
     await until(() => rows.length === 2);
-    assert.equal(rows[1].id, rows[0].id);
-    assert.equal(rows[1].data.verificationState, "complete");
-    assert.equal((rows[1].data.verification as { summary: string }).summary, "按钮已显示");
+    assert.equal(rows[1].data.verificationStage, "正在读取界面并核对实际效果…");
+    finishVerification({ status: "passed", summary: "按钮已显示", evidence: ["页面可见按钮"], provider: "test" });
+    await until(() => rows.length === 3);
+    assert.equal(rows[2].id, rows[0].id);
+    assert.equal(rows[2].data.verificationState, "complete");
+    assert.equal((rows[2].data.verification as { summary: string }).summary, "按钮已显示");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -63,9 +69,9 @@ test("cancel archives the verifier and keeps later verification from overwriting
     const verification = new Promise<Parameters<typeof finishVerification>[0]>((resolve) => { finishVerification = resolve; });
     const rows: Array<{ id: string; data: Record<string, unknown> }> = [];
     let archived = 0;
-    const paseo = { agents: { ref: (id: string) => id === "verifier-test" ? { archive: async () => { archived++; return { archivedAt: "now" }; } } : { timeline: {
+    const paseo = { agents: { ref: (id: string) => id === "verifier-test" ? { archive: async () => { archived++; if (archived === 1) throw new Error("Transport closed"); return { archivedAt: "now" }; } } : { timeline: {
       append: async (item: { id: string; data: Record<string, unknown> }) => { rows.push(item); return { seq: rows.length, epoch: "test" }; },
-      refetch: async () => ({ entries: rows.length ? [{ item: { ...rows.at(-1), type: "plugin", kind: "review-result" } }] : [] }),
+      refetch: async () => { throw new Error("Transport closed"); },
     } } } } as unknown as PaseoApi;
     const run: RunContext = {
       getLlmConfig: async () => ({ baseUrl: "http://example.test", model: "test", apiKey: "test" }),
@@ -78,7 +84,7 @@ test("cancel archives the verifier and keeps later verification from overwriting
     await until(() => rows.length === 2);
     const scoredAt = rows[0].data.scoredAt as string;
     await cancelVerification(paseo, "agent-cancel-test", scoredAt);
-    assert.equal(archived, 1);
+    await until(() => archived === 2);
     assert.equal(rows.at(-1)?.data.verificationState, "canceled");
     finishVerification({ status: "passed", summary: "迟到的结果", evidence: ["页面可见按钮"], provider: "test" });
     await new Promise((resolve) => setTimeout(resolve, 30));

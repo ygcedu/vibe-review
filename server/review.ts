@@ -16,7 +16,7 @@ export interface RunContext {
 }
 
 type ReviewCardData = output<typeof reviewResultSchema>;
-type ActiveVerification = { canceled: boolean; verifierAgentId?: string; card: ReviewCardData; writeQueue: Promise<unknown> };
+type ActiveVerification = { canceled: boolean; verifierAgentId?: string; cardId: string; card: ReviewCardData; writeQueue: Promise<unknown> };
 const activeVerifications = new Map<string, ActiveVerification>();
 const verificationKey = (agentId: string, scoredAt: string) => `${agentId}:${scoredAt}`;
 
@@ -37,18 +37,25 @@ export async function cancelVerification(paseo: PaseoApi, agentId: string, score
   const live = activeVerifications.get(key);
   if (live?.canceled) return;
   if (live) live.canceled = true;
-  const ref = paseo.agents.ref(agentId);
-  const page = await ref.timeline.refetch().catch((error) => {
-    if (live) live.canceled = false;
-    throw error;
-  });
-  const item = page.entries?.map(({ item }) => item).find((entry) => entry.type === "plugin" && entry.kind === REVIEW_KIND &&
-    (entry.data as { scoredAt?: string }).scoredAt === scoredAt);
-  if (!item || item.type !== "plugin") {
-    if (live) live.canceled = false;
-    throw new Error("审核卡片已失效，请刷新后重试。");
+  let cardId = live?.cardId;
+  let cardData: unknown = live?.card;
+  if (!live) {
+    const ref = paseo.agents.ref(agentId);
+    let page: Awaited<ReturnType<typeof ref.timeline.refetch>> | undefined;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try { page = await ref.timeline.refetch(); break; }
+      catch (error) {
+        if (!/Transport (?:closed|not connected)|status: disconnected/i.test(String(error)) || attempt === 3) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+      }
+    }
+    const item = page?.entries?.map(({ item }) => item).find((entry) => entry.type === "plugin" && entry.kind === REVIEW_KIND &&
+      (entry.data as { scoredAt?: string }).scoredAt === scoredAt);
+    if (!item || item.type !== "plugin") throw new Error("审核卡片已失效，请刷新后重试。");
+    cardId = item.id;
+    cardData = item.data;
   }
-  const card = reviewResultSchema.safeParse(item.data);
+  const card = reviewResultSchema.safeParse(cardData);
   if (!card.success) {
     if (live) live.canceled = false;
     throw new Error("审核卡片数据无效，请刷新后重试。");
@@ -57,18 +64,27 @@ export async function cancelVerification(paseo: PaseoApi, agentId: string, score
     if (live) live.canceled = false;
     throw new Error("验证已结束。");
   }
-  const verifierId = live?.verifierAgentId ?? card.data.verificationAgentId;
-  try {
-    if (verifierId) await paseo.agents.ref(verifierId).archive();
-  } catch (error) {
-    if (live) live.canceled = false;
-    throw error;
+  const canceledCard: ReviewCardData = { ...card.data, verificationState: "canceled", verificationStage: undefined, verificationAgentId: undefined, followups: live?.card.followups ?? card.data.followups };
+  if (live) {
+    live.card = canceledCard;
+    await queueVerificationCardWrite(paseo, agentId, cardId!, live, canceledCard, false);
   }
-  const canceledCard: ReviewCardData = { ...card.data, verificationState: "canceled", verificationAgentId: undefined, followups: live?.card.followups ?? card.data.followups };
-  if (live) await queueVerificationCardWrite(paseo, agentId, item.id, live, canceledCard, false);
   else await appendReviewWithRetry(paseo, agentId, {
-    type: "plugin", id: item.id, kind: REVIEW_KIND, version: REVIEW_VERSION, data: canceledCard,
+    type: "plugin", id: cardId!, kind: REVIEW_KIND, version: REVIEW_VERSION, data: canceledCard,
   }, true);
+  const verifierId = live?.verifierAgentId ?? card.data.verificationAgentId;
+  if (verifierId) void (async () => {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try { await paseo.agents.ref(verifierId).archive(); return; }
+      catch (error) {
+        if (attempt === 3 || !/Transport (?:closed|not connected)|status: disconnected/i.test(String(error))) {
+          console.warn("[vibe-review] verifier archive after cancel failed:", error);
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+      }
+    }
+  })();
 }
 
 /** Auto follow-up only for spawned task agents (labeled by Paseo), never the user's main session. */
@@ -224,6 +240,7 @@ async function runReview(
     result: distilled.result,
     taskType: distilled.taskType,
     verificationState: needsVerification ? "running" : undefined,
+    verificationStage: needsVerification ? "正在启动独立验证…" : undefined,
     drifts: distilled.drifts,
     narrative: distilled.narrative,
     followups: distilled.followups,
@@ -233,7 +250,7 @@ async function runReview(
   };
   const key = verificationKey(agentId, result.scoredAt);
   const active: ActiveVerification | undefined = needsVerification
-    ? { canceled: false, card: { ...card, followups: distilled.followups }, writeQueue: Promise.resolve() }
+    ? { canceled: false, cardId, card: { ...card, followups: distilled.followups }, writeQueue: Promise.resolve() }
     : undefined;
   if (active) activeVerifications.set(key, active);
   try {
@@ -270,7 +287,14 @@ async function runReview(
         onAgentCreated: async (verifierAgentId) => {
           active.verifierAgentId = verifierAgentId;
           if (active.canceled) return;
-          await queueVerificationCardWrite(paseo, agentId, cardId, active, { ...card, verificationAgentId: verifierAgentId });
+          active.card = { ...active.card, verificationAgentId: verifierAgentId, verificationStage: "正在连接浏览器或电脑工具…" };
+          await queueVerificationCardWrite(paseo, agentId, cardId, active, active.card);
+        },
+        onProgress: (stage) => {
+          if (active.canceled || active.card.verificationStage === stage) return;
+          active.card = { ...active.card, verificationStage: stage };
+          void queueVerificationCardWrite(paseo, agentId, cardId, active, active.card).catch((error) =>
+            console.warn("[vibe-review] verification progress update failed:", error));
         },
       });
     } catch (error) {
@@ -284,7 +308,7 @@ async function runReview(
         const finalVerdict = verdictOf(distilled);
         await queueVerificationCardWrite(paseo, agentId, cardId, active, {
             ...card, verdict: finalVerdict.verdict, completed: finalVerdict.completed,
-            result: distilled.result, verificationState: "complete", verificationAgentId: undefined,
+            result: distilled.result, verificationState: "complete", verificationStage: undefined, verificationAgentId: undefined,
             verification, followups: distilled.followups,
           });
         result.verdict = finalVerdict.verdict;
