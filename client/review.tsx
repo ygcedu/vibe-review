@@ -270,9 +270,12 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
             {data.processing ? "评估中" : verificationRunning ? "验证中" : v.label}
           </Text>
         </View>
-        <Text style={[styles.time, { color: cardColors.muted }]}>
-          {formatTime(data.scoredAt)}
-        </Text>
+        <View style={styles.headerRight}>
+          {verificationRunning ? <TouchableOpacity accessibilityRole="button" accessibilityLabel="取消独立验证" disabled={cancelingVerification} onPress={stopVerification} style={[styles.cancelVerification, { borderColor: cardColors.border }]}>
+            <Text style={[styles.cancelVerificationText, { color: cardColors.muted }]}>{cancelingVerification ? "取消中…" : "取消验证"}</Text>
+          </TouchableOpacity> : null}
+          <Text style={[styles.time, { color: cardColors.muted }]}>{formatTime(data.scoredAt)}</Text>
+        </View>
       </View>
       {data.goal ? (
         <Text numberOfLines={2} style={[styles.goal, { color: cardColors.text }]}>
@@ -282,22 +285,22 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
       {data.processing ? <Text style={[styles.summary, { color: cardColors.muted }]}>正在生成结论…</Text> : data.verification?.summary && !expanded ? <Text numberOfLines={2} style={[styles.summary, { color: cardColors.muted }]}>验证：{data.verification.summary}</Text> : null}
       {verificationRunning ? <View style={styles.verificationActions}>
         <Text style={[styles.verificationPending, { color: cardColors.muted }]}>{data.verificationStage || "正在启动独立验证…"}</Text>
-        <TouchableOpacity accessibilityRole="button" accessibilityLabel="取消独立验证" disabled={cancelingVerification} onPress={stopVerification} style={[styles.cancelVerification, { borderColor: cardColors.border }]}>
-          <Text style={[styles.cancelVerificationText, { color: cardColors.text }]}>{cancelingVerification ? "正在取消…" : "取消验证"}</Text>
-        </TouchableOpacity>
       </View> : null}
       {verificationError ? <Text selectable style={styles.verificationError}>{verificationError}</Text> : null}
       <View style={styles.metaActions}>
-      {hasAnalysis ? <TouchableOpacity style={styles.metaButton}
-        activeOpacity={0.7} accessibilityRole="button" accessibilityLabel={expanded ? "收起评估详情" : "查看评估详情"}
+      {diffFiles.length ? <TouchableOpacity style={[styles.metaButton, showFiles && styles.metaButtonActive, showFiles && { backgroundColor: dark ? "#293747" : "#eef2ff", borderColor: dark ? "#64748b" : "#a5b4fc" }]} activeOpacity={0.7} accessibilityRole="button" accessibilityState={{ selected: showFiles }} accessibilityLabel={`${showFiles ? "收起" : "展开"}文件变更，${diffFiles.length} 个文件，增加 ${totalAdded} 行，删除 ${totalRemoved} 行`} onPress={() => togglePanel("files")}>
+        <Text style={[styles.metaText, { color: showFiles ? (dark ? "#c7d2fe" : "#3730a3") : cardColors.muted }]}>文件变更 · {diffFiles.length} 个</Text>
+        <Text style={styles.added}>+{totalAdded}</Text>
+        <Text style={styles.removed}>-{totalRemoved}</Text>
+        {data.diffIncomplete ? <Text style={styles.diffCaveat}>可能不全</Text> : null}
+      </TouchableOpacity> : null}
+      {hasAnalysis ? <TouchableOpacity style={[styles.metaButton, expanded && styles.metaButtonActive, expanded && { backgroundColor: dark ? "#293747" : "#eef2ff", borderColor: dark ? "#64748b" : "#a5b4fc" }]}
+        activeOpacity={0.7} accessibilityRole="button" accessibilityState={{ selected: expanded }} accessibilityLabel={expanded ? "收起评估详情" : "查看评估详情"}
         onPress={() => togglePanel("details")}>
-        <Text style={[styles.metaText, { color: cardColors.muted }]}>{expanded ? "收起详情 ↑" : "评估详情 ↓"}</Text>
+        <Text style={[styles.metaText, { color: expanded ? (dark ? "#c7d2fe" : "#3730a3") : cardColors.muted }]}>评估/验证</Text>
       </TouchableOpacity> : null}
-      {diffFiles.length ? <TouchableOpacity style={styles.metaButton} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel={showFiles ? "收起文件变更" : "展开文件变更"} onPress={() => togglePanel("files")}>
-        <Text style={[styles.metaText, { color: cardColors.muted }]}>文件 {diffFiles.length} 个 {showFiles ? "↑" : "↓"}</Text>
-      </TouchableOpacity> : null}
-      {!verificationRunning && (visibleFollowups.length || commitCwd || commitProgress || commitUnavailableReason) ? <TouchableOpacity style={styles.metaButton} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel={showSuggestions ? "收起后续建议" : "展开后续建议"} onPress={() => togglePanel("suggestions")}>
-        <Text style={[styles.metaText, { color: cardColors.muted }]}>建议{visibleFollowups.length ? ` ${visibleFollowups.length} 条` : ""} {showSuggestions ? "↑" : "↓"}</Text>
+      {(visibleFollowups.length || commitCwd || commitProgress || commitUnavailableReason) ? <TouchableOpacity style={[styles.metaButton, showSuggestions && styles.metaButtonActive, showSuggestions && { backgroundColor: dark ? "#293747" : "#eef2ff", borderColor: dark ? "#64748b" : "#a5b4fc" }]} activeOpacity={0.7} accessibilityRole="button" accessibilityState={{ selected: showSuggestions }} accessibilityLabel={showSuggestions ? "收起后续建议" : "展开后续建议"} onPress={() => togglePanel("suggestions")}>
+        <Text style={[styles.metaText, { color: showSuggestions ? (dark ? "#c7d2fe" : "#3730a3") : cardColors.muted }]}>下一步建议</Text>
       </TouchableOpacity> : null}
       </View>
       {expanded ? <View style={styles.analysis}>
@@ -343,18 +346,12 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
     </View>
     {diffFiles.length && showFiles ? (
       <View style={[styles.diffBox, { borderTopColor: cardColors.divider }]}>
-        <View style={styles.diffSummary}>
-          <Text style={[styles.diffHeading, { color: cardColors.text }]}>文件变更 · {diffFiles.length} 个</Text>
-          {data.diffIncomplete ? <Text style={styles.diffCaveat}>可能不全</Text> : null}
-          <Text style={styles.added}>+{totalAdded}</Text>
-          <Text style={styles.removed}>-{totalRemoved}</Text>
-        </View>
-        <FileTree files={diffFiles} collapseFoldersInitially />
+        <FileTree files={diffFiles} />
       </View>
     ) : data.diffIncomplete ? (
       <Text style={styles.missingDiff}>文件变更可能未被记录</Text>
     ) : null}
-    {!verificationRunning && showSuggestions && (commitCwd || visibleFollowups.length || commitProgress || commitUnavailableReason || followupFeedback) ? (
+    {showSuggestions && (commitCwd || visibleFollowups.length || commitProgress || commitUnavailableReason || followupFeedback) ? (
       <View style={[styles.followups, { borderTopColor: cardColors.divider }]}>
         {commitUnavailableReason === "no_changes" ? <Text style={styles.followupFeedback}>代码已提交，当前没有待提交改动，因此无需 Pi 提交。</Text> : null}
         {commitCwd && !commitProgress ? (
@@ -403,6 +400,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   headerIdentity: { flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" },
+  headerRight: { flexDirection: "row", alignItems: "center", gap: 10 },
   pluginLabel: { fontSize: 10, fontWeight: "800", letterSpacing: 0.8 },
   title: {
     fontSize: 12,
@@ -417,7 +415,7 @@ const styles = StyleSheet.create({
   },
   verificationActions: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 },
   verificationPending: { fontSize: 11, lineHeight: 17, flexShrink: 1 },
-  cancelVerification: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 7, paddingHorizontal: 10, paddingVertical: 6 },
+  cancelVerification: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 },
   cancelVerificationText: { fontSize: 11, fontWeight: "600" },
   verificationError: { color: "#b91c1c", fontSize: 11 },
   narrative: {
@@ -443,8 +441,9 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   summary: { fontSize: 12, lineHeight: 18 },
-  metaActions: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 16, paddingTop: 2 },
-  metaButton: { minHeight: 32, justifyContent: "center" },
+  metaActions: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 12, paddingTop: 2 },
+  metaButton: { minHeight: 26, flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 7, borderRadius: 6, borderWidth: 1, borderColor: "transparent" },
+  metaButtonActive: { borderWidth: 1 },
   metaText: { fontSize: 11, fontWeight: "600" },
   analysis: { gap: 10, paddingBottom: 12 },
   detailSection: { gap: 8, borderWidth: StyleSheet.hairlineWidth, borderRadius: 9, paddingHorizontal: 12, paddingVertical: 11 },
@@ -456,9 +455,6 @@ const styles = StyleSheet.create({
   promptToggle: { alignSelf: "flex-start", paddingVertical: 5 },
   promptToggleText: { fontSize: 12, fontWeight: "600" },
   diffBox: { borderTopWidth: StyleSheet.hairlineWidth },
-  diffSummary: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 16, paddingVertical: 12, minHeight: 44 },
-  diffHeading: { color: "#111827", fontSize: 12, fontWeight: "700", flex: 1 },
-  fileChevron: { fontSize: 17, lineHeight: 18, marginLeft: 6 },
   diffCaveat: { color: "#92400e", fontSize: 10 },
   missingDiff: { color: "#6b7280", fontSize: 11, paddingHorizontal: 2 },
   added: { color: "#15803d", fontSize: 12, fontWeight: "600" },
