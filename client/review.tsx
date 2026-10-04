@@ -72,7 +72,11 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
   const cardColors = dark
     ? { background: "#1f2937", border: "#374151", text: "#f3f4f6", muted: "#a9b3c2", divider: "#374151" }
     : { background: "#ffffff", border: "#d8dee6", text: "#111827", muted: "#6b7280", divider: "#e5e7eb" };
-  const [expanded, setExpanded] = useState(false);
+  const [openPanel, setOpenPanel] = useState<"details" | "files" | "suggestions" | null>(null);
+  const expanded = openPanel === "details";
+  const showFiles = openPanel === "files";
+  const showSuggestions = openPanel === "suggestions";
+  const togglePanel = (panel: "details" | "files" | "suggestions") => setOpenPanel((current) => current === panel ? null : panel);
   const [showPrompt, setShowPrompt] = useState(false);
   const [followupFeedback, setFollowupFeedback] = useState("");
   const [cancelingVerification, setCancelingVerification] = useState(false);
@@ -257,12 +261,15 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
   };
 
   return (
-    <View style={styles.reviewGroup}>
-    <View style={[styles.container, { backgroundColor: cardColors.background, borderColor: cardColors.border }]}>
+    <View style={[styles.reviewGroup, { backgroundColor: cardColors.background, borderColor: cardColors.border }]}>
+    <View style={[styles.container, { borderBottomColor: cardColors.divider }]}>
       <View style={styles.header}>
-        <Text style={[styles.title, { color: verificationRunning ? (dark ? "#93c5fd" : "#1d4ed8") : accent, backgroundColor: verificationRunning ? (dark ? "#1e3a5f" : "#dbeafe") : dark ? v.darkTint : v.tint }]}>
-          {verificationRunning ? "验证中" : v.label}
-        </Text>
+        <View style={styles.headerIdentity}>
+          <Text style={[styles.pluginLabel, { color: cardColors.muted }]}>VIBE REVIEW 插件 · 轮次评估</Text>
+          <Text style={[styles.title, { color: verificationRunning ? (dark ? "#93c5fd" : "#1d4ed8") : accent, backgroundColor: verificationRunning ? (dark ? "#1e3a5f" : "#dbeafe") : dark ? v.darkTint : v.tint }]}>
+            {data.processing ? "评估中" : verificationRunning ? "验证中" : v.label}
+          </Text>
+        </View>
         <Text style={[styles.time, { color: cardColors.muted }]}>
           {formatTime(data.scoredAt)}
         </Text>
@@ -272,6 +279,7 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
           {data.goal}
         </Text>
       ) : null}
+      {data.processing ? <Text style={[styles.summary, { color: cardColors.muted }]}>正在生成结论…</Text> : data.verification?.summary && !expanded ? <Text numberOfLines={2} style={[styles.summary, { color: cardColors.muted }]}>验证：{data.verification.summary}</Text> : null}
       {verificationRunning ? <View style={styles.verificationActions}>
         <Text style={[styles.verificationPending, { color: cardColors.muted }]}>{data.verificationStage || "正在启动独立验证…"}</Text>
         <TouchableOpacity accessibilityRole="button" accessibilityLabel="取消独立验证" disabled={cancelingVerification} onPress={stopVerification} style={[styles.cancelVerification, { borderColor: cardColors.border }]}>
@@ -279,12 +287,19 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
         </TouchableOpacity>
       </View> : null}
       {verificationError ? <Text selectable style={styles.verificationError}>{verificationError}</Text> : null}
-      {hasAnalysis ? <TouchableOpacity style={[styles.expandBtn, { borderTopColor: cardColors.divider }]}
+      <View style={styles.metaActions}>
+      {hasAnalysis ? <TouchableOpacity style={styles.metaButton}
         activeOpacity={0.7} accessibilityRole="button" accessibilityLabel={expanded ? "收起评估详情" : "查看评估详情"}
-        onPress={() => setExpanded((value) => !value)}>
-        <Text style={[styles.expandLabel, { color: cardColors.muted }]}>{expanded ? "收起详情" : "查看详情"}</Text>
-        <Text style={[styles.expandChevron, { color: cardColors.muted }]}>{expanded ? "⌃" : "⌄"}</Text>
+        onPress={() => togglePanel("details")}>
+        <Text style={[styles.metaText, { color: cardColors.muted }]}>{expanded ? "收起详情 ↑" : "评估详情 ↓"}</Text>
       </TouchableOpacity> : null}
+      {diffFiles.length ? <TouchableOpacity style={styles.metaButton} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel={showFiles ? "收起文件变更" : "展开文件变更"} onPress={() => togglePanel("files")}>
+        <Text style={[styles.metaText, { color: cardColors.muted }]}>文件 {diffFiles.length} 个 {showFiles ? "↑" : "↓"}</Text>
+      </TouchableOpacity> : null}
+      {visibleFollowups.length ? <TouchableOpacity style={styles.metaButton} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel={showSuggestions ? "收起后续建议" : "展开后续建议"} onPress={() => togglePanel("suggestions")}>
+        <Text style={[styles.metaText, { color: cardColors.muted }]}>建议 {visibleFollowups.length} 条 {showSuggestions ? "↑" : "↓"}</Text>
+      </TouchableOpacity> : null}
+      </View>
       {expanded ? <View style={styles.analysis}>
         {data.narrative || data.summary || data.drifts?.length || data.detail ? <View style={[styles.detailSection, { backgroundColor: dark ? "#263241" : "#f8fafc", borderColor: cardColors.border }]}>
           <Text style={[styles.detailSectionTitle, { color: cardColors.muted }]}>任务评估</Text>
@@ -326,10 +341,10 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
         </View> : null}
       </View> : null}
     </View>
-    {diffFiles.length ? (
-      <View style={styles.diffBox}>
+    {diffFiles.length && showFiles ? (
+      <View style={[styles.diffBox, { borderTopColor: cardColors.divider }]}>
         <View style={styles.diffSummary}>
-          <Text style={styles.diffHeading}>文件变更 · {diffFiles.length} 个</Text>
+          <Text style={[styles.diffHeading, { color: cardColors.text }]}>文件变更 · {diffFiles.length} 个</Text>
           {data.diffIncomplete ? <Text style={styles.diffCaveat}>可能不全</Text> : null}
           <Text style={styles.added}>+{totalAdded}</Text>
           <Text style={styles.removed}>-{totalRemoved}</Text>
@@ -339,9 +354,8 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
     ) : data.diffIncomplete ? (
       <Text style={styles.missingDiff}>文件变更可能未被记录</Text>
     ) : null}
-    {!verificationRunning && (commitCwd || visibleFollowups.length || commitProgress || commitUnavailableReason) ? (
-      <View style={styles.followups}>
-        {visibleFollowups.length ? <Text style={styles.followupsHeading}>接下来可以问</Text> : null}
+    {!verificationRunning && (commitCwd || (showSuggestions && visibleFollowups.length) || commitProgress || commitUnavailableReason || followupFeedback) ? (
+      <View style={[styles.followups, { borderTopColor: cardColors.divider }]}>
         {commitUnavailableReason === "no_changes" ? <Text style={styles.followupFeedback}>代码已提交，当前没有待提交改动，因此无需 Pi 提交。</Text> : null}
         {commitCwd && !commitProgress ? (
           <TouchableOpacity activeOpacity={0.75} disabled={commitRunning} onPress={startCommit} accessibilityRole="button" accessibilityLabel="预览 Pi 提交" style={[styles.followupBubble, styles.commitBubble]}>
@@ -349,12 +363,12 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
             <Text style={styles.commitArrow}>↗</Text>
           </TouchableOpacity>
         ) : null}
-        {visibleFollowups.map((suggestion, index) => (
+        {showSuggestions ? visibleFollowups.map((suggestion, index) => (
           <TouchableOpacity key={`${index}-${suggestion}`} activeOpacity={0.75} onPress={() => useFollowup(suggestion)} accessibilityRole="button" accessibilityLabel={`${props.layout.platform === "web" ? "填入" : "复制"}追问：${suggestion}`} style={styles.followupBubble}>
             <Text style={styles.followupText}>{suggestion}</Text>
             <Text style={styles.followupArrow}>↗</Text>
           </TouchableOpacity>
-        ))}
+        )) : null}
         {commitProgress ? <View style={styles.commitProgress}>
           {commitProgress.kind === "preparing" ? <View style={styles.commitSteps}>
             {commitSteps.map((step, index) => <Text key={step} style={[styles.commitStep, index === commitStep(commitProgress.stage) && styles.commitStepActive, index < commitStep(commitProgress.stage) && styles.commitStepDone]}>{index + 1}. {step}</Text>)}
@@ -376,13 +390,11 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
 };
 
 const styles = StyleSheet.create({
-  reviewGroup: { marginVertical: 4, gap: 8 },
+  reviewGroup: { marginVertical: 6, borderWidth: 1, borderRadius: 12, overflow: "hidden" },
   container: {
-    borderRadius: 12,
-    borderWidth: 1,
     paddingHorizontal: 16,
     paddingTop: 14,
-    paddingBottom: 4,
+    paddingBottom: 8,
     gap: 12,
   },
   header: {
@@ -390,6 +402,8 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
+  headerIdentity: { flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" },
+  pluginLabel: { fontSize: 10, fontWeight: "800", letterSpacing: 0.8 },
   title: {
     fontSize: 12,
     fontWeight: "700",
@@ -428,6 +442,10 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     fontWeight: "600",
   },
+  summary: { fontSize: 12, lineHeight: 18 },
+  metaActions: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 16, paddingTop: 2 },
+  metaButton: { minHeight: 32, justifyContent: "center" },
+  metaText: { fontSize: 11, fontWeight: "600" },
   analysis: { gap: 10, paddingBottom: 12 },
   detailSection: { gap: 8, borderWidth: StyleSheet.hairlineWidth, borderRadius: 9, paddingHorizontal: 12, paddingVertical: 11 },
   detailSectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
@@ -437,9 +455,10 @@ const styles = StyleSheet.create({
   verificationSummary: { fontSize: 12, fontWeight: "600", lineHeight: 18 },
   promptToggle: { alignSelf: "flex-start", paddingVertical: 5 },
   promptToggleText: { fontSize: 12, fontWeight: "600" },
-  diffBox: { backgroundColor: "#fff", borderWidth: 1, borderColor: "#d8dee6", borderRadius: 8, overflow: "hidden" },
-  diffSummary: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#e5e7eb" },
+  diffBox: { borderTopWidth: StyleSheet.hairlineWidth },
+  diffSummary: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 16, paddingVertical: 12, minHeight: 44 },
   diffHeading: { color: "#111827", fontSize: 12, fontWeight: "700", flex: 1 },
+  fileChevron: { fontSize: 17, lineHeight: 18, marginLeft: 6 },
   diffCaveat: { color: "#92400e", fontSize: 10 },
   missingDiff: { color: "#6b7280", fontSize: 11, paddingHorizontal: 2 },
   added: { color: "#15803d", fontSize: 12, fontWeight: "600" },
@@ -449,7 +468,7 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     fontFamily: "monospace",
   },
-  followups: { alignItems: "flex-start", gap: 7, paddingHorizontal: 2 },
+  followups: { alignItems: "flex-start", gap: 7, paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: StyleSheet.hairlineWidth },
   followupsHeading: { color: "#6b7280", fontSize: 12, fontWeight: "600", marginBottom: 1 },
   followupBubble: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 10, maxWidth: "90%", minHeight: 38, paddingHorizontal: 13, paddingVertical: 9, borderRadius: 10, backgroundColor: "#fff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#d8dee6" },
   commitBubble: { backgroundColor: "#eef2ff", borderColor: "#c7d2fe" },

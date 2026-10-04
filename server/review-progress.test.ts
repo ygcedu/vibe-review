@@ -83,6 +83,35 @@ test("review appears before verification and updates in place after it finishes"
   }
 });
 
+test("a code-changing turn shows a pending card before the review model responds", async () => {
+  const originalFetch = globalThis.fetch;
+  let finishModel!: () => void;
+  globalThis.fetch = async () => {
+    await new Promise<void>((resolve) => { finishModel = resolve; });
+    return { ok: true, text: async () => JSON.stringify({ choices: [{ message: { content: modelReply.replace("verification_required", "other") } }] }) } as Response;
+  };
+  try {
+    const rows: Array<{ id: string; data: Record<string, unknown> }> = [];
+    const paseo = { agents: { ref: () => ({ timeline: {
+      append: async (item: { id: string; data: Record<string, unknown> }) => { rows.push(item); return { seq: rows.length, epoch: "test" }; },
+      refetch: async () => ({ entries: rows.map((item) => ({ item: { ...item, type: "plugin", kind: "review-result" } })) }),
+    } }) } } as unknown as PaseoApi;
+    const run: RunContext = {
+      getLlmConfig: async () => ({ baseUrl: "http://example.test", model: "test", apiKey: "test" }),
+      verifyTask: async () => ({ status: "unavailable", summary: "", evidence: [], provider: "" }),
+    };
+    queueReview(paseo, "agent-review-test", [{ type: "user_message", text: "修改按钮" }] as AgentTimelineItem[], "turn-review-test", undefined, run, undefined, { diff: "diff --git a/a b/a", diffIncomplete: false });
+    await until(() => rows.length === 1 && Boolean(finishModel));
+    assert.equal(rows[0].data.processing, true);
+    finishModel();
+    await until(() => rows.length === 2);
+    assert.equal(rows[1].id, rows[0].id);
+    assert.equal(rows[1].data.processing, undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("cancel archives the verifier and keeps later verification from overwriting the card", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => ({ ok: true, text: async () => JSON.stringify({ choices: [{ message: { content: modelReply } }] }) }) as Response;

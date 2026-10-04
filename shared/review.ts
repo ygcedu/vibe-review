@@ -8,6 +8,7 @@ export const reviewResultSchema = z.object({
   drift: z.enum(["in_scope", "minor_drift", "major_drift"]),
   summary: z.string(),
   scoredAt: z.string(),
+  processing: z.boolean().optional(),
   turnId: z.string().optional(),
   goal: z.string().optional(),
   result: z.enum(["done", "partial", "none", "unknown"]).optional(),

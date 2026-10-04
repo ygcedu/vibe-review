@@ -252,6 +252,22 @@ async function runReview(
   if (!summary.task && summary.userMessages.length === 0) return;
   if (isSessionControlCommand(summary.task)) return;
 
+  const cardId = `vibe-review-${turnId ?? Date.now()}`;
+  // Code-changing turns need an immediate marker while the model reviews them.
+  // A later append with the same id replaces this row in place.
+  if (turnId && lastTurnDiff?.trim()) {
+    try {
+      await appendReviewWithRetry(paseo, agentId, {
+        type: "plugin", id: cardId, kind: REVIEW_KIND, version: REVIEW_VERSION,
+        data: { verdict: "review", completed: 0, drift: "in_scope", summary: summary.task.slice(0, 100),
+          goal: summary.task.slice(0, 100), scoredAt: new Date().toISOString(), turnId,
+          processing: true, diff: lastTurnDiff, diffIncomplete },
+      });
+    } catch (error) {
+      console.warn("[vibe-review] pending review card unavailable:", error);
+    }
+  }
+
   let distilled: DistilledTask;
   try {
     const config = await run.getLlmConfig();
@@ -299,7 +315,6 @@ async function runReview(
     scoredAt: new Date().toISOString(),
   };
 
-  const cardId = `vibe-review-${turnId ?? Date.now()}`;
   const needsVerification = distilled.taskType === "verification_required" && !interrupted;
   const card: ReviewCardData = {
     verdict: result.verdict,
@@ -332,7 +347,7 @@ async function runReview(
       kind: REVIEW_KIND,
       version: REVIEW_VERSION,
       data: card,
-    });
+    }, Boolean(turnId && lastTurnDiff?.trim()));
     console.log(
       `[vibe-review] appended review: verdict=${result.verdict} completed=${result.completed} drift=${result.drift} followups=${distilled.followups.length} seq=${appendResult?.seq ?? "already-present"}`,
     );
