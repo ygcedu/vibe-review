@@ -13,9 +13,9 @@ import { commitAvailabilityRpc, preparePiCommitRpc, piCommitStatusRpc, getPendin
 type ReviewResultData = output<typeof reviewResultSchema>;
 
 const verdictStyle = {
-  pass: { accent: "#15803d", darkAccent: "#86efac", tint: "#dcfce7", darkTint: "#153d29", label: "通过" },
-  review: { accent: "#b45309", darkAccent: "#fcd34d", tint: "#fef3c7", darkTint: "#493018", label: "需复核" },
-  reject: { accent: "#b91c1c", darkAccent: "#fca5a5", tint: "#fee2e2", darkTint: "#491f20", label: "偏离目标" },
+  pass: { accent: "#15803d", darkAccent: "#86efac", tint: "#dcfce7", darkTint: "#153d29", label: "综合评估通过" },
+  review: { accent: "#b45309", darkAccent: "#fcd34d", tint: "#fef3c7", darkTint: "#493018", label: "综合评估需复核" },
+  reject: { accent: "#b91c1c", darkAccent: "#fca5a5", tint: "#fee2e2", darkTint: "#491f20", label: "综合评估未通过" },
 } as const;
 
 const driftLabel = {
@@ -37,7 +37,7 @@ const taskTypeLabel = {
   other: "其他任务",
 } as const;
 
-const verificationLabel = { passed: "验证通过", failed: "验证未通过", unavailable: "未能验证" } as const;
+const verificationLabel = { passed: "通过", failed: "未通过", unavailable: "未能完成" } as const;
 
 function formatTime(iso: string): string {
   const d = new Date(iso);
@@ -252,24 +252,24 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
       <View style={styles.statusRow}>
         {data.result ? (
           <Text style={[styles.stat, { color: cardColors.muted }]}>
-            {resultLabel[data.result]}
+            模型判断完成情况：{resultLabel[data.result]}
           </Text>
         ) : (
           <Text style={[styles.stat, { color: cardColors.muted }]}>
-            完成度 {Math.round(data.completed * 100)}%
+            模型判断完成度：{Math.round(data.completed * 100)}%
           </Text>
         )}
-        {data.drift !== "in_scope" ? <Text style={[styles.stat, { color: accent }]}>{drift}</Text> : null}
+        {data.drift !== "in_scope" ? <Text style={[styles.stat, { color: accent }]}>目标范围：{drift}</Text> : null}
         {data.taskType === "verification_required" && !data.verification && !data.verificationState
           ? <Text style={[styles.stat, { color: cardColors.muted }]}>{taskTypeLabel[data.taskType]}</Text> : null}
         {data.verification ? <Text style={[styles.stat, { color: data.verification.status === "passed" ? (dark ? "#86efac" : "#15803d") : accent }]}>
-          {verificationLabel[data.verification.status]}
+          独立验证：{verificationLabel[data.verification.status]}
         </Text> : null}
         {verificationRunning ? <View style={styles.verificationIndicator}>
           <ActivityIndicator size="small" color={accent} />
-          <Text style={[styles.stat, { color: accent }]}>验证中</Text>
+          <Text style={[styles.stat, { color: accent }]}>独立验证中</Text>
         </View> : null}
-        {data.verificationState === "canceled" ? <Text style={[styles.stat, { color: cardColors.muted }]}>已取消验证</Text> : null}
+        {data.verificationState === "canceled" ? <Text style={[styles.stat, { color: cardColors.muted }]}>独立验证：已取消</Text> : null}
       </View>
       {verificationRunning ? <View style={styles.verificationActions}>
         <Text style={[styles.verificationPending, { color: cardColors.muted }]}>{data.verificationStage || "正在启动独立验证…"}</Text>
@@ -286,7 +286,7 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
       </TouchableOpacity> : null}
       {expanded ? <View style={styles.analysis}>
         {data.narrative || data.summary || data.drifts?.length || data.detail ? <View style={[styles.detailSection, { backgroundColor: dark ? "#263241" : "#f8fafc", borderColor: cardColors.border }]}>
-          <Text style={[styles.detailSectionTitle, { color: cardColors.muted }]}>模型评估</Text>
+          <Text style={[styles.detailSectionTitle, { color: cardColors.muted }]}>模型评估 · 综合结论由任务完成情况和目标偏离程度决定</Text>
           {data.narrative || data.summary ? <Text selectable style={[styles.narrative, { color: cardColors.text }]}>
             {data.narrative || data.summary}
           </Text> : null}
