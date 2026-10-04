@@ -309,7 +309,7 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
           <Text style={styles.added}>+{totalAdded}</Text>
           <Text style={styles.removed}>-{totalRemoved}</Text>
         </View>
-        <FileTree files={diffFiles} />
+        <FileTree files={diffFiles} collapseFoldersInitially />
       </View>
     ) : data.diffIncomplete ? (
       <Text style={styles.missingDiff}>文件变更可能未被记录</Text>

@@ -37,8 +37,18 @@ function buildFileTree(files: DiffFile[]): TreeNode[] {
   return root;
 }
 
-export function FileTree({ files }: { files: DiffFile[] }) {
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+export function FileTree({ files, collapseFoldersInitially = false }: { files: DiffFile[]; collapseFoldersInitially?: boolean }) {
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    const folders = new Set<string>();
+    if (!collapseFoldersInitially) return folders;
+    for (const file of files) {
+      const parts = file.path.split("/").filter(Boolean);
+      for (let depth = 1; depth < parts.length; depth++) {
+        folders.add(parts.slice(0, depth).join("/"));
+      }
+    }
+    return folders;
+  });
   const [openFile, setOpenFile] = useState<number | null>(null);
   const [wrapLines, setWrapLines] = useState(false);
   const [showWrapTooltip, setShowWrapTooltip] = useState(false);
