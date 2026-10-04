@@ -39,6 +39,7 @@ test("review appears before verification and updates in place after it finishes"
     const run: RunContext = {
       getLlmConfig: async () => ({ baseUrl: "http://example.test", model: "test", apiKey: "test" }),
       verifyTask: async (_agentId, _request, control) => {
+        await control?.onAgentCreated("verifier-test");
         await control?.onProgress?.("正在读取界面并核对实际效果…");
         return verification;
       },
@@ -53,13 +54,14 @@ test("review appears before verification and updates in place after it finishes"
     assert.equal(rows[0].data.verificationStage, "正在启动独立验证…");
     assert.equal(rows[0].data.verification, undefined);
     assert.deepEqual(rows[0].data.followups, ["按钮在手机上显示正常吗？"]);
-    await until(() => rows.length === 2);
-    assert.equal(rows[1].data.verificationStage, "正在读取界面并核对实际效果…");
-    finishVerification({ status: "passed", summary: "按钮已显示", evidence: ["页面可见按钮"], provider: "test" });
     await until(() => rows.length === 3);
-    assert.equal(rows[2].id, rows[0].id);
-    assert.equal(rows[2].data.verificationState, "complete");
-    assert.equal((rows[2].data.verification as { summary: string }).summary, "按钮已显示");
+    assert.equal(rows[2].data.verificationStage, "正在读取界面并核对实际效果…");
+    finishVerification({ status: "passed", summary: "按钮已显示", evidence: ["页面可见按钮"], provider: "test" });
+    await until(() => rows.length === 4);
+    assert.equal(rows[3].id, rows[0].id);
+    assert.equal(rows[3].data.verificationState, "complete");
+    assert.equal(rows[3].data.verificationAgentId, "verifier-test");
+    assert.equal((rows[3].data.verification as { summary: string }).summary, "按钮已显示");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -117,5 +119,5 @@ test("a finished verifier restores a running card after plugin reload", async ()
   await reconcileVerification(paseo, "parent-1", scoredAt);
   assert.equal(card.data.verificationState, "complete");
   assert.equal((card.data.verification as { summary: string }).summary, "按钮可见");
-  assert.equal(card.data.verificationAgentId, undefined);
+  assert.equal(card.data.verificationAgentId, "verifier-1");
 });

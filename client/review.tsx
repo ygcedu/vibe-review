@@ -1,6 +1,7 @@
 import type { ComponentType } from "react";
 import { isNoDrift } from "../shared/drift";
-import { View, Text, StyleSheet, TouchableOpacity, useColorScheme } from "react-native";
+import { Linking, Platform, View, Text, StyleSheet, TouchableOpacity, useColorScheme } from "react-native";
+import { buildAgentDeepLink, buildAgentDeepLinkRoute } from "@getpaseo/protocol/agent-deep-link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePaseo, useRpc, type PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import { output } from "zod";
@@ -33,6 +34,15 @@ const resultLabel = {
 } as const;
 
 const verificationLabel = { passed: "通过", failed: "未通过", unavailable: "未能完成" } as const;
+
+function openVerifier(serverId: string, agentId: string): void {
+  const target = { serverId, agentId };
+  if (Platform.OS === "web" && typeof window !== "undefined") {
+    window.location.assign(buildAgentDeepLinkRoute(target));
+  } else {
+    void Linking.openURL(buildAgentDeepLink(target));
+  }
+}
 
 function formatTime(iso: string): string {
   const d = new Date(iso);
@@ -278,10 +288,13 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
           </> : null}
         </View> : null}
         {data.verification ? <View style={[styles.detailSection, { backgroundColor: dark ? "#263241" : "#f8fafc", borderColor: cardColors.border }]}>
-          <View style={styles.detailSectionHeader}>
+          {data.verificationAgentId ? <TouchableOpacity accessibilityRole="button" accessibilityLabel="打开验证 agent" onPress={() => openVerifier(props.host.id, data.verificationAgentId!)} style={styles.detailSectionHeader}>
+            <Text style={[styles.detailSectionTitle, { color: cardColors.muted }]}>独立验证 ↗</Text>
+            <Text style={[styles.detailStatus, { color: data.verification.status === "passed" ? (dark ? "#86efac" : "#15803d") : accent }]}>{verificationLabel[data.verification.status]}</Text>
+          </TouchableOpacity> : <View style={styles.detailSectionHeader}>
             <Text style={[styles.detailSectionTitle, { color: cardColors.muted }]}>独立验证</Text>
             <Text style={[styles.detailStatus, { color: data.verification.status === "passed" ? (dark ? "#86efac" : "#15803d") : accent }]}>{verificationLabel[data.verification.status]}</Text>
-          </View>
+          </View>}
           <Text selectable style={[styles.verificationSummary, { color: cardColors.text }]}>{data.verification.summary}</Text>
           {data.verification.cases?.map((item, index) => <View key={`${index}-${item.name}`} style={{ marginTop: 10 }}>
             <Text selectable style={[styles.analysisItem, { color: cardColors.text }]}>{index + 1}. {item.name} · {item.status === "passed" ? "通过" : item.status === "failed" ? "失败" : "受阻"}</Text>

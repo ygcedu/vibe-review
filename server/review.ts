@@ -57,7 +57,7 @@ export async function reconcileVerification(paseo: PluginHandlerContext["paseo"]
     await appendReviewWithRetry(paseo, agentId, {
       type: "plugin", id: item.id, kind: REVIEW_KIND, version: REVIEW_VERSION,
       data: { ...card, verdict: finalVerdict.verdict, completed: finalVerdict.completed, result,
-        verificationState: "complete", verificationStage: undefined, verificationAgentId: undefined, verification },
+        verificationState: "complete", verificationStage: undefined, verificationAgentId: card.verificationAgentId, verification },
     }, true);
   } finally {
     reconcilingVerifications.delete(key);
@@ -353,7 +353,7 @@ async function runReview(
         const finalVerdict = verdictOf(distilled);
         await queueVerificationCardWrite(paseo, agentId, cardId, active, {
             ...card, verdict: finalVerdict.verdict, completed: finalVerdict.completed,
-            result: distilled.result, verificationState: "complete", verificationStage: undefined, verificationAgentId: undefined,
+            result: distilled.result, verificationState: "complete", verificationStage: undefined, verificationAgentId: active.verifierAgentId,
             verification, followups: distilled.followups,
           });
         result.verdict = finalVerdict.verdict;
