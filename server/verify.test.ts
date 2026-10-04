@@ -94,11 +94,11 @@ test("verification resumes after a transient Paseo transport disconnect", async 
   assert.equal(archived, true);
 });
 
-test("a wait timeout keeps the verifier running until it finishes", async () => {
-  let waits = 0;
+test("the verifier uses Paseo's unbounded wait instead of polling", async () => {
+  const waits: Array<number | undefined> = [];
   const verifier = {
     id: "verifier-timeout",
-    waitForFinish: async () => ++waits < 3 ? { status: "timeout" } : { status: "idle", lastMessage: '{"status":"passed","summary":"已核对","evidence":["页面快照"],"cases":[{"name":"页面","steps":["读取页面"],"expected":"可见","actual":"可见","status":"passed"}]}' },
+    waitForFinish: async (timeoutMs?: number) => { waits.push(timeoutMs); return { status: "idle", lastMessage: '{"status":"passed","summary":"已核对","evidence":["页面快照"],"cases":[{"name":"页面","steps":["读取页面"],"expected":"可见","actual":"可见","status":"passed"}]}' }; },
     timeline: { refetch: async () => ({ entries: [{ item: observation }] }) },
     archive: async () => {},
   };
@@ -108,7 +108,7 @@ test("a wait timeout keeps the verifier running until it finishes", async () => 
   } as unknown as PluginHandlerContext["paseo"];
   const result = await verifyWithPaseoProvider(paseo, "parent-1", { enabled: true, provider: "codex", model: "gpt-6-sol", modeId: "full-access" }, { goal: "页面", narrative: "已修改", assistantMessages: [] });
   assert.equal(result.status, "passed");
-  assert.equal(waits, 3);
+  assert.deepEqual(waits, [0]);
 });
 
 test("full-access verifier answers provider permission requests without prompting", async () => {

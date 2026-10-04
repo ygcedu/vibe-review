@@ -17,13 +17,15 @@ function isTransportDisconnect(error: unknown): boolean {
   return value?.code === "DAEMON_CONNECTION_LOST" || /Transport (?:closed|not connected)/i.test(value?.message ?? "");
 }
 
-async function retryAfterReconnect<T>(operation: () => Promise<T>, deadline: number): Promise<T> {
+async function retryAfterReconnect<T>(operation: () => Promise<T>): Promise<T> {
+  let disconnectedAt: number | undefined;
   while (true) {
     try {
       return await operation();
     } catch (error) {
       if (!isTransportDisconnect(error)) throw error;
-      if (Date.now() >= deadline) throw new Error("与 Paseo 的连接持续中断，未能取得验证结果。", { cause: error });
+      disconnectedAt ??= Date.now();
+      if (Date.now() - disconnectedAt >= 6 * 60_000) throw new Error("与 Paseo 的连接持续中断，未能取得验证结果。", { cause: error });
       console.warn("[vibe-review] verification transport disconnected; waiting to reconnect");
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
@@ -144,17 +146,11 @@ export async function verifyWithPaseoProvider(
       unsubscribe = subscription;
       void subscription.ready.catch((error: unknown) => console.warn("[vibe-review] verification progress subscription unavailable:", error));
     }
-    const deadline = Date.now() + 30 * 60_000;
     const waitForVerifier = () => retryAfterReconnect<any>(
-      () => agent.waitForFinish(Math.min(30_000, Math.max(1, deadline - Date.now()))), deadline);
-    const waitUntilProgress = async () => {
-      let state = await waitForVerifier();
-      while (state.status === "timeout" && Date.now() < deadline && !control?.isCanceled()) state = await waitForVerifier();
-      return state;
-    };
-    let run = await waitUntilProgress();
-    for (let attempts = 0; run.status === "permission" && attempts < 12 && Date.now() < deadline; attempts++) {
-      const current = (await retryAfterReconnect<any>(() => agent.refresh(), deadline))?.agent ?? agent.current();
+      () => agent.waitForFinish(0));
+    let run = await waitForVerifier();
+    for (let attempts = 0; run.status === "permission" && attempts < 12; attempts++) {
+      const current = (await retryAfterReconnect<any>(() => agent.refresh()))?.agent ?? agent.current();
       const pending = current?.pendingPermissions ?? [];
       if (pending.length === 0) {
         // The permission event may already have been answered while the run result was in flight.
@@ -163,7 +159,7 @@ export async function verifyWithPaseoProvider(
         const fullAccess = (config.modeId.trim() || "full-access") === "full-access";
         const blocked = fullAccess ? undefined : pending.find((request: AgentPermissionRequest) => !isAllowedVerificationPermission(request));
         if (blocked) {
-          const history = await retryAfterReconnect<any>(() => agent.timeline.refetch({ limit: 50 }), deadline);
+          const history = await retryAfterReconnect<any>(() => agent.timeline.refetch({ limit: 50 }));
           const noBrowserHost = history.entries.some(({ item }: { item: AgentTimelineItem }) =>
             item.type === "tool_call" && (item.detail as { output?: { structuredContent?: { error?: { code?: string } } } } | undefined)?.output?.structuredContent?.error?.code === "browser_no_host");
           console.warn("[vibe-review] verification agent needs permission:", agent.id, blocked.name, "browserHostUnavailable=", noBrowserHost);
@@ -172,14 +168,14 @@ export async function verifyWithPaseoProvider(
             : "验证 agent 请求了需要人工授权的工具，本次未自动执行。", evidence: [], provider };
         }
         for (const request of pending) {
-          await retryAfterReconnect(() => agent.respondToPermission({ requestId: request.id, response: { behavior: "allow" } }), deadline);
+          await retryAfterReconnect(() => agent.respondToPermission({ requestId: request.id, response: { behavior: "allow" } }));
         }
       }
-      run = await waitUntilProgress();
+      run = await waitForVerifier();
     }
-    if (run.status !== "idle") return { status: "unavailable", summary: run.status === "timeout" ? "验证超过 30 分钟仍未取得最终结果。" : run.error || `验证任务状态：${run.status}`, evidence: [], provider };
+    if (run.status !== "idle") return { status: "unavailable", summary: run.error || `验证任务状态：${run.status}`, evidence: [], provider };
     await control?.onProgress?.("正在整理验证结果…");
-    const timeline = await retryAfterReconnect<any>(() => agent.timeline.refetch({ limit: 200 }), deadline);
+    const timeline = await retryAfterReconnect<any>(() => agent.timeline.refetch({ limit: 200 }));
     return parseVerificationResult(timeline.entries.map((entry: { item: AgentTimelineItem }) => entry.item), run.lastMessage ?? "", provider, agent.id);
   } finally {
     unsubscribe?.();
