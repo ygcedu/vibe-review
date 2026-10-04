@@ -75,6 +75,7 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
   const [followupFeedback, setFollowupFeedback] = useState("");
   const [cancelingVerification, setCancelingVerification] = useState(false);
   const [verificationError, setVerificationError] = useState("");
+  const [openingVerifier, setOpeningVerifier] = useState(false);
   const [commitCwd, setCommitCwd] = useState<string | null>(null);
   const [commitUnavailableReason, setCommitUnavailableReason] = useState<"no_changes" | null>(null);
   const [commitTargetCwd, setCommitTargetCwd] = useState<string | null>(null);
@@ -83,6 +84,22 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
   const [pendingDiff, setPendingDiff] = useState<string | null>(null);
   const superseded = useRef(false);
   const paseo = usePaseo();
+  const showVerifier = async () => {
+    if (!data.verificationAgentId || openingVerifier) return;
+    setOpeningVerifier(true);
+    setVerificationError("");
+    try {
+      // Paseo removes archived agents from workspace tabs. Refresh revives the
+      // exact verifier before navigating, including cards created by older builds.
+      const verifier = paseo.agents.ref(data.verificationAgentId);
+      if (!verifier.current() || verifier.current()?.archivedAt) await verifier.refresh();
+      openVerifier(props.host.id, data.verificationAgentId);
+    } catch (error) {
+      setVerificationError(error instanceof Error ? error.message : "无法打开验证 agent");
+    } finally {
+      setOpeningVerifier(false);
+    }
+  };
   const pendingDiffRequested = useRef(false);
   const checkCommit = useRpc(commitAvailabilityRpc);
   const cancelVerification = useRpc(cancelVerificationRpc);
@@ -261,7 +278,7 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
           <Text style={[styles.cancelVerificationText, { color: cardColors.text }]}>{cancelingVerification ? "正在取消…" : "取消验证"}</Text>
         </TouchableOpacity>
       </View> : null}
-      {verificationRunning && verificationError ? <Text selectable style={styles.verificationError}>{verificationError}</Text> : null}
+      {verificationError ? <Text selectable style={styles.verificationError}>{verificationError}</Text> : null}
       {hasAnalysis ? <TouchableOpacity style={[styles.expandBtn, { borderTopColor: cardColors.divider }]}
         activeOpacity={0.7} accessibilityRole="button" accessibilityLabel={expanded ? "收起评估详情" : "查看评估详情"}
         onPress={() => setExpanded((value) => !value)}>
@@ -288,7 +305,7 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
           </> : null}
         </View> : null}
         {data.verification ? <View style={[styles.detailSection, { backgroundColor: dark ? "#263241" : "#f8fafc", borderColor: cardColors.border }]}>
-          {data.verificationAgentId ? <TouchableOpacity accessibilityRole="button" accessibilityLabel="打开验证 agent" onPress={() => openVerifier(props.host.id, data.verificationAgentId!)} style={styles.detailSectionHeader}>
+          {data.verificationAgentId ? <TouchableOpacity accessibilityRole="button" accessibilityLabel="打开验证 agent" disabled={openingVerifier} onPress={() => { void showVerifier(); }} style={styles.detailSectionHeader}>
             <Text style={[styles.detailSectionTitle, { color: cardColors.muted }]}>独立验证 ↗</Text>
             <Text style={[styles.detailStatus, { color: data.verification.status === "passed" ? (dark ? "#86efac" : "#15803d") : accent }]}>{verificationLabel[data.verification.status]}</Text>
           </TouchableOpacity> : <View style={styles.detailSectionHeader}>
