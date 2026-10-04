@@ -9,8 +9,10 @@ import { reviewResultSchema, REVIEW_KIND, REVIEW_VERSION } from "../shared/revie
 import type { output } from "zod";
 import type { VerificationControl, VerificationRequest, VerificationResult } from "./verify";
 import { appendReviewWithRetry } from "./review-append.ts";
-import { recoverFinishedVerification } from "./verify.ts";
+import { recoverFinishedVerification, VERIFIER_LABEL, VERIFIER_TITLE } from "./verify.ts";
 import { isNoDrift } from "../shared/drift.ts";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 /** Settings access, injected from the server entry point. */
 export interface RunContext {
@@ -23,6 +25,31 @@ type ActiveVerification = { canceled: boolean; verifierAgentId?: string; cardId:
 const activeVerifications = new Map<string, ActiveVerification>();
 const reconcilingVerifications = new Set<string>();
 const verificationKey = (agentId: string, scoredAt: string) => `${agentId}:${scoredAt}`;
+const execFileAsync = promisify(execFile);
+
+/** Resolve the verifier bound to one card, reviving its archived Paseo session. */
+export async function openVerification(paseo: PluginHandlerContext["paseo"], agentId: string, scoredAt: string): Promise<{ verifierAgentId: string; workspaceId: string }> {
+  const page = await paseo.agents.ref(agentId).timeline.refetch({ limit: 200 });
+  const item = page.entries.find(({ item }: { item: AgentTimelineItem }) => item.type === "plugin" && item.kind === REVIEW_KIND &&
+    (item.data as { scoredAt?: string }).scoredAt === scoredAt)?.item;
+  const parsed = item?.type === "plugin" ? reviewResultSchema.safeParse(item.data) : null;
+  const verifierAgentId = parsed?.success ? parsed.data.verificationAgentId : undefined;
+  if (!verifierAgentId) throw new Error("这张卡没有保存验证 agent，无法跳转。");
+
+  const verifier = paseo.agents.ref(verifierAgentId);
+  let snapshot = (await verifier.refresh())?.agent;
+  if (!snapshot || snapshot.id !== verifierAgentId || (snapshot.labels?.[VERIFIER_LABEL] !== "true" && snapshot.title !== VERIFIER_TITLE)) {
+    throw new Error("无法确认这张卡对应的验证 agent。");
+  }
+  if (snapshot.archivedAt) {
+    await execFileAsync("paseo", ["agent", "reload", verifierAgentId, "--json"], { timeout: 30_000 });
+    snapshot = (await verifier.refresh())?.agent;
+  }
+  if (!snapshot || snapshot.id !== verifierAgentId || snapshot.archivedAt || !snapshot.workspaceId) {
+    throw new Error("验证 agent 尚未恢复，请稍后重试。");
+  }
+  return { verifierAgentId, workspaceId: snapshot.workspaceId };
+}
 
 /** Restore a card whose verifier outlived the plugin process that created it. */
 export async function reconcileVerification(paseo: PluginHandlerContext["paseo"], agentId: string, scoredAt: string): Promise<void> {

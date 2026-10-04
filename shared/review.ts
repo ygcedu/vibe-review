@@ -54,3 +54,9 @@ export const reconcileVerificationRpc = defineRpc({
   input: z.object({ agentId: z.string(), scoredAt: z.string() }),
   output: z.object({ ok: z.literal(true) }),
 });
+
+export const openVerificationRpc = defineRpc({
+  name: "vibe-review.open-verification",
+  input: z.object({ agentId: z.string(), scoredAt: z.string() }),
+  output: z.object({ verifierAgentId: z.string(), workspaceId: z.string() }),
+});

@@ -1,11 +1,11 @@
 import type { ComponentType } from "react";
 import { isNoDrift } from "../shared/drift";
 import { Linking, Platform, View, Text, StyleSheet, TouchableOpacity, useColorScheme } from "react-native";
-import { buildAgentDeepLink, buildAgentDeepLinkRoute } from "@getpaseo/protocol/agent-deep-link";
+import { buildAgentDeepLink } from "@getpaseo/protocol/agent-deep-link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePaseo, useRpc, type PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import { output } from "zod";
-import { cancelVerificationRpc, reconcileVerificationRpc, reviewResultSchema } from "../shared/review";
+import { cancelVerificationRpc, reconcileVerificationRpc, openVerificationRpc, reviewResultSchema } from "../shared/review";
 import { parseDiffFiles } from "./diff";
 import { FileTree } from "./file-tree";
 import { copyText } from "@getpaseo/plugin/client/react-native";
@@ -35,10 +35,10 @@ const resultLabel = {
 
 const verificationLabel = { passed: "通过", failed: "未通过", unavailable: "未能完成" } as const;
 
-function openVerifier(serverId: string, agentId: string): void {
+function openVerifier(serverId: string, agentId: string, workspaceId: string): void {
   const target = { serverId, agentId };
   if (Platform.OS === "web" && typeof window !== "undefined") {
-    window.location.assign(buildAgentDeepLinkRoute(target));
+    window.location.assign(`/h/${encodeURIComponent(serverId)}/workspace/${encodeURIComponent(workspaceId)}?open=${encodeURIComponent(`agent:${agentId}`)}`);
   } else {
     void Linking.openURL(buildAgentDeepLink(target));
   }
@@ -84,16 +84,14 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
   const [pendingDiff, setPendingDiff] = useState<string | null>(null);
   const superseded = useRef(false);
   const paseo = usePaseo();
+  const prepareOpenVerification = useRpc(openVerificationRpc);
   const showVerifier = async () => {
     if (!data.verificationAgentId || openingVerifier) return;
     setOpeningVerifier(true);
     setVerificationError("");
     try {
-      // Paseo removes archived agents from workspace tabs. Refresh revives the
-      // exact verifier before navigating, including cards created by older builds.
-      const verifier = paseo.agents.ref(data.verificationAgentId);
-      if (!verifier.current() || verifier.current()?.archivedAt) await verifier.refresh();
-      openVerifier(props.host.id, data.verificationAgentId);
+      const target = await prepareOpenVerification({ agentId: props.agentId, scoredAt: data.scoredAt });
+      openVerifier(props.host.id, target.verifierAgentId, target.workspaceId);
     } catch (error) {
       setVerificationError(error instanceof Error ? error.message : "无法打开验证 agent");
     } finally {
@@ -306,7 +304,7 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
         </View> : null}
         {data.verification ? <View style={[styles.detailSection, { backgroundColor: dark ? "#263241" : "#f8fafc", borderColor: cardColors.border }]}>
           {data.verificationAgentId ? <TouchableOpacity accessibilityRole="button" accessibilityLabel="打开验证 agent" disabled={openingVerifier} onPress={() => { void showVerifier(); }} style={styles.detailSectionHeader}>
-            <Text style={[styles.detailSectionTitle, { color: cardColors.muted }]}>独立验证 ↗</Text>
+            <Text style={[styles.detailSectionTitle, { color: cardColors.muted }]}>{openingVerifier ? "正在打开验证 agent…" : "独立验证 ↗"}</Text>
             <Text style={[styles.detailStatus, { color: data.verification.status === "passed" ? (dark ? "#86efac" : "#15803d") : accent }]}>{verificationLabel[data.verification.status]}</Text>
           </TouchableOpacity> : <View style={styles.detailSectionHeader}>
             <Text style={[styles.detailSectionTitle, { color: cardColors.muted }]}>独立验证</Text>

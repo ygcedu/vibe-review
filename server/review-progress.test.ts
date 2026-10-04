@@ -2,10 +2,26 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { AgentTimelineItem } from "@getpaseo/protocol/agent-types";
 import type { PaseoApi } from "./paseo-api-types.ts";
-import { cancelVerification, reconcileVerification, queueReview, verdictOf, type RunContext } from "./review.ts";
+import { cancelVerification, reconcileVerification, openVerification, queueReview, verdictOf, type RunContext } from "./review.ts";
 
 test("a punctuation-only no-drift answer passes review", () => {
   assert.deepEqual(verdictOf({ result: "done", drifts: ["无。"] }), { verdict: "pass", completed: 1, drift: "in_scope" });
+});
+
+test("verification link resolves only the verifier stored on its review card", async () => {
+  const scoredAt = "2026-10-04T14:36:00.000Z";
+  const parent = { timeline: { refetch: async () => ({ entries: [{ item: {
+    type: "plugin", kind: "review-result", data: {
+      verdict: "pass", completed: 1, drift: "in_scope", summary: "检查跳转", scoredAt,
+      verificationAgentId: "verifier-1", verificationState: "complete",
+    },
+  } }] }) } };
+  const verifier = { refresh: async () => ({ agent: {
+    id: "verifier-1", title: "Vibe Review · 验证", labels: {}, archivedAt: null, workspaceId: "workspace-1",
+  } }) };
+  const paseo = { agents: { ref: (id: string) => id === "parent-1" ? parent : verifier } } as unknown as Parameters<typeof openVerification>[0];
+  assert.deepEqual(await openVerification(paseo, "parent-1", scoredAt), { verifierAgentId: "verifier-1", workspaceId: "workspace-1" });
+  await assert.rejects(openVerification(paseo, "parent-1", "wrong-card"), /没有保存验证 agent/);
 });
 
 const modelReply = [

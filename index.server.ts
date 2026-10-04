@@ -1,8 +1,8 @@
 import type { PluginHandlerContext, PluginServerContext } from "@getpaseo/plugin/server";
-import { cancelVerificationRpc, reconcileVerificationRpc, reviewAgentRpc } from "./shared/review";
+import { cancelVerificationRpc, reconcileVerificationRpc, openVerificationRpc, reviewAgentRpc } from "./shared/review";
 import { llmSettings, piCommitSettings, verificationSettings, type LlmConfig, type VerificationConfig } from "./shared/settings";
 import { promptTemplateSettings } from "./shared/prompts";
-import { cancelVerification, reconcileVerification, queueReview, reviewAgent, type RunContext } from "./server/review";
+import { cancelVerification, reconcileVerification, openVerification, queueReview, reviewAgent, type RunContext } from "./server/review";
 import { captureWorktree, diffSnapshots, disposeSnapshot, type WorktreeSnapshot } from "./server/snapshot";
 import { replaceTurnSnapshot, takeTurnSnapshot } from "./server/turn-snapshots";
 import { clarifyRpc } from "./shared/clarify";
@@ -122,6 +122,9 @@ export default function contribute(server: PluginServerContext) {
     await reconcileVerification(context.paseo, agentId, scoredAt);
     return { ok: true as const };
   });
+
+  server.handle(openVerificationRpc, async ({ agentId, scoredAt }, context) =>
+    openVerification(context.paseo, agentId, scoredAt));
 
   server.handle(clarifyRpc, async ({ agentId, text }, context) => {
     const payload = await context.paseo.agents.ref(agentId).timeline.refetch();
