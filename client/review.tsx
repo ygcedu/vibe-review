@@ -296,8 +296,8 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
       {diffFiles.length ? <TouchableOpacity style={styles.metaButton} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel={showFiles ? "收起文件变更" : "展开文件变更"} onPress={() => togglePanel("files")}>
         <Text style={[styles.metaText, { color: cardColors.muted }]}>文件 {diffFiles.length} 个 {showFiles ? "↑" : "↓"}</Text>
       </TouchableOpacity> : null}
-      {visibleFollowups.length ? <TouchableOpacity style={styles.metaButton} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel={showSuggestions ? "收起后续建议" : "展开后续建议"} onPress={() => togglePanel("suggestions")}>
-        <Text style={[styles.metaText, { color: cardColors.muted }]}>建议 {visibleFollowups.length} 条 {showSuggestions ? "↑" : "↓"}</Text>
+      {!verificationRunning && (visibleFollowups.length || commitCwd || commitProgress || commitUnavailableReason) ? <TouchableOpacity style={styles.metaButton} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel={showSuggestions ? "收起后续建议" : "展开后续建议"} onPress={() => togglePanel("suggestions")}>
+        <Text style={[styles.metaText, { color: cardColors.muted }]}>建议{visibleFollowups.length ? ` ${visibleFollowups.length} 条` : ""} {showSuggestions ? "↑" : "↓"}</Text>
       </TouchableOpacity> : null}
       </View>
       {expanded ? <View style={styles.analysis}>
@@ -354,7 +354,7 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
     ) : data.diffIncomplete ? (
       <Text style={styles.missingDiff}>文件变更可能未被记录</Text>
     ) : null}
-    {!verificationRunning && (commitCwd || (showSuggestions && visibleFollowups.length) || commitProgress || commitUnavailableReason || followupFeedback) ? (
+    {!verificationRunning && showSuggestions && (commitCwd || visibleFollowups.length || commitProgress || commitUnavailableReason || followupFeedback) ? (
       <View style={[styles.followups, { borderTopColor: cardColors.divider }]}>
         {commitUnavailableReason === "no_changes" ? <Text style={styles.followupFeedback}>代码已提交，当前没有待提交改动，因此无需 Pi 提交。</Text> : null}
         {commitCwd && !commitProgress ? (
