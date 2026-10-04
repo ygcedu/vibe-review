@@ -56,5 +56,5 @@ export const COMMIT_RESULT_KIND = "pi-commit-result";
 export const commitAvailabilityRpc = defineRpc({
   name: "vibe-review.commit-availability",
   input: z.object({ agentId: z.string(), scoredAt: z.string() }),
-  output: z.object({ available: z.boolean(), cwd: z.string().optional() }),
+  output: z.object({ available: z.boolean(), cwd: z.string().optional(), reason: z.enum(["no_changes"]).optional() }),
 });

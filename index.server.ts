@@ -270,7 +270,7 @@ export default function contribute(server: PluginServerContext) {
     const entries = (payload as unknown as { entries?: Array<{ item: { type: string; kind?: string; data?: { scoredAt?: string; turnId?: string } }; turnId?: string }> }).entries ?? [];
     if (!isLatestReviewTurn(entries, scoredAt)) return { available: false };
     try {
-      return await hasPendingCodeChanges(agent.cwd) ? { available: true, cwd: agent.cwd } : { available: false };
+      return await hasPendingCodeChanges(agent.cwd) ? { available: true, cwd: agent.cwd } : { available: false, reason: "no_changes" as const };
     } catch {
       return { available: false };
     }

@@ -144,10 +144,15 @@ export async function verifyWithPaseoProvider(
       unsubscribe = subscription;
       void subscription.ready.catch((error: unknown) => console.warn("[vibe-review] verification progress subscription unavailable:", error));
     }
-    const deadline = Date.now() + 6 * 60_000;
+    const deadline = Date.now() + 30 * 60_000;
     const waitForVerifier = () => retryAfterReconnect<any>(
-      () => agent.waitForFinish(Math.max(1, deadline - Date.now())), deadline);
-    let run = await waitForVerifier();
+      () => agent.waitForFinish(Math.min(30_000, Math.max(1, deadline - Date.now()))), deadline);
+    const waitUntilProgress = async () => {
+      let state = await waitForVerifier();
+      while (state.status === "timeout" && Date.now() < deadline && !control?.isCanceled()) state = await waitForVerifier();
+      return state;
+    };
+    let run = await waitUntilProgress();
     for (let attempts = 0; run.status === "permission" && attempts < 12 && Date.now() < deadline; attempts++) {
       const current = (await retryAfterReconnect<any>(() => agent.refresh(), deadline))?.agent ?? agent.current();
       const pending = current?.pendingPermissions ?? [];
@@ -170,9 +175,9 @@ export async function verifyWithPaseoProvider(
           await retryAfterReconnect(() => agent.respondToPermission({ requestId: request.id, response: { behavior: "allow" } }), deadline);
         }
       }
-      run = await waitForVerifier();
+      run = await waitUntilProgress();
     }
-    if (run.status !== "idle") return { status: "unavailable", summary: run.error || `验证任务状态：${run.status}`, evidence: [], provider };
+    if (run.status !== "idle") return { status: "unavailable", summary: run.status === "timeout" ? "验证超过 30 分钟仍未取得最终结果。" : run.error || `验证任务状态：${run.status}`, evidence: [], provider };
     await control?.onProgress?.("正在整理验证结果…");
     const timeline = await retryAfterReconnect<any>(() => agent.timeline.refetch({ limit: 200 }), deadline);
     return parseVerificationResult(timeline.entries.map((entry: { item: AgentTimelineItem }) => entry.item), run.lastMessage ?? "", provider, agent.id);

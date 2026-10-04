@@ -69,6 +69,7 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
   const [cancelingVerification, setCancelingVerification] = useState(false);
   const [verificationError, setVerificationError] = useState("");
   const [commitCwd, setCommitCwd] = useState<string | null>(null);
+  const [commitUnavailableReason, setCommitUnavailableReason] = useState<"no_changes" | null>(null);
   const [commitTargetCwd, setCommitTargetCwd] = useState<string | null>(null);
   const [commitRunning, setCommitRunning] = useState(false);
   const [commitProgress, setCommitProgress] = useState<{ kind: "preparing" | "ready" | "failed"; stage: string; startedAt: number } | null>(null);
@@ -101,8 +102,8 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
     let active = true;
     const refresh = () => {
       void checkCommitRef.current({ agentId: props.agentId, scoredAt: data.scoredAt }).then(
-        (result) => { if (active) setCommitCwd(!superseded.current && result.available ? result.cwd ?? null : null); },
-        () => { if (active) setCommitCwd(null); },
+        (result) => { if (active) { setCommitCwd(!superseded.current && result.available ? result.cwd ?? null : null); setCommitUnavailableReason(!superseded.current ? result.reason ?? null : null); } },
+        () => { if (active) { setCommitCwd(null); setCommitUnavailableReason(null); } },
       );
     };
     refresh();
@@ -115,6 +116,7 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
       if (event.type === "turn_started" || (event.type === "timeline" && event.item?.type === "user_message")) {
         superseded.current = true;
         setCommitCwd(null);
+        setCommitUnavailableReason(null);
         setCommitTargetCwd(null);
         setCommitProgress(null);
       }
@@ -330,9 +332,10 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
     ) : data.diffIncomplete ? (
       <Text style={styles.missingDiff}>文件变更可能未被记录</Text>
     ) : null}
-    {!verificationRunning && (commitCwd || visibleFollowups.length || commitProgress) ? (
+    {!verificationRunning && (commitCwd || visibleFollowups.length || commitProgress || commitUnavailableReason) ? (
       <View style={styles.followups}>
-        <Text style={styles.followupsHeading}>接下来可以问</Text>
+        {visibleFollowups.length ? <Text style={styles.followupsHeading}>接下来可以问</Text> : null}
+        {commitUnavailableReason === "no_changes" ? <Text style={styles.followupFeedback}>代码已提交，当前没有待提交改动，因此无需 Pi 提交。</Text> : null}
         {commitCwd && !commitProgress ? (
           <TouchableOpacity activeOpacity={0.75} disabled={commitRunning} onPress={startCommit} accessibilityRole="button" accessibilityLabel="预览 Pi 提交" style={[styles.followupBubble, styles.commitBubble]}>
             <Text style={styles.commitText}>{commitRunning ? "正在启动 Pi…" : "预览 Pi 提交"}</Text>

@@ -94,6 +94,23 @@ test("verification resumes after a transient Paseo transport disconnect", async 
   assert.equal(archived, true);
 });
 
+test("a wait timeout keeps the verifier running until it finishes", async () => {
+  let waits = 0;
+  const verifier = {
+    id: "verifier-timeout",
+    waitForFinish: async () => ++waits < 3 ? { status: "timeout" } : { status: "idle", lastMessage: '{"status":"passed","summary":"已核对","evidence":["页面快照"],"cases":[{"name":"页面","steps":["读取页面"],"expected":"可见","actual":"可见","status":"passed"}]}' },
+    timeline: { refetch: async () => ({ entries: [{ item: observation }] }) },
+    archive: async () => {},
+  };
+  const paseo = {
+    agents: { ref: () => ({ current: () => ({ workspaceId: "workspace-1" }) }) },
+    workspaces: { ref: () => ({ agents: { create: async () => verifier } }) },
+  } as unknown as PluginHandlerContext["paseo"];
+  const result = await verifyWithPaseoProvider(paseo, "parent-1", { enabled: true, provider: "codex", model: "gpt-6-sol", modeId: "full-access" }, { goal: "页面", narrative: "已修改", assistantMessages: [] });
+  assert.equal(result.status, "passed");
+  assert.equal(waits, 3);
+});
+
 test("full-access verifier answers provider permission requests without prompting", async () => {
   const permission = { id: "permission-1", provider: "codex", kind: "tool", name: "CodexMcpElicitation", description: 'Allow the paseo MCP server to run tool "browser_list_tabs"?', metadata: { serverName: "paseo" } } as AgentPermissionRequest;
   assert.equal(isAllowedVerificationPermission(permission), true);
