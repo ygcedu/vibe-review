@@ -1,27 +1,30 @@
 import { defineSettings } from "@getpaseo/plugin";
 import { z } from "zod";
 
-const REVIEW_CONTEXT = [
+const REVIEW_SEGMENTS = [
   "<user_messages>\n{{userMessages}}\n</user_messages>",
   "<assistant_messages>\n{{assistantMessages}}\n</assistant_messages>",
   "{{changedFiles}}", "{{diffWarning}}",
   "<interruption_signals>\n{{interruptionSignals}}\n</interruption_signals>",
   '固定输出格式（六个字段，冒号后用英文半角冒号+空格）：\ngoal: ...\ndrifts: ...\nnarrative: ...\nresult: ...\ntask_type: ...\nfollowups: ["..."]',
-].join("\n\n");
+];
+export const REVIEW_CONTEXT = REVIEW_SEGMENTS.join("\n");
 
-const VERIFICATION_CONTEXT = [
+const VERIFICATION_SEGMENTS = [
   "只读检查，禁止修改文件、发送消息、提交或执行破坏性操作。",
   '只输出一个 JSON 对象：{"status":"passed|failed|unavailable","summary":"简短结论","evidence":["实际观察到的事实"],"cases":[{"name":"用例名称","steps":["实际执行的步骤"],"expected":"预期结果","actual":"实际结果及证据","status":"passed|failed|blocked"}]}。有用例失败则总体 failed；关键用例受阻且无法判断则 unavailable；所有关键用例通过才 passed。',
   "<goal>\n{{goal}}\n</goal>", "<claimed_result>\n{{claimedResult}}\n</claimed_result>",
   "<assistant_messages>\n{{assistantMessages}}\n</assistant_messages>", "{{changedFiles}}",
-].join("\n\n");
+];
+export const VERIFICATION_CONTEXT = VERIFICATION_SEGMENTS.join("\n");
 
-const PI_CONTEXT = [
+const PI_SEGMENTS = [
   "此阶段只生成预览，绝不执行提交或修改文件。",
   '只输出一个 JSON 对象：{"message":"不超过80字的单行提交标题","files":["相对路径"]}。files 只能从下方候选路径中选择，不要包含 .DS_Store。',
   "{{styleHint}}", "{{recentMessages}}", "候选路径：\n{{candidateFiles}}", "{{reviewContext}}",
   "当前待提交 diff：\n{{diff}}", "{{diffWarning}}",
-].join("\n\n");
+];
+export const PI_CONTEXT = PI_SEGMENTS.join("\n");
 
 export const DEFAULT_REVIEW_PROMPT = [
   "你是对话审核助手。总结这轮任务、agent 执行过程和结果。只陈述事实，不凭空推断。",
@@ -51,6 +54,31 @@ const required = {
   piCommit: ["candidateFiles", "diff", "recentMessages", "reviewContext"],
 } as const;
 export type PromptKind = keyof typeof required;
+const fixedParts = { review: REVIEW_CONTEXT, verification: VERIFICATION_CONTEXT, piCommit: PI_CONTEXT } as const;
+const fixedSegments = {
+  review: REVIEW_SEGMENTS,
+  verification: VERIFICATION_SEGMENTS,
+  piCommit: PI_SEGMENTS,
+} as const;
+export function promptFixedPart(kind: PromptKind): string { return fixedParts[kind]; }
+export function promptFixedSegments(kind: PromptKind): readonly string[] { return fixedSegments[kind]; }
+export function promptEditableParts(kind: PromptKind, template: string): string[] | null {
+  const parts: string[] = [];
+  let position = 0;
+  for (const segment of fixedSegments[kind]) {
+    const next = template.indexOf(segment, position);
+    if (next < 0) return null;
+    parts.push(template.slice(position, next));
+    position = next + segment.length;
+  }
+  parts.push(template.slice(position));
+  return parts;
+}
+export function composePromptTemplate(kind: PromptKind, editable: readonly string[]): string {
+  const segments = fixedSegments[kind];
+  if (editable.length !== segments.length + 1) throw new Error("提示词可编辑区域数量不匹配");
+  return segments.reduce((result, segment, index) => result + segment + editable[index + 1], editable[0]);
+}
 export function missingPromptVariables(kind: PromptKind, template: string): string[] {
   return required[kind].filter((name) => !template.includes(`{{${name}}}`));
 }
@@ -59,21 +87,26 @@ export function renderPrompt(template: string, variables: Record<string, string>
 }
 
 // Preserve instruction-only settings written by v1 while adding editable variable positions.
-function migrateInstruction(kind: PromptKind, value: unknown): string {
+function migrateInstruction(kind: PromptKind, value: unknown, fromVersion: number): string {
   if (typeof value !== "string" || !value.trim()) return { review: DEFAULT_REVIEW_PROMPT, verification: DEFAULT_VERIFICATION_PROMPT, piCommit: DEFAULT_PI_COMMIT_PROMPT }[kind];
-  if (missingPromptVariables(kind, value).length === 0) return value;
-  return `${value}\n\n${{ review: REVIEW_CONTEXT, verification: VERIFICATION_CONTEXT, piCommit: PI_CONTEXT }[kind]}`;
+  const parts = promptEditableParts(kind, value);
+  if (parts) {
+    if (fromVersion >= 5) return value;
+    return composePromptTemplate(kind, parts.map((part, index) => index > 0 && index < parts.length - 1 && part === "\n\n" ? "\n" : part));
+  }
+  // Keep any earlier custom text, even when it changed the old dynamic section.
+  return composePromptTemplate(kind, [`${value.trim()}\n\n`, ...fixedSegments[kind].slice(1).map(() => "\n"), ""]);
 }
 export const promptTemplateSchema = z.object({
-  review: z.string().trim().min(1).max(30000).refine((value) => missingPromptVariables("review", value).length === 0, "缺少必需变量").default(DEFAULT_REVIEW_PROMPT),
-  verification: z.string().trim().min(1).max(30000).refine((value) => missingPromptVariables("verification", value).length === 0, "缺少必需变量").default(DEFAULT_VERIFICATION_PROMPT),
-  piCommit: z.string().trim().min(1).max(30000).refine((value) => missingPromptVariables("piCommit", value).length === 0, "缺少必需变量").default(DEFAULT_PI_COMMIT_PROMPT),
+  review: z.string().min(1).max(30000).refine((value) => promptEditableParts("review", value) !== null, "固定部分不能修改").default(DEFAULT_REVIEW_PROMPT),
+  verification: z.string().min(1).max(30000).refine((value) => promptEditableParts("verification", value) !== null, "固定部分不能修改").default(DEFAULT_VERIFICATION_PROMPT),
+  piCommit: z.string().min(1).max(30000).refine((value) => promptEditableParts("piCommit", value) !== null, "固定部分不能修改").default(DEFAULT_PI_COMMIT_PROMPT),
 });
 export type PromptTemplates = z.infer<typeof promptTemplateSchema>;
 export const promptTemplateSettings = defineSettings({
-  id: "vibe-review-prompt-templates", scope: "host", version: 2, schema: promptTemplateSchema,
-  migrate: (values) => {
+  id: "vibe-review-prompt-templates", scope: "host", version: 5, schema: promptTemplateSchema,
+  migrate: (values, fromVersion) => {
     const old = values as Partial<Record<PromptKind, unknown>>;
-    return { review: migrateInstruction("review", old.review), verification: migrateInstruction("verification", old.verification), piCommit: migrateInstruction("piCommit", old.piCommit) };
+    return { review: migrateInstruction("review", old.review, fromVersion), verification: migrateInstruction("verification", old.verification, fromVersion), piCommit: migrateInstruction("piCommit", old.piCommit, fromVersion) };
   },
 });
