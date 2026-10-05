@@ -72,7 +72,7 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
   const cardColors = dark
     ? { background: "#1f2937", border: "#374151", text: "#f3f4f6", muted: "#a9b3c2", divider: "#374151" }
     : { background: "#ffffff", border: "#d8dee6", text: "#111827", muted: "#6b7280", divider: "#e5e7eb" };
-  const [openPanel, setOpenPanel] = useState<"details" | "files" | "suggestions" | null>(null);
+  const [openPanel, setOpenPanel] = useState<"details" | "files" | "suggestions" | null>("suggestions");
   const expanded = openPanel === "details";
   const showFiles = openPanel === "files";
   const showSuggestions = openPanel === "suggestions";
