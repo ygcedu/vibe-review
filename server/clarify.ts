@@ -38,6 +38,6 @@ export async function clarifyDraft(config: LlmConfig, text: string, context: str
   if (!(["suggested", "clear", "uncertain"] as const).includes(parsed.status as Result["status"]) || typeof parsed.suggestion !== "string" || !parsed.suggestion.trim()) {
     throw new Error("模型建议格式无效");
   }
-  const suggestion = parsed.status === "clear" ? text : parsed.suggestion.trim().slice(0, 12000);
-  return { status: parsed.status as Result["status"], suggestion, reason: typeof parsed.reason === "string" ? parsed.reason.trim().slice(0, 200) : "" };
+  const suggestion = parsed.status === "clear" ? text : parsed.suggestion.trim();
+  return { status: parsed.status as Result["status"], suggestion, reason: typeof parsed.reason === "string" ? parsed.reason.trim() : "" };
 }

@@ -71,6 +71,15 @@ test("an actual inspection tool is required for a passed verification", async ()
   assert.equal((await verifyWithPaseoProvider(paseo, "parent-1", config, request)).status, "unavailable");
   lastMessage = '{"status":"passed","summary":"看起来正常","evidence":["运行了检查"],"cases":[]}';
   assert.equal((await verifyWithPaseoProvider(paseo, "parent-1", config, request)).status, "unavailable");
+  const longActual = "第七项检查发现未满足预期。".repeat(40);
+  lastMessage = JSON.stringify({ status: "passed", summary: "已执行七项检查", evidence: ["已查看实际页面"], cases: [
+    ...Array.from({ length: 6 }, (_, index) => ({ name: `用例 ${index + 1}`, steps: ["检查页面"], expected: "通过", actual: "通过", status: "passed" })),
+    { name: "用例 7", steps: ["检查页面"], expected: "通过", actual: longActual, status: "failed" },
+  ] });
+  const laterFailure = await verifyWithPaseoProvider(paseo, "parent-1", config, request);
+  assert.equal(laterFailure.status, "failed");
+  assert.equal(laterFailure.cases?.length, 7);
+  assert.equal(laterFailure.cases?.[6].actual, longActual);
 });
 
 test("verification resumes after a transient Paseo transport disconnect", async () => {

@@ -48,6 +48,20 @@ test("review goal is preserved beyond 80 characters", async () => {
   }
 });
 
+test("review details preserve long drift and follow-up text", async () => {
+  const drift = "与任务无关的文件修改说明".repeat(10);
+  const followup = "请核对这段完整的后续建议".repeat(20);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ choices: [{ message: { content: `goal: 检查文件\ndrifts: ${drift}\nnarrative: 已检查。\nresult: partial\nfollowups: ${JSON.stringify([followup])}` } }] }), { status: 200 });
+  try {
+    const result = await distillTask({ baseUrl: "https://example.test/v1", apiKey: "test", model: "test" }, ["检查文件"], ["已检查"]);
+    assert.deepEqual(result.drifts, [drift]);
+    assert.deepEqual(result.followups, [followup]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("punctuated no-drift answer is not counted as a deviation", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(JSON.stringify({ choices: [{ message: { content: "goal: 修复登录\ndrifts: 无。\nnarrative: 已修复。\nresult: done" } }] }), { status: 200 });

@@ -210,19 +210,19 @@ function parseVerificationResult(items: readonly AgentTimelineItem[], message: s
         && typeof item.expected === "string" && Boolean(item.expected.trim())
         && typeof item.actual === "string" && Boolean(item.actual.trim())
         && (item.status === "passed" || item.status === "failed" || item.status === "blocked");
-    }).slice(0, 6).map((item) => ({
-      name: item.name.slice(0, 100), steps: item.steps.slice(0, 6).map((step) => step.slice(0, 300)),
-      expected: item.expected.slice(0, 400), actual: item.actual.slice(0, 400), status: item.status,
+    }).map((item) => ({
+      name: item.name, steps: item.steps,
+      expected: item.expected, actual: item.actual, status: item.status,
     })) : [];
     let status: VerificationResult["status"] = output.status === "passed" || output.status === "failed" ? output.status : "unavailable";
     if (cases.some((item) => item.status === "failed")) status = "failed";
     else if (cases.some((item) => item.status === "blocked")) status = "unavailable";
     else if (status === "passed" && (cases.length === 0 || cases.some((item) => item.status !== "passed"))) status = "unavailable";
     const evidence = Array.isArray(output.evidence)
-      ? output.evidence.filter((value): value is string => typeof value === "string" && Boolean(value.trim())).slice(0, 5).map((value) => value.slice(0, 400))
+      ? output.evidence.filter((value): value is string => typeof value === "string" && Boolean(value.trim()))
       : [];
     if (status !== "unavailable" && evidence.length === 0) {
       return { status: "unavailable", summary: "验证 agent 未提供实际观察证据。", evidence, provider };
     }
-    return { status, summary: (output.summary || "验证未提供结论。").slice(0, 400), evidence, provider, cases };
+    return { status, summary: output.summary || "验证未提供结论。", evidence, provider, cases };
 }

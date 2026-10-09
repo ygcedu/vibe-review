@@ -133,7 +133,7 @@ export default function contribute(server: PluginServerContext) {
       .map(({ item }) => item)
       .filter((item) => (item.type === "user_message" || item.type === "assistant_message") && typeof item.text === "string")
       .slice(-6)
-      .map((item) => `${item.type === "user_message" ? "用户" : "助手"}: ${item.text!.slice(0, 1000)}`);
+      .map((item) => `${item.type === "user_message" ? "用户" : "助手"}: ${item.text!}`);
     return clarifyDraft(await llmConfig(), text, recent);
   });
 

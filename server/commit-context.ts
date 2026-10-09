@@ -12,7 +12,7 @@ export function recentCommitContext(timeline: readonly AgentTimelineItem[]): str
     .slice(-3);
   if (!reviews.length) return "";
   return reviews.map((data, index) => {
-    return `${index + 1}. 任务目标：${(data.goal || data.summary).slice(0, 300)}\n` +
-      `执行结果：${(data.narrative || data.result || "未提供").slice(0, 600)}`;
+    return `${index + 1}. 任务目标：${data.goal || data.summary}\n` +
+      `执行结果：${data.narrative || data.result || "未提供"}`;
   }).join("\n");
 }

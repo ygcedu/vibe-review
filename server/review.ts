@@ -386,7 +386,7 @@ async function runReview(
       });
     } catch (error) {
       console.error("[vibe-review] independent verification failed:", error);
-      verification = { status: "unavailable", summary: error instanceof Error ? error.message.slice(0, 300) : "验证任务无法运行。", evidence: [], provider: "" };
+      verification = { status: "unavailable", summary: error instanceof Error ? error.message : "验证任务无法运行。", evidence: [], provider: "" };
     }
     try {
       if (!active.canceled) {
@@ -411,11 +411,11 @@ async function runReview(
   if (result.verdict === "pass") return;
 
   // Agent 2 (notify): reject/review always notify the user.
-  const taskTitle = summary.task.slice(0, 40);
+  const taskTitle = summary.task.length > 40 ? `${summary.task.slice(0, 40)}…` : summary.task;
   if (result.verdict === "reject") {
-    void notify("审核：偏离目标", taskTitle ? `${taskTitle}…` : "任务明显偏离目标，需人工介入");
+    void notify("审核：偏离目标", taskTitle || "任务明显偏离目标，需人工介入");
   } else {
-    void notify("审核：需复核", taskTitle ? `${taskTitle}…` : "任务可能需要复核");
+    void notify("审核：需复核", taskTitle || "任务可能需要复核");
   }
 
   // Agent 1 (auto follow-up): only for spawned task agents, with cooldown.

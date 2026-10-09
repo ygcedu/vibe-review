@@ -34,11 +34,11 @@ export function buildTaskSummary(timeline: readonly AgentTimelineItem[]): TaskSu
   }
 
   const recentUsers = allUsers.slice(-6);
-  const task = recentUsers[recentUsers.length - 1]?.slice(0, 400) ?? "";
+  const task = recentUsers[recentUsers.length - 1] ?? "";
 
   return {
     task,
-    userMessages: recentUsers.map((m) => m.slice(0, 300)),
+    userMessages: recentUsers,
     assistantMessages,
     runningTools: runningTool,
   };

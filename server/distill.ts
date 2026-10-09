@@ -33,8 +33,7 @@ function parseFollowups(raw: string): string[] {
     const value: unknown = JSON.parse(raw);
     if (!Array.isArray(value)) return [];
     return [...new Set(value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean))]
-      .slice(0, 3)
-      .map((item) => item.slice(0, 160));
+      .slice(0, 3);
   } catch {
     return [];
   }
@@ -149,7 +148,7 @@ export async function distillTask(
   const goal = fields.goal || userMessages[userMessages.length - 1] || "完成用户任务";
   const drifts = fields.drifts
     .split(/[,，]/)
-    .map((s) => s.trim().slice(0, 80))
+    .map((s) => s.trim())
     .filter((s) => s && !isNoDrift(s));
   const rawResult = fields.result.toLowerCase().trim();
   const result: DistilledTask["result"] =
