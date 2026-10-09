@@ -137,7 +137,7 @@ export async function distillTask(
   const fields = parseDistillText(text);
   if (!fields.goal && !fields.narrative) {
     return {
-      goal: userMessages[userMessages.length - 1]?.slice(0, 60) || "完成用户任务",
+      goal: userMessages[userMessages.length - 1] || "完成用户任务",
       drifts: [],
       narrative: "",
       result: "unknown",
@@ -146,7 +146,7 @@ export async function distillTask(
       promptNoDiff,
     };
   }
-  const goal = fields.goal.slice(0, 80) || userMessages[userMessages.length - 1]?.slice(0, 60) || "完成用户任务";
+  const goal = fields.goal || userMessages[userMessages.length - 1] || "完成用户任务";
   const drifts = fields.drifts
     .split(/[,，]/)
     .map((s) => s.trim().slice(0, 80))

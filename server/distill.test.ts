@@ -36,6 +36,18 @@ test("a valid review without followups still yields one suggestion", async () =>
   }
 });
 
+test("review goal is preserved beyond 80 characters", async () => {
+  const goal = "改进插件对 agent 文件修改的统计方式，使其在 agent 工作目录之外的文件也能被捕获；参考 codex 的做法，若当前 agent 是 codex 则采用相应方式统计完整文件变更";
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ choices: [{ message: { content: `goal: ${goal}\ndrifts: 无\nnarrative: 已处理。\nresult: done` } }] }), { status: 200 });
+  try {
+    const result = await distillTask({ baseUrl: "https://example.test/v1", apiKey: "test", model: "test" }, [goal], ["已处理"]);
+    assert.equal(result.goal, goal);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("punctuated no-drift answer is not counted as a deviation", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(JSON.stringify({ choices: [{ message: { content: "goal: 修复登录\ndrifts: 无。\nnarrative: 已修复。\nresult: done" } }] }), { status: 200 });

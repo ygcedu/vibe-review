@@ -278,7 +278,7 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
         </View>
       </View>
       {data.goal ? (
-        <Text numberOfLines={2} style={[styles.goal, { color: cardColors.text }]}>
+        <Text style={[styles.goal, { color: cardColors.text }]}>
           {data.goal}
         </Text>
       ) : null}

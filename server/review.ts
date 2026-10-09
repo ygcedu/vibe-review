@@ -259,8 +259,8 @@ async function runReview(
     try {
       await appendReviewWithRetry(paseo, agentId, {
         type: "plugin", id: cardId, kind: REVIEW_KIND, version: REVIEW_VERSION,
-        data: { verdict: "review", completed: 0, drift: "in_scope", summary: summary.task.slice(0, 100),
-          goal: summary.task.slice(0, 100), scoredAt: new Date().toISOString(), turnId,
+        data: { verdict: "review", completed: 0, drift: "in_scope", summary: summary.task,
+          goal: summary.task, scoredAt: new Date().toISOString(), turnId,
           processing: true, diff: lastTurnDiff, diffIncomplete },
       });
     } catch (error) {
@@ -284,7 +284,7 @@ async function runReview(
     );
   } catch (error) {
     console.error("[vibe-review] LLM distill failed, falling back to raw task:", error);
-    distilled = { goal: summary.task.slice(0, 80) || "完成用户任务", drifts: [], narrative: "", result: "unknown", taskType: "other", followups: ["请确认本轮任务是否已经完成；如有遗漏，请继续处理并说明结果。"], promptNoDiff: "" };
+    distilled = { goal: summary.task || "完成用户任务", drifts: [], narrative: "", result: "unknown", taskType: "other", followups: ["请确认本轮任务是否已经完成；如有遗漏，请继续处理并说明结果。"], promptNoDiff: "" };
   }
 
   // 中断信号（工具卡 running / turn failed / canceled）是确定的事实，不靠 LLM 猜；
