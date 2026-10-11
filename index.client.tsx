@@ -10,9 +10,11 @@ import { CommitPreviewItem } from "./client/commit-preview";
 import { editDiffFiles } from "./client/edit-diff-data";
 import { EDIT_DIFF_KIND, editDiffSchema, EditDiffItem } from "./client/edit-diff";
 import { WorkspaceCommitPanel } from "./client/workspace-commit";
+import { GitHistoryPanel } from "./client/git-history";
 
 export default function contribute(client: PluginClientContext) {
   client.addWorkspacePanel({ id: "vibe-review-commit", title: "提交更改", icon: "GitCommitHorizontal", context: "workspace", locations: ["explorer"], Component: WorkspaceCommitPanel });
+  client.addWorkspacePanel({ id: "vibe-review-git-history", title: "Git 历史", icon: "GitBranch", context: "workspace", locations: ["workspace", "explorer"], Component: GitHistoryPanel });
   const clarify = createClarifyController(client);
   const pills = new Map<string, { workspaceId: string; remove(): void }>();
   const lifetime = new AbortController();

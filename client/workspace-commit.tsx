@@ -103,7 +103,19 @@ function fileTree(files: File[]): TreeNode[] {
     nodes.forEach((node) => { if (node.kind === "folder") sort(node.children); });
   };
   sort(root);
-  return root;
+  const compact = (nodes: TreeNode[]): TreeNode[] => nodes.map((node) => {
+    if (node.kind === "folder") {
+      node.children = compact(node.children);
+      while (node.children.length === 1 && node.children[0]?.kind === "folder") {
+        const child = node.children[0];
+        node.name += `/${child.name}`;
+        node.path = child.path;
+        node.children = child.children;
+      }
+    }
+    return node;
+  });
+  return compact(root);
 }
 
 export function WorkspaceCommitPanel({ workspaceId }: PluginWorkspacePanelProps) {

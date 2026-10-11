@@ -15,9 +15,11 @@ import { isCurrentCommitPreview, isLatestReviewTurn } from "./server/commit-avai
 import { buildTaskSummary, isSessionControlCommand } from "./server/inspect";
 import { isVerifierHookAgent, verifyWithPaseoProvider } from "./server/verify";
 import { registerWorkspaceCommit } from "./server/workspace-commit";
+import { registerGitHistory } from "./server/git-history";
 
 export default function contribute(server: PluginServerContext) {
   registerWorkspaceCommit(server);
+  registerGitHistory(server);
   const settings = server.registerSettings(llmSettings);
   const piSettings = server.registerSettings(piCommitSettings);
   const verifySettings = server.registerSettings(verificationSettings);
