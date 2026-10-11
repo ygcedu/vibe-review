@@ -39,6 +39,7 @@ export function EditDiffItem({ item, theme }: PluginTimelineItemProps<z.output<t
           <Text style={[styles.editLabel, { color: active ? theme.colors.foreground : theme.colors.foregroundMuted }]}>Edit</Text>
           <FileTypeIcon fileName={file.path} />
           <Text style={styles.path} numberOfLines={1}>{file.path}</Text>
+          {/* TODO(Paseo): Add a file-page shortcut here when timeline renderer props expose a supported openFile navigation API. */}
         </Pressable>
         {open ? <Pressable accessibilityRole="button" accessibilityLabel="折行显示" accessibilityState={{ selected: wrapLines }} onPress={() => setWrapLines((value) => !value)} style={styles.wrapButton}>
           <Icon name="WrapText" size={14} color={theme.colors.foregroundMuted} />
