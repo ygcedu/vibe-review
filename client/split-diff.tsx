@@ -42,7 +42,7 @@ function measuredBounds(fallback: ChangeBounds, measured: ChangeBounds): ChangeB
 }
 
 /** Two aligned panes modeled after an IDE side-by-side diff. */
-export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: boolean }) {
+export function SplitDiff({ file, wrapLines, maxHeight = MAX_VIEWPORT_HEIGHT }: { file: DiffFile; wrapLines: boolean; maxHeight?: number }) {
   const rows = useMemo(() => buildSplitDiffRows(file.lines), [file.lines]);
   const changedSpans = useMemo(() => changedSpansByCell(rows), [rows]);
   const beforeRows = useMemo(() => buildPaneRows(rows, "before"), [rows]);
@@ -89,9 +89,9 @@ export function SplitDiff({ file, wrapLines }: { file: DiffFile; wrapLines: bool
   const measuredLayoutKey = useRef(`${file.path}\0${wrapLines}`);
   const requestedVertical = useRef({ before: 0, after: 0 });
   const virtualPosition = useRef(0);
-  const viewportHeight = Math.min(MAX_VIEWPORT_HEIGHT, Math.max(32, paneHeights.before, paneHeights.after));
+  const viewportHeight = Math.min(maxHeight, Math.max(32, paneHeights.before, paneHeights.after));
   const nativeContentHeight = Math.max(fixedNoWrapHeight(beforeRows), fixedNoWrapHeight(afterRows), paneHeights.before, paneHeights.after);
-  const nativeViewportHeight = Math.min(MAX_VIEWPORT_HEIGHT, Math.max(32, nativeContentHeight));
+  const nativeViewportHeight = Math.min(maxHeight, Math.max(32, nativeContentHeight));
   const [nativeScrollPosition, setNativeScrollPosition] = useState(0);
   const scrollHeights = Platform.OS === "web" ? paneHeights : {
     before: paneHeights.before || fixedNoWrapHeight(beforeRows),
