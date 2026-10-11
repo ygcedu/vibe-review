@@ -7,6 +7,8 @@ import { MobileClarify } from "./client/mobile-clarify";
 import { COMMIT_RESULT_KIND, COMMIT_PREVIEW_KIND, commitResultSchema, commitPreviewSchema, preparePiCommitRpc } from "./shared/commit";
 import { CommitResultItem } from "./client/commit-result";
 import { CommitPreviewItem } from "./client/commit-preview";
+import { editDiffFiles } from "./client/edit-diff-data";
+import { EDIT_DIFF_KIND, editDiffSchema, EditDiffItem } from "./client/edit-diff";
 
 export default function contribute(client: PluginClientContext) {
   const clarify = createClarifyController(client);
@@ -54,6 +56,16 @@ export default function contribute(client: PluginClientContext) {
   });
   client.addTimelineRenderer({ kind: COMMIT_RESULT_KIND, version: 1, schema: commitResultSchema, Component: CommitResultItem });
   client.addTimelineRenderer({ kind: COMMIT_PREVIEW_KIND, version: 1, schema: commitPreviewSchema, Component: CommitPreviewItem });
+  client.addTimelineTransformer({
+    id: "edit-diff",
+    query: { itemType: "tool_call" },
+    transform({ item }) {
+      if (!editDiffFiles(item) || item.detail.type !== "edit") return undefined;
+      return { items: [{ type: "plugin", kind: EDIT_DIFF_KIND, version: 1,
+        data: { path: item.detail.filePath, diff: item.detail.unifiedDiff!, status: item.status } }] };
+    },
+  });
+  client.addTimelineRenderer({ kind: EDIT_DIFF_KIND, version: 1, schema: editDiffSchema, Component: EditDiffItem });
 
   const commit = async (agent: { id: string; cwd: string }, rpc: (contract: typeof preparePiCommitRpc, input: { agentId: string; cwd: string }) => Promise<unknown>) => {
     await rpc(preparePiCommitRpc, { agentId: agent.id, cwd: agent.cwd });
