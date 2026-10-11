@@ -1,4 +1,4 @@
-import type { AgentPermissionRequest, AgentStreamEvent, AgentTimelineItem } from "@getpaseo/protocol/agent-types";
+import type { AgentPermissionRequest, AgentTimelineItem } from "@getpaseo/protocol/agent-types";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import type { VerificationConfig } from "../shared/settings";
 import { DEFAULT_VERIFICATION_PROMPT, renderPrompt } from "../shared/prompts.ts";
@@ -135,7 +135,7 @@ export async function verifyWithPaseoProvider(
     await control?.onAgentCreated(agent.id);
     if (control?.isCanceled()) return { status: "unavailable", summary: "验证已取消。", evidence: [], provider };
     if (control?.onProgress && agent.timeline.subscribe) {
-      const subscription = agent.timeline.subscribe(({ event }: { event: AgentStreamEvent }) => {
+      const subscription = agent.timeline.subscribe(({ event }) => {
         if (event.type !== "timeline" || event.item.type !== "tool_call") return;
         const stage = verificationToolStage(event.item.name);
         if (stage) void Promise.resolve(control.onProgress?.(stage)).catch((error) =>
@@ -184,8 +184,8 @@ export async function verifyWithPaseoProvider(
 export async function recoverFinishedVerification(paseo: PluginHandlerContext["paseo"], verifierId: string): Promise<VerificationResult | null> {
   const agent = paseo.agents.ref(verifierId);
   const snapshot = (await agent.refresh())?.agent ?? agent.current();
-  if (!snapshot || snapshot.activeTurn || snapshot.status === "running" || snapshot.status === "permission") return null;
-  const provider = snapshot.config?.provider ?? "";
+  if (!snapshot || snapshot.activeTurn || snapshot.status === "running" || snapshot.pendingPermissions?.length) return null;
+  const provider = snapshot.provider;
   const run = await agent.waitForFinish(1000);
   if (run.status !== "idle") return { status: "unavailable", summary: run.error || `验证任务状态：${run.status}`, evidence: [], provider };
   const timeline = await agent.timeline.refetch({ limit: 200 });

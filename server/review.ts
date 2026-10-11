@@ -77,7 +77,8 @@ export async function reconcileVerification(paseo: PluginHandlerContext["paseo"]
     if (!verification) return;
     if (activeVerifications.has(key)) return;
     const latest = await findCard();
-    if (!latest || latest.data?.verificationState !== "running") return;
+    const latestParsed = latest?.type === "plugin" ? reviewResultSchema.safeParse(latest.data) : null;
+    if (!latestParsed?.success || latestParsed.data.verificationState !== "running") return;
     const result = card.result === "done" && verification.status === "failed" ? "partial"
       : card.result === "done" && verification.status === "unavailable" ? "unknown" : card.result;
     const finalVerdict = verdictOf({ result: result ?? "unknown", drifts: card.drifts ?? [] });

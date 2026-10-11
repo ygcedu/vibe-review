@@ -8,7 +8,7 @@ export interface PaseoAgentTimelineHandle {
     version: number;
     data: unknown;
   }): Promise<{ seq: number; epoch: string }>;
-  refetch(requestId?: string): Promise<{ entries?: Array<{ item: AgentTimelineItem }> }>;
+  refetch(options?: { limit?: number }): Promise<{ entries?: Array<{ item: AgentTimelineItem }> }>;
 }
 
 export interface PaseoAgentRef {

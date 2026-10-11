@@ -166,10 +166,10 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
           setCommitProgress(null);
           setPendingDiff(null);
         } else if (status.kind === "idle") {
-          void paseo.agents.ref(props.agentId).timeline.refetch({ limit: 50 }).then((timeline: { entries: Array<{ item: { type: string; kind?: string; data?: { scoredAt?: string } } }> }) => {
+          void paseo.agents.ref(props.agentId).timeline.refetch({ limit: 50 }).then((timeline) => {
             if (!active) return;
             const items = timeline.entries.map((entry) => entry.item);
-            const reviewIndex = items.findLastIndex((item) => item.type === "plugin" && item.kind === "review-result" && item.data?.scoredAt === data.scoredAt);
+            const reviewIndex = items.findLastIndex((item) => item.type === "plugin" && item.kind === "review-result" && typeof item.data === "object" && item.data !== null && !Array.isArray(item.data) && item.data.scoredAt === data.scoredAt);
             const completed = reviewIndex >= 0 && items.slice(reviewIndex + 1).some((item) => item.type === "plugin" &&
               (item.kind === COMMIT_PREVIEW_KIND || item.kind === COMMIT_RESULT_KIND));
             if (completed) {
