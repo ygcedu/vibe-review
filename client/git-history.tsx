@@ -31,6 +31,17 @@ function CommitHash({ value }: { value: string }) {
   return <Text ref={ref} style={styles.hash} numberOfLines={1}>{value.slice(0, 8)}</Text>;
 }
 
+function CommitDate({ value }: { value: string }) {
+  const ref = useRef<Text>(null);
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const node = ref.current as unknown as HTMLElement | null;
+    node?.setAttribute("data-pmono", "");
+    return () => { node?.removeAttribute("data-pmono"); };
+  }, []);
+  return <Text ref={ref} style={styles.date} numberOfLines={1}>{value}</Text>;
+}
+
 function CommitMessageText({ value }: { value: string }) {
   const ref = useRef<Text>(null);
   useEffect(() => {
@@ -203,6 +214,24 @@ function fileColor(status: string) {
   return styles.modified;
 }
 
+function formatCommitTime(value: string, nowMs: number) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const elapsed = nowMs - date.getTime();
+  if (elapsed >= 0 && elapsed < 60_000) return "Moments ago";
+  if (elapsed >= 0 && elapsed < 60 * 60_000) {
+    const minutes = Math.floor(elapsed / 60_000);
+    return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  }
+  const now = new Date(nowMs);
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const time = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  if (date.getTime() >= today && date.getTime() <= nowMs) return `Today ${time}`;
+  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).getTime();
+  if (date.getTime() >= yesterday && date.getTime() < today) return `Yesterday ${time}`;
+  return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")} ${time}`;
+}
+
 export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
   const { workspaceId } = props;
   const getHistory = useRpc(gitHistoryRpc);
@@ -213,6 +242,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [currentBranch, setCurrentBranch] = useState("");
   const [currentGitUser, setCurrentGitUser] = useState({ name: "", email: "" });
+  const [nowMs, setNowMs] = useState(Date.now());
   const [branch, setBranch] = useState("");
   const [searchText, setSearchText] = useState("");
   const [query, setQuery] = useState("");
@@ -246,6 +276,11 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
   const [error, setError] = useState("");
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;
   const tabOverflow = tabContentWidth > tabViewportWidth + 2;
+
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const registerTabNode = useCallback((id: string, node: HTMLElement | null) => {
     if (node) tabNodes.current.set(id, node);
@@ -478,7 +513,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
                 <Text style={[styles.author, ownCommit && styles.currentAuthor]} numberOfLines={1}>{item.author}</Text>
                 <View style={styles.graph}><View style={styles.graphLine} /><View style={[styles.graphDot, item.parents.length > 1 && styles.mergeDot]} /></View>
                 <Text style={styles.subject} numberOfLines={1}>{item.subject}{item.refs[0] ? <Text style={styles.ref}>  {item.refs[0]}</Text> : null}</Text>
-                <Text style={styles.date} numberOfLines={1}>{new Date(item.date).toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false })}</Text>
+                <CommitDate value={formatCommitTime(item.date, nowMs)} />
                 <CommitHash value={item.hash} />
               </Pressable>;
             })}
@@ -568,10 +603,10 @@ const styles = StyleSheet.create({
   graphDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: "#9754bd" },
   mergeDot: { backgroundColor: "#36aaa5" },
   subject: { flex: 1, minWidth: 0, fontSize: 12, color: "#111827", fontWeight: "600" },
-  hash: { width: 70, flexShrink: 0, textAlign: "right", fontFamily: "monospace", fontSize: 11, color: "#64748b" },
+  hash: { width: 56, flexShrink: 0, textAlign: "left", fontFamily: "monospace", fontSize: 11, color: "#64748b" },
   author: { width: 80, minWidth: 40, flexShrink: 1, fontSize: 11, color: "#374151" },
   currentAuthor: { fontWeight: "700", color: "#111827" },
-  date: { width: 121, minWidth: 0, flexShrink: 1, textAlign: "right", fontSize: 11, color: "#64748b" },
+  date: { width: 121, minWidth: 0, flexShrink: 1, textAlign: "left", fontFamily: "monospace", fontSize: 11, color: "#64748b" },
   ref: { fontSize: 11, fontWeight: "400", color: "#0f8b59" },
   loadMore: { alignItems: "center", padding: 12 },
   loadMoreText: { color: "#1641ad", fontSize: 12 },
