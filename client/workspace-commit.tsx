@@ -249,7 +249,7 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
         <Pressable accessibilityRole="button" onPress={() => toggleFolder(key)} style={styles.fileButton}>
           <Icon name="Folder" size={16} color="#6b7280" />
           <Text style={[styles.folderName, group.title === "未跟踪" && styles.untrackedName]} numberOfLines={1}>{node.name}</Text>
-          <Text style={styles.count}>{node.files.length} 个文件</Text>
+          <Text style={styles.count} numberOfLines={1}>{node.files.length} 个文件</Text>
         </Pressable>
       </>;
       const rowStyle = [styles.fileRow, { paddingLeft: 29 + depth * 20 }];
@@ -355,7 +355,7 @@ const styles = StyleSheet.create({
   folderName: { flexShrink: 1, fontSize: 13, color: "#111827" },
   untrackedName: { color: "#bc3145" },
   dropTarget: { backgroundColor: "#e9f0ff" },
-  count: { fontSize: 11, color: "#9ca3af" },
+  count: { flexShrink: 0, fontSize: 11, color: "#9ca3af" },
   path: { flex: 1, fontSize: 13, color: "#1641ad" },
   addedName: { color: "#07833d" },
   removedName: { color: "#bc3145" },
