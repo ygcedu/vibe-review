@@ -12,7 +12,7 @@ export const gitHistoryRpc = defineRpc({
 export const gitCommitDetailRpc = defineRpc({
   name: "vibe-review.git-commit-detail",
   input: z.object({ workspaceId: z.string(), hash: z.string() }),
-  output: z.object({ message: z.string(), files: z.array(changedFile) }),
+  output: z.object({ message: z.string(), files: z.array(changedFile), containingBranches: z.array(z.string()) }),
 });
 export const gitCommitFileDiffRpc = defineRpc({
   name: "vibe-review.git-commit-file-diff",

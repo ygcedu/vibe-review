@@ -62,7 +62,9 @@ export function registerGitHistory(server: PluginServerContext) {
     const cwd = await directory(paseo, workspaceId);
     const base = await commitBase(cwd, hash);
     const message = (await git(cwd, ["show", "-s", "--format=%B", hash])).trim();
-    return { message, files: await changedFiles(cwd, hash, base) };
+    const branchNames = (await git(cwd, ["for-each-ref", `--contains=${hash}`, "--format=%(refname:short)", "refs/heads", "refs/remotes"])).trim().split("\n").filter(Boolean);
+    const inHead = await git(cwd, ["merge-base", "--is-ancestor", hash, "HEAD"]).then(() => true, () => false);
+    return { message, files: await changedFiles(cwd, hash, base), containingBranches: inHead ? ["HEAD", ...branchNames] : branchNames };
   });
   server.handle(gitCommitFileDiffRpc, async ({ workspaceId, hash, path }, { paseo }) => {
     const cwd = await directory(paseo, workspaceId);

@@ -31,6 +31,17 @@ function CommitHash({ value }: { value: string }) {
   return <Text ref={ref} style={styles.hash} numberOfLines={1}>{value.slice(0, 8)}</Text>;
 }
 
+function CommitMessageText({ value }: { value: string }) {
+  const ref = useRef<Text>(null);
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const node = ref.current as unknown as HTMLElement | null;
+    node?.setAttribute("data-pmono", "");
+    return () => { node?.removeAttribute("data-pmono"); };
+  }, []);
+  return <Text ref={ref} style={styles.detailMessage}>{value}</Text>;
+}
+
 function ResizeHandle({ direction, appearance, label, onResize }: { direction: "horizontal" | "vertical"; appearance: "gutter" | "line"; label: string; onResize: (delta: number) => void }) {
   const ref = useRef<View>(null);
   const resizeRef = useRef(onResize);
@@ -65,7 +76,7 @@ function ResizeHandle({ direction, appearance, label, onResize }: { direction: "
     node.addEventListener("pointerdown", down);
     return () => node.removeEventListener("pointerdown", down);
   }, [direction]);
-  return <View ref={ref} accessibilityRole="adjustable" accessibilityLabel={label} style={direction === "vertical" ? appearance === "line" ? styles.verticalLineSplitter : styles.verticalGutter : styles.horizontalGutter}>{appearance === "line" ? <View style={styles.splitterLine} /> : null}</View>;
+  return <View ref={ref} accessibilityRole="adjustable" accessibilityLabel={label} style={direction === "vertical" ? appearance === "line" ? styles.verticalLineSplitter : styles.verticalGutter : appearance === "line" ? styles.horizontalLineSplitter : styles.horizontalGutter}>{appearance === "line" ? <View style={direction === "vertical" ? styles.splitterLine : styles.splitterLineHorizontal} /> : null}</View>;
 }
 
 function ReorderableTab({ tab, active, onActivate, onClose, onReorder, onNode }: {
@@ -210,7 +221,9 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
   const [loading, setLoading] = useState(false);
   const [revision, setRevision] = useState(0);
   const [selectedHash, setSelectedHash] = useState<string | null>(null);
-  const [detail, setDetail] = useState<{ message: string; files: ChangedFile[] } | null>(null);
+  const [detail, setDetail] = useState<{ message: string; files: ChangedFile[]; containingBranches: string[] } | null>(null);
+  const [detailPanelHeight, setDetailPanelHeight] = useState(0);
+  const [preferredFilesHeight, setPreferredFilesHeight] = useState<number | null>(null);
   const [tabs, setTabs] = useState<DiffTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [tabMenuOpen, setTabMenuOpen] = useState(false);
@@ -398,6 +411,10 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
   const defaultLogColumnWidth = Math.round((columnSpace - resolvedBranchColumnWidth) * 0.68);
   const maximumLogWidth = Math.max(minimumLogWidth, columnSpace - resolvedBranchColumnWidth - minimumDetailWidth);
   const resolvedLogColumnWidth = Math.max(minimumLogWidth, Math.min(maximumLogWidth, logColumnWidth ?? defaultLogColumnWidth));
+  const minimumFilesHeight = Math.min(100, Math.max(0, detailPanelHeight - SPLITTER_SIZE));
+  const minimumMessageHeight = Math.min(100, Math.max(0, detailPanelHeight - SPLITTER_SIZE - minimumFilesHeight));
+  const maximumFilesHeight = Math.max(minimumFilesHeight, detailPanelHeight - SPLITTER_SIZE - minimumMessageHeight);
+  const filesHeight = Math.max(minimumFilesHeight, Math.min(maximumFilesHeight, preferredFilesHeight ?? detailPanelHeight * 0.58));
 
   return <View style={styles.root} onLayout={(event) => { setPanelWidth(event.nativeEvent.layout.width); setPanelHeight(event.nativeEvent.layout.height); }}>
     <View style={[styles.topRow, { height: topHeight }]}>
@@ -470,10 +487,15 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
           </ScrollView>
         </View>
         <ResizeHandle direction="vertical" appearance="line" label="调整提交列表宽度" onResize={(delta) => setLogColumnWidth((width) => Math.max(minimumLogWidth, Math.min(maximumLogWidth, Math.max(minimumLogWidth, Math.min(maximumLogWidth, width ?? resolvedLogColumnWidth)) + delta)))} />
-        <View style={styles.detail}>
+        <View style={styles.detail} onLayout={(event) => setDetailPanelHeight(event.nativeEvent.layout.height)}>
           {selectedCommit ? <>
-            <View style={styles.filesSection}><Text style={styles.columnHeading}>变更文件 {detail?.files.length ?? ""}</Text><ScrollView style={styles.files}>{detail ? renderFiles(tree(detail.files), 0) : <Text style={styles.empty}>加载变更文件…</Text>}</ScrollView></View>
-            <View style={styles.detailHeader}><Text style={styles.detailSubject} numberOfLines={2}>{selectedCommit.subject}</Text><Text style={styles.detailMeta}>{selectedCommit.hash.slice(0, 10)} · {selectedCommit.author} · {new Date(selectedCommit.date).toLocaleString("zh-CN")}</Text>{detail?.message && detail.message !== selectedCommit.subject ? <Text style={styles.detailMessage} numberOfLines={3}>{detail.message}</Text> : null}</View>
+            <View style={[styles.filesSection, { height: filesHeight }]}><Text style={styles.columnHeading}>变更文件 {detail?.files.length ?? ""}</Text><ScrollView style={styles.files}>{detail ? renderFiles(tree(detail.files), 0) : <Text style={styles.empty}>加载变更文件…</Text>}</ScrollView></View>
+            <ResizeHandle direction="horizontal" appearance="line" label="调整变更文件与提交说明的高度" onResize={(delta) => setPreferredFilesHeight((height) => Math.max(minimumFilesHeight, Math.min(maximumFilesHeight, Math.max(minimumFilesHeight, Math.min(maximumFilesHeight, height ?? filesHeight)) + delta)))} />
+            <ScrollView key={selectedCommit.hash} style={styles.detailMessageScroll} contentContainerStyle={styles.detailMessageContent}>
+              <CommitMessageText value={detail?.message ?? selectedCommit.subject} />
+              <Text style={styles.detailMeta}>{selectedCommit.hash.slice(0, 8)}  {selectedCommit.author} &lt;{selectedCommit.email}&gt; on {new Date(selectedCommit.date).toLocaleString("zh-CN", { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}</Text>
+              {detail?.containingBranches.length ? <Text style={styles.detailMeta}>In {detail.containingBranches.length} branches: {detail.containingBranches.join(", ")}</Text> : null}
+            </ScrollView>
           </> : <Text style={styles.empty}>选择一条提交查看详情</Text>}
         </View>
       </View>
@@ -492,6 +514,8 @@ const styles = StyleSheet.create({
   horizontalGutter: { height: SPLITTER_SIZE, backgroundColor: "#eef0f3" },
   verticalLineSplitter: { width: SPLITTER_SIZE, alignItems: "center" },
   splitterLine: { width: 1, height: "100%", backgroundColor: "#d1d5db" },
+  horizontalLineSplitter: { height: SPLITTER_SIZE, justifyContent: "center" },
+  splitterLineHorizontal: { height: 1, width: "100%", backgroundColor: "#d1d5db" },
   topDiff: { flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden", backgroundColor: "#fff", borderRadius: 8 },
   tabStrip: { flexDirection: "row", height: 36, minWidth: 0, position: "relative", zIndex: 10, borderBottomWidth: 1, borderColor: "#e5e7eb" },
   tabBar: { flex: 1, minWidth: 0, height: 35 },
@@ -552,11 +576,11 @@ const styles = StyleSheet.create({
   loadMore: { alignItems: "center", padding: 12 },
   loadMoreText: { color: "#1641ad", fontSize: 12 },
   detail: { flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" },
-  filesSection: { height: "58%", minHeight: 115, borderBottomWidth: 1, borderColor: "#e5e7eb" },
-  detailHeader: { flex: 1, minHeight: 0, padding: 10, gap: 4, borderBottomWidth: 1, borderColor: "#e5e7eb" },
-  detailSubject: { fontSize: 14, fontWeight: "600", color: "#111827" },
+  filesSection: { minHeight: 0 },
+  detailMessageScroll: { flex: 1, minHeight: 0 },
+  detailMessageContent: { padding: 10, gap: 14 },
   detailMeta: { fontSize: 11, color: "#64748b" },
-  detailMessage: { fontSize: 11, color: "#374151" },
+  detailMessage: { fontFamily: "monospace", fontSize: 13, lineHeight: 19, color: "#111827" },
   files: { flex: 1, minHeight: 0 },
   fileRow: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 28, paddingRight: 8 },
   fileIndent: { width: 14 },
