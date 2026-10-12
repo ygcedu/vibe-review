@@ -17,6 +17,44 @@ type TreeNode = { kind: "folder"; name: string; path: string; count: number; chi
 type Branch = { name: string; group: "local" | "remote" };
 type BranchNode = { kind: "folder"; name: string; path: string; children: BranchNode[] } | { kind: "branch"; name: string; fullName: string };
 const TAB_DRAG_TYPE = "application/x-vibe-review-diff-tab";
+const SPLITTER_SIZE = 6;
+
+function ResizeHandle({ direction, appearance, label, onResize }: { direction: "horizontal" | "vertical"; appearance: "gutter" | "line"; label: string; onResize: (delta: number) => void }) {
+  const ref = useRef<View>(null);
+  const resizeRef = useRef(onResize);
+  resizeRef.current = onResize;
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const node = ref.current as unknown as HTMLElement | null;
+    if (!node) return;
+    node.style.cursor = direction === "vertical" ? "col-resize" : "row-resize";
+    const down = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      let previous = direction === "vertical" ? event.clientX : event.clientY;
+      const oldCursor = document.body.style.cursor;
+      const oldSelection = document.body.style.userSelect;
+      document.body.style.cursor = direction === "vertical" ? "col-resize" : "row-resize";
+      document.body.style.userSelect = "none";
+      const move = (next: PointerEvent) => {
+        const position = direction === "vertical" ? next.clientX : next.clientY;
+        resizeRef.current(position - previous);
+        previous = position;
+      };
+      const up = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        document.body.style.cursor = oldCursor;
+        document.body.style.userSelect = oldSelection;
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up, { once: true });
+    };
+    node.addEventListener("pointerdown", down);
+    return () => node.removeEventListener("pointerdown", down);
+  }, [direction]);
+  return <View ref={ref} accessibilityRole="adjustable" accessibilityLabel={label} style={direction === "vertical" ? appearance === "line" ? styles.verticalLineSplitter : styles.verticalGutter : styles.horizontalGutter}>{appearance === "line" ? <View style={styles.splitterLine} /> : null}</View>;
+}
 
 function ReorderableTab({ tab, active, onActivate, onClose, onReorder, onNode }: {
   tab: DiffTab; active: boolean; onActivate: () => void; onClose: () => void;
@@ -173,6 +211,11 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
   const [panelWidth, setPanelWidth] = useState(0);
   const [panelHeight, setPanelHeight] = useState(0);
   const [toolbarHeight, setToolbarHeight] = useState(0);
+  const [commitWidth, setCommitWidth] = useState(260);
+  const [branchColumnWidth, setBranchColumnWidth] = useState(230);
+  const [logColumnWidth, setLogColumnWidth] = useState(430);
+  const [preferredTopHeight, setPreferredTopHeight] = useState<number | null>(null);
+  const [historyMinimized, setHistoryMinimized] = useState(false);
   const [diffHeight, setDiffHeight] = useState(0);
   const [wrapLines, setWrapLines] = useState(false);
   const [error, setError] = useState("");
@@ -321,15 +364,23 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
   const parsed = parseDiffFiles(activeTab?.id === diff.tabId ? diff.text : "");
   const diffLoading = Boolean(activeTab && (activeTab.id !== diff.tabId || diff.loading));
   const contentHeight = Math.max(0, panelHeight - toolbarHeight);
-  const topHeight = Math.round(contentHeight * 0.53);
-  const bottomHeight = contentHeight - topHeight;
   const contentWidth = Math.max(panelWidth, 1000);
+  const availableHeight = Math.max(0, contentHeight - SPLITTER_SIZE);
+  const minimumTop = Math.min(160, Math.max(0, availableHeight - 36));
+  const minimumBottom = Math.min(160, Math.max(36, availableHeight - minimumTop));
+  const defaultTopHeight = Math.round(availableHeight * 0.53);
+  const topHeight = historyMinimized ? Math.max(0, availableHeight - 36) : Math.max(minimumTop, Math.min(availableHeight - minimumBottom, preferredTopHeight ?? defaultTopHeight));
+  const bottomHeight = Math.max(0, availableHeight - topHeight);
+  const resolvedCommitWidth = Math.max(180, Math.min(contentWidth - 300, commitWidth));
+  const resolvedBranchColumnWidth = Math.max(160, Math.min(contentWidth - 462, branchColumnWidth));
+  const resolvedLogColumnWidth = Math.max(250, Math.min(contentWidth - resolvedBranchColumnWidth - 212, logColumnWidth));
 
   return <View style={styles.root} onLayout={(event) => { setPanelWidth(event.nativeEvent.layout.width); setPanelHeight(event.nativeEvent.layout.height); }}>
     <View style={styles.toolbar} onLayout={(event) => setToolbarHeight(event.nativeEvent.layout.height)}><Text style={styles.heading}>Git 历史</Text><Pressable accessibilityRole="button" accessibilityLabel="刷新提交历史" onPress={() => { setSkip(0); setRevision((value) => value + 1); }}><Icon name="RefreshCw" size={17} color="#64748b" /></Pressable></View>
     <ScrollView horizontal style={[styles.horizontalViewport, { height: topHeight }]} contentContainerStyle={styles.horizontalContent} nestedScrollEnabled>
       <View style={[styles.topRow, { width: contentWidth, height: topHeight }]}>
-        <View style={styles.commitArea}><WorkspaceCommitPanel {...props} externalPreview={activeTab?.source === "working" ? activeTab : null} onFilePreview={(selection) => openTab({ id: `working:${selection.path}`, source: "working", ...selection })} /></View>
+        <View style={[styles.commitArea, { width: resolvedCommitWidth }]}><WorkspaceCommitPanel {...props} externalPreview={activeTab?.source === "working" ? activeTab : null} onFilePreview={(selection) => openTab({ id: `working:${selection.path}`, source: "working", ...selection })} /></View>
+        <ResizeHandle direction="vertical" appearance="gutter" label="调整提交更改面板宽度" onResize={(delta) => setCommitWidth((width) => Math.max(180, Math.min(contentWidth - 300, width + delta)))} />
         <View style={styles.topDiff} onLayout={(event) => setDiffHeight(event.nativeEvent.layout.height)}>
           <View style={styles.tabStrip}>
             <ScrollView ref={tabBarRef} horizontal style={styles.tabBar} contentContainerStyle={styles.tabBarContent} showsHorizontalScrollIndicator={false} onLayout={(event) => setTabViewportWidth(event.nativeEvent.layout.width)} onContentSizeChange={(width) => setTabContentWidth(width)}>
@@ -357,9 +408,15 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
         </View>
       </View>
     </ScrollView>
-    <ScrollView horizontal style={[styles.horizontalViewport, styles.bottomViewport, { height: bottomHeight }]} contentContainerStyle={styles.horizontalContent} nestedScrollEnabled>
-      <View style={[styles.columns, { width: contentWidth, height: bottomHeight }]}>
-        <View style={styles.sidebar}>
+    <ResizeHandle direction="horizontal" appearance="gutter" label="调整 Git 历史面板高度" onResize={(delta) => { setPreferredTopHeight((height) => Math.max(minimumTop, Math.min(availableHeight - minimumBottom, (historyMinimized ? availableHeight - 36 : height ?? defaultTopHeight) + delta))); setHistoryMinimized(false); }} />
+    <View style={[styles.bottomPanel, { height: bottomHeight }]}>
+      <View style={styles.historyHeader}>
+        <Text style={styles.historyTitle} numberOfLines={1}>Log: {branch || "全部分支"}</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel={historyMinimized ? "展开 Git 历史面板" : "最小化 Git 历史面板"} onPress={() => setHistoryMinimized((value) => !value)} style={styles.historyMinimize}><Icon name={historyMinimized ? "Maximize2" : "Minus"} size={15} color="#64748b" /></Pressable>
+      </View>
+      {!historyMinimized ? <ScrollView horizontal style={styles.bottomViewport} contentContainerStyle={styles.horizontalContent} nestedScrollEnabled>
+      <View style={[styles.columns, { width: contentWidth, height: Math.max(0, bottomHeight - 58) }]}>
+        <View style={[styles.sidebar, { width: resolvedBranchColumnWidth }]}>
           <Text style={styles.columnHeading}>分支</Text>
           <ScrollView style={styles.sidebarScroll}>
             <Pressable accessibilityRole="button" accessibilityLabel="查看全部分支的提交" accessibilityState={{ selected: branch === "" }} onPress={() => chooseBranch("")} style={[styles.branchRow, branch === "" && styles.selected]}><Icon name="GitBranch" size={15} color="#64748b" /><Text style={[styles.branchName, branch === "" && styles.activeBranch]}>全部提交</Text></Pressable>
@@ -370,8 +427,9 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
             </View>)}
           </ScrollView>
         </View>
-        <View style={styles.logColumn}>
-          <View style={styles.logToolbar}><Text style={styles.columnHeading} numberOfLines={1}>Log: {branch || "全部分支"}</Text><TextInput value={searchText} onChangeText={setSearchText} placeholder="搜索提交说明" style={styles.search} /></View>
+        <ResizeHandle direction="vertical" appearance="line" label="调整分支列表宽度" onResize={(delta) => setBranchColumnWidth((width) => Math.max(160, Math.min(contentWidth - 462, width + delta)))} />
+        <View style={[styles.logColumn, { width: resolvedLogColumnWidth }]}>
+          <View style={styles.logToolbar}><TextInput value={searchText} onChangeText={setSearchText} placeholder="搜索提交说明" style={styles.search} /></View>
           <ScrollView style={styles.log}>
             {commits.map((item) => <Pressable key={item.hash} accessibilityRole="button" accessibilityLabel={`查看提交 ${item.subject}`} accessibilityState={{ selected: selectedHash === item.hash }} onPress={() => setSelectedHash(item.hash)} style={[styles.commitRow, selectedHash === item.hash && styles.selected]}>
               <View style={styles.graph}><View style={styles.graphLine} /><View style={[styles.graphDot, item.parents.length > 1 && styles.mergeDot]} /></View>
@@ -384,6 +442,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
             {!loading && commits.length === 0 ? <Text style={styles.empty}>没有找到提交记录</Text> : null}
           </ScrollView>
         </View>
+        <ResizeHandle direction="vertical" appearance="line" label="调整提交列表宽度" onResize={(delta) => setLogColumnWidth((width) => Math.max(250, Math.min(contentWidth - resolvedBranchColumnWidth - 212, width + delta)))} />
         <View style={styles.detail}>
           {selectedCommit ? <>
             <View style={styles.filesSection}><Text style={styles.columnHeading}>变更文件 {detail?.files.length ?? ""}</Text><ScrollView style={styles.files}>{detail ? renderFiles(tree(detail.files), 0) : <Text style={styles.empty}>加载变更文件…</Text>}</ScrollView></View>
@@ -391,7 +450,9 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
           </> : <Text style={styles.empty}>选择一条提交查看详情</Text>}
         </View>
       </View>
-    </ScrollView>
+    </ScrollView> : null}
+      {!historyMinimized ? <View style={styles.historyFooter}><Icon name="GitBranch" size={13} color="#64748b" /><Text style={styles.historyBranch} numberOfLines={1}>{currentBranch || "未检测到分支"}</Text></View> : null}
+    </View>
     {error ? <Text style={styles.error} numberOfLines={2}>{error}</Text> : null}
   </View>;
 }
@@ -403,7 +464,11 @@ const styles = StyleSheet.create({
   horizontalViewport: { flexGrow: 0, minHeight: 0 },
   horizontalContent: { flexGrow: 1, alignItems: "stretch" },
   topRow: { flexDirection: "row", minHeight: 0, borderBottomWidth: 1, borderColor: "#d1d5db" },
-  commitArea: { width: 260, minHeight: 0, overflow: "hidden", borderRightWidth: 1, borderColor: "#d1d5db" },
+  commitArea: { minHeight: 0, overflow: "hidden" },
+  verticalGutter: { width: SPLITTER_SIZE, backgroundColor: "#eef0f3" },
+  horizontalGutter: { height: SPLITTER_SIZE, backgroundColor: "#eef0f3" },
+  verticalLineSplitter: { width: SPLITTER_SIZE, alignItems: "center" },
+  splitterLine: { width: 1, height: "100%", backgroundColor: "#d1d5db" },
   topDiff: { flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden" },
   tabStrip: { flexDirection: "row", height: 36, minWidth: 0, position: "relative", zIndex: 10, borderBottomWidth: 1, borderColor: "#e5e7eb" },
   tabBar: { flex: 1, minWidth: 0, height: 35 },
@@ -425,9 +490,15 @@ const styles = StyleSheet.create({
   tabMenuTitle: { flex: 1, minWidth: 0, fontSize: 12, color: "#374151" },
   tabMenuClose: { width: 30, height: 30, alignItems: "center", justifyContent: "center" },
   emptyTab: { paddingHorizontal: 10, paddingVertical: 9, color: "#6b7280", fontSize: 12 },
-  bottomViewport: { borderTopWidth: 1, borderColor: "#d1d5db" },
+  bottomPanel: { minHeight: 0, overflow: "hidden" },
+  historyHeader: { height: 34, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingLeft: 10, paddingRight: 7, borderBottomWidth: 1, borderColor: "#e5e7eb" },
+  historyTitle: { flex: 1, fontSize: 12, fontWeight: "600", color: "#374151" },
+  historyMinimize: { width: 25, height: 25, borderRadius: 4, alignItems: "center", justifyContent: "center" },
+  bottomViewport: { flex: 1, minHeight: 0 },
+  historyFooter: { height: 24, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 5, paddingHorizontal: 10, borderTopWidth: 1, borderColor: "#e5e7eb", backgroundColor: "#f8fafc" },
+  historyBranch: { fontSize: 11, color: "#64748b" },
   columns: { flexDirection: "row", minHeight: 0 },
-  sidebar: { width: 230, minHeight: 0, borderRightWidth: 1, borderColor: "#e5e7eb" },
+  sidebar: { minHeight: 0 },
   sidebarScroll: { flex: 1, minHeight: 0 },
   columnHeading: { paddingHorizontal: 10, paddingVertical: 9, fontSize: 12, fontWeight: "600", color: "#374151", borderBottomWidth: 1, borderColor: "#e5e7eb" },
   branchGroup: { minHeight: 32, flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 10 },
@@ -438,7 +509,7 @@ const styles = StyleSheet.create({
   branchName: { flex: 1, fontSize: 12, color: "#374151" },
   activeBranch: { color: "#1641ad", fontWeight: "600" },
   currentMarker: { fontSize: 10, color: "#0f8b59" },
-  logColumn: { flex: 1.25, minWidth: 0, minHeight: 0, borderRightWidth: 1, borderColor: "#e5e7eb" },
+  logColumn: { minWidth: 0, minHeight: 0 },
   logToolbar: { flexDirection: "row", alignItems: "center", gap: 8, borderBottomWidth: 1, borderColor: "#e5e7eb" },
   search: { flex: 1, marginHorizontal: 8, borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 5, paddingHorizontal: 8, paddingVertical: 4, fontSize: 12 },
   log: { flex: 1, minHeight: 0 },
