@@ -6,6 +6,7 @@ import { workspaceGitCommitRpc, workspaceGitDiffRpc, workspaceGitPushRpc, worksp
 import { parseDiffFiles } from "./diff";
 import { FileTypeIcon } from "./file-icons";
 import { SplitDiff } from "./split-diff";
+import { WrapToggleButton } from "./wrap-toggle";
 
 type File = { path: string; status: string; staged: boolean; unstaged: boolean; untracked: boolean };
 type Selection = { path: string; staged: boolean };
@@ -118,7 +119,7 @@ function fileTree(files: File[]): TreeNode[] {
   return compact(root);
 }
 
-export function WorkspaceCommitPanel({ workspaceId }: PluginWorkspacePanelProps) {
+export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPreview }: PluginWorkspacePanelProps & { onFilePreview?: (selection: Selection) => void; externalPreview?: Selection | null }) {
   const getStatus = useRpc(workspaceGitStatusRpc);
   const getDiff = useRpc(workspaceGitDiffRpc);
   const trackFiles = useRpc(workspaceGitTrackRpc);
@@ -157,7 +158,7 @@ export function WorkspaceCommitPanel({ workspaceId }: PluginWorkspacePanelProps)
   useEffect(() => {
     let active = true;
     setDiff("");
-    if (selected) void getDiff({ workspaceId, ...selected }).then(
+    if (!onFilePreview && selected) void getDiff({ workspaceId, ...selected }).then(
       (value) => { if (active) setDiff(value.diff); },
       (reason: unknown) => { if (active) setError(String(reason)); },
     );
@@ -263,12 +264,16 @@ export function WorkspaceCommitPanel({ workspaceId }: PluginWorkspacePanelProps)
       <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: selectedPaths.has(file.path) }} accessibilityLabel={`${selectedPaths.has(file.path) ? "取消选择" : "选择"} ${file.path} 用于提交`} onPress={() => toggleSelection([file])} style={styles.checkbox}>
         <Icon name={checkboxIcon(checkboxState([file], selectedPaths))} size={17} color="#64748b" />
       </Pressable>
-      <Pressable accessibilityRole="button" accessibilityLabel={`查看 ${file.path} 的差异`} onPress={() => setSelected({ path: file.path, staged: !file.unstaged && file.staged })} style={styles.fileButton}>
+      <Pressable accessibilityRole="button" accessibilityLabel={`查看 ${file.path} 的差异`} onPress={() => {
+        const selection = { path: file.path, staged: !file.unstaged && file.staged };
+        if (onFilePreview) onFilePreview(selection);
+        else setSelected(selection);
+      }} style={styles.fileButton}>
         <FileTypeIcon fileName={node.name} />
         <Text style={[styles.path, fileNameColor(file)]} numberOfLines={1}>{node.name}</Text>
       </Pressable>
     </>;
-    const rowStyle = [styles.fileRow, { paddingLeft: 29 + depth * 20 }, selected?.path === file.path && styles.active];
+    const rowStyle = [styles.fileRow, { paddingLeft: 29 + depth * 20 }, (onFilePreview ? externalPreview?.path === file.path : selected?.path === file.path) && styles.active];
     return group.title === "未跟踪"
       ? <DraggableRow key={`${group.title}:${file.path}`} workspaceId={workspaceId} paths={[file.path]} style={rowStyle}>{row}</DraggableRow>
       : <View key={`${group.title}:${file.path}`} style={rowStyle}>{row}</View>;
@@ -279,7 +284,7 @@ export function WorkspaceCommitPanel({ workspaceId }: PluginWorkspacePanelProps)
       <Text style={styles.heading}>提交更改{branch ? ` · ${branch}` : ""}</Text>
       <Pressable accessibilityRole="button" accessibilityLabel="刷新 Git 状态" onPress={() => setRevision((value) => value + 1)}><Icon name="RefreshCw" size={17} color="#64748b" /></Pressable>
     </View>
-    <ScrollView style={selected ? styles.list : styles.listExpanded}>
+    <ScrollView style={!onFilePreview && selected ? styles.list : styles.listExpanded}>
       {groups.map((group) => {
         const isCollapsed = collapsedGroups.has(group.title);
         const header = <>
@@ -305,10 +310,10 @@ export function WorkspaceCommitPanel({ workspaceId }: PluginWorkspacePanelProps)
       })}
       {files.length === 0 && !error ? <Text style={styles.empty}>工作区没有待提交的改动</Text> : null}
     </ScrollView>
-    {selected ? <View style={styles.preview} onLayout={(event) => setPreviewHeight(event.nativeEvent.layout.height)}>
+    {!onFilePreview && selected ? <View style={styles.preview} onLayout={(event) => setPreviewHeight(event.nativeEvent.layout.height)}>
       <View style={styles.previewHeader} onLayout={(event) => setPreviewHeaderHeight(event.nativeEvent.layout.height)}>
         <Text style={styles.previewTitle} numberOfLines={1}>{selected.path}</Text>
-        <Pressable accessibilityRole="button" accessibilityLabel="切换折行" onPress={() => setWrapLines((value) => !value)} style={styles.previewAction}><Icon name="WrapText" size={16} color="#64748b" /></Pressable>
+        <WrapToggleButton active={wrapLines} onToggle={() => setWrapLines((value) => !value)} tooltipPlacement="below" />
         <Pressable accessibilityRole="button" accessibilityLabel="关闭文件差异预览" onPress={() => setSelected(null)} style={styles.previewAction}><Icon name="X" size={16} color="#64748b" /></Pressable>
       </View>
       {parsed[0] && previewHeight > previewHeaderHeight ? <SplitDiff file={parsed[0]} wrapLines={wrapLines} maxHeight={Math.max(32, previewHeight - previewHeaderHeight - 1)} /> : !parsed[0] ? <Text style={styles.empty}>没有可显示的文本差异</Text> : null}
@@ -356,7 +361,7 @@ const styles = StyleSheet.create({
   removedName: { color: "#bc3145" },
   empty: { padding: 12, color: "#6b7280" },
   preview: { flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden", borderTopWidth: 1, borderColor: "#e5e7eb" },
-  previewHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 9 },
+  previewHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 9, position: "relative", zIndex: 3 },
   previewTitle: { flex: 1, fontSize: 13, color: "#111827" },
   previewAction: { width: 28, height: 28, alignItems: "center", justifyContent: "center" },
   footer: { borderTopWidth: 1, borderColor: "#e5e7eb", padding: 10, gap: 7 },

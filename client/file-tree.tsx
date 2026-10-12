@@ -4,6 +4,7 @@ import { Icon } from "@getpaseo/plugin/client/react-native";
 import type { DiffFile } from "./diff";
 import { FileTypeIcon } from "./file-icons";
 import { SplitDiff } from "./split-diff";
+import { WrapToggleButton } from "./wrap-toggle";
 
 type FolderNode = { kind: "folder"; name: string; path: string; count: number; children: TreeNode[] };
 type FileNode = { kind: "file"; name: string; file: DiffFile; index: number };
@@ -51,7 +52,6 @@ export function FileTree({ files, collapseFoldersInitially = false }: { files: D
   });
   const [openFile, setOpenFile] = useState<number | null>(null);
   const [wrapLines, setWrapLines] = useState(false);
-  const [showWrapTooltip, setShowWrapTooltip] = useState(false);
   const nodes = buildFileTree(files);
 
   const toggleFolder = (path: string) => setCollapsed((current) => {
@@ -90,7 +90,6 @@ export function FileTree({ files, collapseFoldersInitially = false }: { files: D
           onPress={() => {
             setOpenFile(isOpen ? null : index);
             setWrapLines(false);
-            setShowWrapTooltip(false);
           }}
           style={styles.fileSelect}
         >
@@ -98,20 +97,7 @@ export function FileTree({ files, collapseFoldersInitially = false }: { files: D
           <FileTypeIcon fileName={node.name} />
           <Text style={[styles.fileName, fileNameColors[file.status]]} numberOfLines={1}>{node.name}</Text>
         </TouchableOpacity>
-        {isOpen ? <View style={styles.fileActions}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="折行显示"
-            aria-pressed={wrapLines}
-            onHoverIn={() => setShowWrapTooltip(true)}
-            onHoverOut={() => setShowWrapTooltip(false)}
-            onPress={() => setWrapLines((current) => !current)}
-            style={[styles.actionButton, wrapLines && styles.actionButtonActive, showWrapTooltip && styles.actionButtonHover]}
-          >
-            <Icon name="WrapText" size={13} color="#64748b" />
-          </Pressable>
-          {showWrapTooltip ? <View style={styles.tooltip}><Text style={styles.tooltipText}>折行显示</Text></View> : null}
-        </View> : null}
+        {isOpen ? <View style={styles.fileActions}><WrapToggleButton active={wrapLines} onToggle={() => setWrapLines((current) => !current)} /></View> : null}
         <Text style={styles.added}>+{file.added}</Text>
         <Text style={styles.removed}>-{file.removed}</Text>
       </View>
@@ -127,11 +113,6 @@ const styles = StyleSheet.create({
   selected: { backgroundColor: "#e8f0ff", zIndex: 3 },
   fileSelect: { flex: 1, minHeight: 34, flexDirection: "row", alignItems: "center", gap: 6 },
   fileActions: { flexDirection: "row-reverse", alignItems: "center", gap: 4, position: "relative", zIndex: 2 },
-  actionButton: { width: 20, height: 20, borderRadius: 4, alignItems: "center", justifyContent: "center" },
-  actionButtonActive: { backgroundColor: "#cbcbcd" },
-  actionButtonHover: { backgroundColor: "#e5e7eb" },
-  tooltip: { position: "absolute", bottom: 24, right: 0, width: 72, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 5, backgroundColor: "#1e293b", zIndex: 4 },
-  tooltipText: { color: "#fff", fontSize: 11, textAlign: "center" },
   folderName: { color: "#111827", fontSize: 12, fontWeight: "600", flexShrink: 1 },
   count: { color: "#6b7280", fontSize: 11 },
   fileIndent: { width: 15 },

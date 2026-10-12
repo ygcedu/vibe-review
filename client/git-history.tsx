@@ -3,9 +3,12 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-
 import { useRpc, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { gitCommitDetailRpc, gitCommitFileDiffRpc, gitHistoryRpc } from "../shared/git-history";
+import { workspaceGitDiffRpc } from "../shared/workspace-commit";
 import { parseDiffFiles } from "./diff";
 import { FileTypeIcon } from "./file-icons";
 import { SplitDiff } from "./split-diff";
+import { WorkspaceCommitPanel } from "./workspace-commit";
+import { WrapToggleButton } from "./wrap-toggle";
 
 type Commit = { hash: string; parents: string[]; author: string; email: string; date: string; subject: string; refs: string[] };
 type ChangedFile = { path: string; status: string };
@@ -78,10 +81,12 @@ function fileColor(status: string) {
   return styles.modified;
 }
 
-export function GitHistoryPanel({ workspaceId }: PluginWorkspacePanelProps) {
+export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
+  const { workspaceId } = props;
   const getHistory = useRpc(gitHistoryRpc);
   const getDetail = useRpc(gitCommitDetailRpc);
   const getFileDiff = useRpc(gitCommitFileDiffRpc);
+  const getWorkingDiff = useRpc(workspaceGitDiffRpc);
   const [commits, setCommits] = useState<Commit[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [currentBranch, setCurrentBranch] = useState("");
@@ -95,6 +100,7 @@ export function GitHistoryPanel({ workspaceId }: PluginWorkspacePanelProps) {
   const [selectedHash, setSelectedHash] = useState<string | null>(null);
   const [detail, setDetail] = useState<{ message: string; files: ChangedFile[] } | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [workingFile, setWorkingFile] = useState<{ path: string; staged: boolean } | null>(null);
   const [diff, setDiff] = useState("");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [branchCollapsed, setBranchCollapsed] = useState<Set<string>>(new Set());
@@ -102,6 +108,7 @@ export function GitHistoryPanel({ workspaceId }: PluginWorkspacePanelProps) {
   const [panelHeight, setPanelHeight] = useState(0);
   const [toolbarHeight, setToolbarHeight] = useState(0);
   const [diffHeight, setDiffHeight] = useState(0);
+  const [wrapLines, setWrapLines] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -128,11 +135,11 @@ export function GitHistoryPanel({ workspaceId }: PluginWorkspacePanelProps) {
     let active = true;
     setDetail(null);
     setSelectedFile(null);
+    setWorkingFile(null);
     setDiff("");
     if (selectedHash) void getDetail({ workspaceId, hash: selectedHash }).then((value) => {
       if (!active) return;
       setDetail(value);
-      setSelectedFile(value.files[0]?.path ?? null);
       setCollapsed(new Set());
     }, (reason: unknown) => { if (active) setError(String(reason)); });
     return () => { active = false; };
@@ -141,12 +148,24 @@ export function GitHistoryPanel({ workspaceId }: PluginWorkspacePanelProps) {
   useEffect(() => {
     let active = true;
     setDiff("");
-    if (selectedHash && selectedFile) void getFileDiff({ workspaceId, hash: selectedHash, path: selectedFile }).then(
+    if (!workingFile && selectedHash && selectedFile) void getFileDiff({ workspaceId, hash: selectedHash, path: selectedFile }).then(
       (value) => { if (active) setDiff(value.diff); },
       (reason: unknown) => { if (active) setError(String(reason)); },
     );
     return () => { active = false; };
-  }, [workspaceId, selectedHash, selectedFile]);
+  }, [workspaceId, selectedHash, selectedFile, workingFile?.path]);
+
+  useEffect(() => {
+    let active = true;
+    if (workingFile) {
+      setDiff("");
+      void getWorkingDiff({ workspaceId, ...workingFile }).then(
+        (value) => { if (active) setDiff(value.diff); },
+        (reason: unknown) => { if (active) setError(String(reason)); },
+      );
+    }
+    return () => { active = false; };
+  }, [workspaceId, workingFile?.path, workingFile?.staged]);
 
   const toggleFolder = (path: string) => setCollapsed((current) => {
     const next = new Set(current);
@@ -187,7 +206,7 @@ export function GitHistoryPanel({ workspaceId }: PluginWorkspacePanelProps) {
       </Pressable>
       {!collapsed.has(node.path) ? renderFiles(node.children, depth + 1) : null}
     </View>;
-    return <Pressable key={node.file.path} accessibilityRole="button" accessibilityLabel={`查看 ${node.file.path} 的提交差异`} onPress={() => setSelectedFile(node.file.path)} style={[styles.fileRow, { paddingLeft: 8 + depth * 18 }, selectedFile === node.file.path && styles.selected]}>
+    return <Pressable key={node.file.path} accessibilityRole="button" accessibilityLabel={`查看 ${node.file.path} 的提交差异`} onPress={() => { setWorkingFile(null); setSelectedFile(node.file.path); }} style={[styles.fileRow, { paddingLeft: 8 + depth * 18 }, selectedFile === node.file.path && styles.selected]}>
       <View style={styles.fileIndent} />
       <FileTypeIcon fileName={node.name} />
       <Text style={[styles.fileName, fileColor(node.file.status)]} numberOfLines={1}>{node.name}</Text>
@@ -195,11 +214,31 @@ export function GitHistoryPanel({ workspaceId }: PluginWorkspacePanelProps) {
   });
   const selectedCommit = commits.find((item) => item.hash === selectedHash);
   const parsed = parseDiffFiles(diff);
+  const previewPath = workingFile?.path ?? selectedFile;
+  const contentHeight = Math.max(0, panelHeight - toolbarHeight);
+  const topHeight = Math.round(contentHeight * 0.53);
+  const bottomHeight = contentHeight - topHeight;
+  const contentWidth = Math.max(panelWidth, 1000);
 
   return <View style={styles.root} onLayout={(event) => { setPanelWidth(event.nativeEvent.layout.width); setPanelHeight(event.nativeEvent.layout.height); }}>
     <View style={styles.toolbar} onLayout={(event) => setToolbarHeight(event.nativeEvent.layout.height)}><Text style={styles.heading}>Git 历史</Text><Pressable accessibilityRole="button" accessibilityLabel="刷新提交历史" onPress={() => { setSkip(0); setRevision((value) => value + 1); }}><Icon name="RefreshCw" size={17} color="#64748b" /></Pressable></View>
-    <ScrollView horizontal style={styles.horizontalViewport} contentContainerStyle={styles.horizontalContent} nestedScrollEnabled>
-      <View style={[styles.columns, { width: Math.max(panelWidth, 1000), height: Math.max(0, panelHeight - toolbarHeight) }]}>
+    <ScrollView horizontal style={[styles.horizontalViewport, { height: topHeight }]} contentContainerStyle={styles.horizontalContent} nestedScrollEnabled>
+      <View style={[styles.topRow, { width: contentWidth, height: topHeight }]}>
+        <View style={styles.commitArea}><WorkspaceCommitPanel {...props} externalPreview={workingFile} onFilePreview={(selection) => { setSelectedFile(null); setWorkingFile(selection); }} /></View>
+        <View style={styles.topDiff} onLayout={(event) => setDiffHeight(event.nativeEvent.layout.height)}>
+          <View style={styles.diffHeader}>
+            <Text style={styles.diffPath} numberOfLines={1}>{previewPath ? `${workingFile ? "Working Diff" : "Repository Diff"}: ${previewPath}` : "Diff 预览"}</Text>
+            {previewPath ? <>
+              <WrapToggleButton active={wrapLines} onToggle={() => setWrapLines((value) => !value)} tooltipPlacement="below" />
+              <Pressable accessibilityRole="button" accessibilityLabel="关闭差异预览" onPress={() => { setWorkingFile(null); setSelectedFile(null); setDiff(""); }} style={styles.diffAction}><Icon name="X" size={16} color="#64748b" /></Pressable>
+            </> : null}
+          </View>
+          {previewPath && parsed[0] && diffHeight > 40 ? <SplitDiff file={parsed[0]} wrapLines={wrapLines} maxHeight={Math.max(32, diffHeight - 39)} /> : <Text style={styles.empty}>{previewPath ? "没有可显示的文本差异" : "点击左侧或下方变更文件，在这里查看 Diff"}</Text>}
+        </View>
+      </View>
+    </ScrollView>
+    <ScrollView horizontal style={[styles.horizontalViewport, styles.bottomViewport, { height: bottomHeight }]} contentContainerStyle={styles.horizontalContent} nestedScrollEnabled>
+      <View style={[styles.columns, { width: contentWidth, height: bottomHeight }]}>
         <View style={styles.sidebar}>
           <Text style={styles.columnHeading}>分支</Text>
           <ScrollView style={styles.sidebarScroll}>
@@ -229,10 +268,6 @@ export function GitHistoryPanel({ workspaceId }: PluginWorkspacePanelProps) {
           {selectedCommit ? <>
             <View style={styles.filesSection}><Text style={styles.columnHeading}>变更文件 {detail?.files.length ?? ""}</Text><ScrollView style={styles.files}>{detail ? renderFiles(tree(detail.files), 0) : <Text style={styles.empty}>加载变更文件…</Text>}</ScrollView></View>
             <View style={styles.detailHeader}><Text style={styles.detailSubject} numberOfLines={2}>{selectedCommit.subject}</Text><Text style={styles.detailMeta}>{selectedCommit.hash.slice(0, 10)} · {selectedCommit.author} · {new Date(selectedCommit.date).toLocaleString("zh-CN")}</Text>{detail?.message && detail.message !== selectedCommit.subject ? <Text style={styles.detailMessage} numberOfLines={3}>{detail.message}</Text> : null}</View>
-            <View style={styles.diffArea} onLayout={(event) => setDiffHeight(event.nativeEvent.layout.height)}>
-              {selectedFile ? <View style={styles.diffHeader}><Text style={styles.diffPath} numberOfLines={1}>{selectedFile}</Text><Pressable accessibilityRole="button" accessibilityLabel="关闭差异预览" onPress={() => setSelectedFile(null)}><Icon name="X" size={16} color="#64748b" /></Pressable></View> : null}
-              {selectedFile && parsed[0] && diffHeight > 40 ? <SplitDiff file={parsed[0]} wrapLines={false} maxHeight={Math.max(32, diffHeight - 39)} /> : <Text style={styles.empty}>{selectedFile ? "没有可显示的文本差异" : "选择文件查看差异"}</Text>}
-            </View>
           </> : <Text style={styles.empty}>选择一条提交查看详情</Text>}
         </View>
       </View>
@@ -245,8 +280,12 @@ const styles = StyleSheet.create({
   root: { flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden", backgroundColor: "#fff" },
   toolbar: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 10, borderBottomWidth: 1, borderColor: "#e5e7eb" },
   heading: { fontSize: 15, fontWeight: "600", color: "#111827" },
-  horizontalViewport: { flex: 1, minHeight: 0 },
+  horizontalViewport: { flexGrow: 0, minHeight: 0 },
   horizontalContent: { flexGrow: 1, alignItems: "stretch" },
+  topRow: { flexDirection: "row", minHeight: 0, borderBottomWidth: 1, borderColor: "#d1d5db" },
+  commitArea: { width: 260, minHeight: 0, overflow: "hidden", borderRightWidth: 1, borderColor: "#d1d5db" },
+  topDiff: { flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden" },
+  bottomViewport: { borderTopWidth: 1, borderColor: "#d1d5db" },
   columns: { flexDirection: "row", minHeight: 0 },
   sidebar: { width: 230, minHeight: 0, borderRightWidth: 1, borderColor: "#e5e7eb" },
   sidebarScroll: { flex: 1, minHeight: 0 },
@@ -280,8 +319,8 @@ const styles = StyleSheet.create({
   loadMore: { alignItems: "center", padding: 12 },
   loadMoreText: { color: "#1641ad", fontSize: 12 },
   detail: { flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" },
-  filesSection: { height: "32%", minHeight: 115, borderBottomWidth: 1, borderColor: "#e5e7eb" },
-  detailHeader: { padding: 10, gap: 4, borderBottomWidth: 1, borderColor: "#e5e7eb" },
+  filesSection: { height: "58%", minHeight: 115, borderBottomWidth: 1, borderColor: "#e5e7eb" },
+  detailHeader: { flex: 1, minHeight: 0, padding: 10, gap: 4, borderBottomWidth: 1, borderColor: "#e5e7eb" },
   detailSubject: { fontSize: 14, fontWeight: "600", color: "#111827" },
   detailMeta: { fontSize: 11, color: "#64748b" },
   detailMessage: { fontSize: 11, color: "#374151" },
@@ -294,9 +333,9 @@ const styles = StyleSheet.create({
   added: { color: "#07833d" },
   modified: { color: "#1641ad" },
   deleted: { color: "#bc3145" },
-  diffArea: { flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden", borderTopWidth: 1, borderColor: "#e5e7eb" },
-  diffHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 38, paddingHorizontal: 9 },
+  diffHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 38, paddingHorizontal: 9, position: "relative", zIndex: 3 },
   diffPath: { flex: 1, fontSize: 12, color: "#374151" },
+  diffAction: { width: 28, height: 28, alignItems: "center", justifyContent: "center" },
   empty: { padding: 12, fontSize: 12, color: "#6b7280" },
   error: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 9, paddingVertical: 5, color: "#b91c1c", backgroundColor: "#fff", fontSize: 11 },
 });
