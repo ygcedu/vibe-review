@@ -404,7 +404,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
     const isMain = (group === "local" && (node.fullName === "main" || node.fullName === "master")) || (group === "remote" && (node.fullName === "origin/main" || node.fullName === "origin/master"));
     return <Pressable key={`${group}/${node.fullName}`} accessibilityRole="button" accessibilityLabel={`查看${group === "tag" ? "标签" : "分支"} ${node.fullName}`} accessibilityState={{ selected: branch === node.fullName }} onPress={() => chooseBranch(node.fullName)} style={[styles.branchRow, branch === node.fullName && styles.branchSelected]}>
       <View style={styles.branchIndent} />
-      {isCurrent && isMain ? <Image source={{ uri: CURRENT_BRANCH_ICON }} style={styles.currentBranchIcon} /> : isMain ? <Text style={styles.mainBranchIcon}>★</Text> : <Icon name={group === "tag" || isCurrent ? "Tag" : "GitBranch"} size={14} color={isCurrent ? "#f5a400" : "#64748b"} />}
+      <View style={styles.branchIcon}>{isCurrent && isMain ? <Image source={{ uri: CURRENT_BRANCH_ICON }} style={styles.currentBranchIcon} /> : isMain ? <Text style={styles.mainBranchIcon}>★</Text> : <Icon name={group === "tag" || isCurrent ? "Tag" : "GitBranch"} size={16} color={isCurrent ? "#f5a400" : "#64748b"} />}</View>
       <Text style={[styles.branchLeafName, branch === node.fullName && styles.activeBranch]} numberOfLines={1}>{node.name}</Text>
       {group === "local" && (node.ahead > 0 || node.behind > 0) ? <View style={styles.branchTracking}>{node.behind > 0 ? <><Icon name="ArrowDownLeft" size={14} color="#3478f6" /><Text style={styles.behindCount}>{node.behind}</Text></> : null}{node.ahead > 0 ? <><Icon name="ArrowUpRight" size={14} color="#30a653" /><Text style={styles.aheadCount}>{node.ahead}</Text></> : null}</View> : null}
     </Pressable>;
@@ -601,6 +601,7 @@ const styles = StyleSheet.create({
   branchRow: { minHeight: 29, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 8 },
   branchSelected: { backgroundColor: "#d7e4ff", borderRadius: 5, marginHorizontal: 4, paddingHorizontal: 4 },
   branchIndent: { width: 14 },
+  branchIcon: { width: 18, height: 20, flexShrink: 0, alignItems: "center", justifyContent: "center" },
   branchName: { flex: 1, fontSize: 12, color: "#374151" },
   branchLeafName: { minWidth: 0, flexShrink: 1, fontSize: 12, color: "#374151" },
   branchTracking: { flexDirection: "row", alignItems: "center", gap: 2, marginLeft: 8, flexShrink: 0 },
