@@ -6,6 +6,7 @@ import { gitCommitDetailRpc, gitCommitFileDiffRpc, gitHistoryRpc } from "../shar
 const runFile = promisify(execFile);
 const PAGE_SIZE = 50;
 const git = async (cwd: string, args: string[]) => (await runFile("git", args, { cwd, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 })).stdout;
+const gitConfig = async (cwd: string, key: string) => { try { return (await git(cwd, ["config", "--get", key])).trim(); } catch { return ""; } };
 
 async function directory(paseo: PluginHandlerContext["paseo"], workspaceId: string) {
   const workspace = await paseo.workspaces.ref(workspaceId).refresh();
@@ -48,13 +49,14 @@ export function registerGitHistory(server: PluginServerContext) {
     }).filter((item) => item.name && !item.name.endsWith("/HEAD"));
     if (branch && !branches.some((item) => item.name === branch)) throw new Error("分支不存在，请刷新");
     const currentBranch = (await git(cwd, ["branch", "--show-current"])).trim();
+    const [gitUserName, gitUserEmail] = await Promise.all([gitConfig(cwd, "user.name"), gitConfig(cwd, "user.email")]);
     const args = ["log", `--skip=${skip}`, `-n${PAGE_SIZE + 1}`, `--pretty=format:${format}`];
     if (!branch) args.push("--all");
     if (query.trim()) args.push("--regexp-ignore-case", "--fixed-strings", `--grep=${query.trim()}`);
     if (branch) args.push(branch);
     const raw = branches.length ? await git(cwd, args) : "";
     const commits = parseCommits(raw);
-    return { commits: commits.slice(0, PAGE_SIZE), hasMore: commits.length > PAGE_SIZE, branches, currentBranch };
+    return { commits: commits.slice(0, PAGE_SIZE), hasMore: commits.length > PAGE_SIZE, branches, currentBranch, currentGitUser: { name: gitUserName, email: gitUserEmail } };
   });
   server.handle(gitCommitDetailRpc, async ({ workspaceId, hash }, { paseo }) => {
     const cwd = await directory(paseo, workspaceId);

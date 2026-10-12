@@ -20,6 +20,17 @@ const TAB_DRAG_TYPE = "application/x-vibe-review-diff-tab";
 const SPLITTER_SIZE = 6;
 const PANEL_PADDING = 8;
 
+function CommitHash({ value }: { value: string }) {
+  const ref = useRef<Text>(null);
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const node = ref.current as unknown as HTMLElement | null;
+    node?.setAttribute("data-pmono", "");
+    return () => { node?.removeAttribute("data-pmono"); };
+  }, []);
+  return <Text ref={ref} style={styles.hash} numberOfLines={1}>{value.slice(0, 8)}</Text>;
+}
+
 function ResizeHandle({ direction, appearance, label, onResize }: { direction: "horizontal" | "vertical"; appearance: "gutter" | "line"; label: string; onResize: (delta: number) => void }) {
   const ref = useRef<View>(null);
   const resizeRef = useRef(onResize);
@@ -190,6 +201,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
   const [commits, setCommits] = useState<Commit[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [currentBranch, setCurrentBranch] = useState("");
+  const [currentGitUser, setCurrentGitUser] = useState({ name: "", email: "" });
   const [branch, setBranch] = useState("");
   const [searchText, setSearchText] = useState("");
   const [query, setQuery] = useState("");
@@ -269,6 +281,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
       setCommits((existing) => skip === 0 ? value.commits : [...existing, ...value.commits]);
       setBranches(value.branches);
       setCurrentBranch(value.currentBranch);
+      setCurrentGitUser(value.currentGitUser);
       setHasMore(value.hasMore);
       if (skip === 0) setSelectedHash(value.commits[0]?.hash ?? null);
       setError("");
@@ -442,13 +455,16 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
         <View style={[styles.logColumn, { width: resolvedLogColumnWidth }]}>
           <View style={styles.logToolbar}><TextInput value={searchText} onChangeText={setSearchText} placeholder="搜索提交说明" style={styles.search} /></View>
           <ScrollView style={styles.log}>
-            {commits.map((item) => <Pressable key={item.hash} accessibilityRole="button" accessibilityLabel={`查看提交 ${item.subject}`} accessibilityState={{ selected: selectedHash === item.hash }} onPress={() => setSelectedHash(item.hash)} style={[styles.commitRow, selectedHash === item.hash && styles.selected]}>
-              <View style={styles.graph}><View style={styles.graphLine} /><View style={[styles.graphDot, item.parents.length > 1 && styles.mergeDot]} /></View>
-              <View style={styles.commitTextBlock}>
-                <View style={styles.commitTitleRow}><Text style={styles.subject} numberOfLines={1}>{item.subject}</Text><Text style={styles.hash}>{item.hash.slice(0, 8)}</Text></View>
-                <View style={styles.commitMeta}><Text style={styles.author} numberOfLines={1}>{item.author}</Text><Text style={styles.date}>{new Date(item.date).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</Text>{item.refs[0] ? <Text style={styles.ref} numberOfLines={1}>{item.refs[0]}</Text> : null}</View>
-              </View>
-            </Pressable>)}
+            {commits.map((item) => {
+              const ownCommit = Boolean((currentGitUser.email && item.email.toLowerCase() === currentGitUser.email.toLowerCase()) || (!currentGitUser.email && currentGitUser.name && item.author === currentGitUser.name));
+              return <Pressable key={item.hash} accessibilityRole="button" accessibilityLabel={`查看提交 ${item.subject}`} accessibilityState={{ selected: selectedHash === item.hash }} onPress={() => setSelectedHash(item.hash)} style={[styles.commitRow, selectedHash === item.hash && styles.selected]}>
+                <Text style={[styles.author, ownCommit && styles.currentAuthor]} numberOfLines={1}>{item.author}</Text>
+                <View style={styles.graph}><View style={styles.graphLine} /><View style={[styles.graphDot, item.parents.length > 1 && styles.mergeDot]} /></View>
+                <Text style={styles.subject} numberOfLines={1}>{item.subject}{item.refs[0] ? <Text style={styles.ref}>  {item.refs[0]}</Text> : null}</Text>
+                <Text style={styles.date} numberOfLines={1}>{new Date(item.date).toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false })}</Text>
+                <CommitHash value={item.hash} />
+              </Pressable>;
+            })}
             {hasMore ? <Pressable accessibilityRole="button" onPress={() => { if (!loading) setSkip((value) => value + 50); }} style={styles.loadMore}><Text style={styles.loadMoreText}>{loading ? "加载中…" : "加载更多提交"}</Text></Pressable> : null}
             {!loading && commits.length === 0 ? <Text style={styles.empty}>没有找到提交记录</Text> : null}
           </ScrollView>
@@ -521,20 +537,18 @@ const styles = StyleSheet.create({
   logToolbar: { flexDirection: "row", alignItems: "center", gap: 8, borderBottomWidth: 1, borderColor: "#e5e7eb" },
   search: { flex: 1, marginHorizontal: 8, borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 5, paddingHorizontal: 8, paddingVertical: 4, fontSize: 12 },
   log: { flex: 1, minHeight: 0 },
-  commitRow: { flexDirection: "row", minHeight: 50, paddingRight: 8 },
+  commitRow: { flexDirection: "row", alignItems: "center", minHeight: 36, paddingHorizontal: 8, gap: 5 },
   selected: { backgroundColor: "#e8f0ff" },
-  graph: { width: 29, alignItems: "center", justifyContent: "center" },
+  graph: { width: 24, height: 36, flexShrink: 0, alignItems: "center", justifyContent: "center" },
   graphLine: { position: "absolute", top: 0, bottom: 0, width: 2, backgroundColor: "#b19bd2" },
   graphDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: "#9754bd" },
   mergeDot: { backgroundColor: "#36aaa5" },
-  commitTextBlock: { flex: 1, minWidth: 0, justifyContent: "center", gap: 3 },
-  commitTitleRow: { flexDirection: "row", gap: 6 },
-  subject: { flex: 1, fontSize: 12, color: "#111827", fontWeight: "600" },
-  hash: { fontSize: 11, color: "#64748b" },
-  commitMeta: { flexDirection: "row", gap: 7 },
-  author: { fontSize: 11, color: "#64748b", maxWidth: 90 },
-  date: { fontSize: 11, color: "#64748b" },
-  ref: { flex: 1, fontSize: 11, color: "#0f8b59" },
+  subject: { flex: 1, minWidth: 0, fontSize: 12, color: "#111827", fontWeight: "600" },
+  hash: { width: 70, flexShrink: 0, textAlign: "right", fontFamily: "monospace", fontSize: 11, color: "#64748b" },
+  author: { width: 80, minWidth: 40, flexShrink: 1, fontSize: 11, color: "#374151" },
+  currentAuthor: { fontWeight: "700", color: "#111827" },
+  date: { width: 121, minWidth: 0, flexShrink: 1, textAlign: "right", fontSize: 11, color: "#64748b" },
+  ref: { fontSize: 11, fontWeight: "400", color: "#0f8b59" },
   loadMore: { alignItems: "center", padding: 12 },
   loadMoreText: { color: "#1641ad", fontSize: 12 },
   detail: { flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" },
