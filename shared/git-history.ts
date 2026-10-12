@@ -7,7 +7,7 @@ const changedFile = z.object({ path: z.string(), status: z.string() });
 export const gitHistoryRpc = defineRpc({
   name: "vibe-review.git-history",
   input: z.object({ workspaceId: z.string(), branch: z.string(), query: z.string(), skip: z.number().int().nonnegative() }),
-  output: z.object({ commits: z.array(commit), hasMore: z.boolean(), branches: z.array(z.object({ name: z.string(), group: z.enum(["local", "remote"]) })), currentBranch: z.string(), currentGitUser: z.object({ name: z.string(), email: z.string() }) }),
+  output: z.object({ commits: z.array(commit), hasMore: z.boolean(), branches: z.array(z.object({ name: z.string(), group: z.enum(["local", "remote", "tag"]), ahead: z.number(), behind: z.number() })), currentBranch: z.string(), currentGitUser: z.object({ name: z.string(), email: z.string() }) }),
 });
 export const gitCommitDetailRpc = defineRpc({
   name: "vibe-review.git-commit-detail",

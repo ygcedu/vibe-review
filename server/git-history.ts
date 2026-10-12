@@ -43,10 +43,14 @@ async function changedFiles(cwd: string, hash: string, base: string | null) {
 export function registerGitHistory(server: PluginServerContext) {
   server.handle(gitHistoryRpc, async ({ workspaceId, branch, query, skip }, { paseo }) => {
     const cwd = await directory(paseo, workspaceId);
-    const branches = (await git(cwd, ["for-each-ref", "--format=%(refname)%09%(refname:short)", "refs/heads", "refs/remotes"])).trim().split("\n").filter(Boolean).map((line) => {
-      const [ref = "", name = ""] = line.split("\t");
-      return { name, group: ref.startsWith("refs/heads/") ? "local" as const : "remote" as const };
-    }).filter((item) => item.name && !item.name.endsWith("/HEAD"));
+    const branches = (await git(cwd, ["for-each-ref", "--format=%(refname)%09%(upstream:track)", "refs/heads", "refs/remotes", "refs/tags"])).trim().split("\n").filter(Boolean).map((line) => {
+      const [ref = "", tracking = ""] = line.split("\t");
+      const ahead = Number(tracking.match(/\bahead (\d+)/)?.[1]) || 0;
+      const behind = Number(tracking.match(/\bbehind (\d+)/)?.[1]) || 0;
+      if (ref.startsWith("refs/heads/")) return { name: ref.slice("refs/heads/".length), group: "local" as const, ahead, behind };
+      if (ref.startsWith("refs/tags/")) return { name: ref.slice("refs/tags/".length), group: "tag" as const, ahead: 0, behind: 0 };
+      return { name: ref.slice("refs/remotes/".length), group: "remote" as const, ahead: 0, behind: 0 };
+    }).filter((item) => item.name && !(item.group === "remote" && item.name.endsWith("/HEAD")));
     if (branch && !branches.some((item) => item.name === branch)) throw new Error("分支不存在，请刷新");
     const currentBranch = (await git(cwd, ["branch", "--show-current"])).trim();
     const [gitUserName, gitUserEmail] = await Promise.all([gitConfig(cwd, "user.name"), gitConfig(cwd, "user.email")]);

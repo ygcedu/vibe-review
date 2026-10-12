@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useRpc, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { gitCommitDetailRpc, gitCommitFileDiffRpc, gitHistoryRpc } from "../shared/git-history";
@@ -14,11 +14,12 @@ type Commit = { hash: string; parents: string[]; author: string; email: string; 
 type ChangedFile = { path: string; status: string };
 type DiffTab = { id: string; source: "working"; path: string; staged: boolean; status?: string } | { id: string; source: "history"; path: string; hash: string; status: string };
 type TreeNode = { kind: "folder"; name: string; path: string; count: number; children: TreeNode[] } | { kind: "file"; name: string; file: ChangedFile };
-type Branch = { name: string; group: "local" | "remote" };
-type BranchNode = { kind: "folder"; name: string; path: string; children: BranchNode[] } | { kind: "branch"; name: string; fullName: string };
+type Branch = { name: string; group: "local" | "remote" | "tag"; ahead: number; behind: number };
+type BranchNode = { kind: "folder"; name: string; path: string; children: BranchNode[] } | { kind: "branch"; name: string; fullName: string; ahead: number; behind: number };
 const TAB_DRAG_TYPE = "application/x-vibe-review-diff-tab";
 const SPLITTER_SIZE = 6;
 const PANEL_PADDING = 8;
+const CURRENT_BRANCH_ICON = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#f5a400" d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.828 8.828a2 2 0 0 0 2.828 0l7.172-7.172a2 2 0 0 0 0-2.828z"/><circle cx="7.5" cy="7.5" r="1.7" fill="white"/></svg>')}`;
 
 function CommitHash({ value }: { value: string }) {
   const ref = useRef<Text>(null);
@@ -153,7 +154,8 @@ function branchTree(branches: Branch[], group: Branch["group"]): BranchNode[] {
   const root: BranchNode[] = [];
   const folders = new Map<string, Extract<BranchNode, { kind: "folder" }>>();
   for (const branch of branches.filter((item) => item.group === group)) {
-    const parts = branch.name.split("/");
+    const displayName = group === "tag" && branch.name.startsWith("tags/") ? branch.name.slice(5) : branch.name;
+    const parts = displayName.split("/");
     let children = root;
     let path = group;
     for (const name of parts.slice(0, -1)) {
@@ -162,7 +164,7 @@ function branchTree(branches: Branch[], group: Branch["group"]): BranchNode[] {
       if (!folder) { folder = { kind: "folder", name, path, children: [] }; folders.set(path, folder); children.push(folder); }
       children = folder.children;
     }
-    children.push({ kind: "branch", name: parts.at(-1) ?? branch.name, fullName: branch.name });
+    children.push({ kind: "branch", name: parts.at(-1) ?? displayName, fullName: branch.name, ahead: branch.ahead, behind: branch.behind });
   }
   const sort = (nodes: BranchNode[]) => {
     nodes.sort((a, b) => a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === "folder" ? -1 : 1);
@@ -264,6 +266,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
   const [diff, setDiff] = useState<{ tabId: string | null; text: string; loading: boolean }>({ tabId: null, text: "", loading: false });
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [branchCollapsed, setBranchCollapsed] = useState<Set<string>>(new Set());
+  const [branchSearch, setBranchSearch] = useState("");
   const [panelWidth, setPanelWidth] = useState(0);
   const [panelHeight, setPanelHeight] = useState(0);
   const [commitWidth, setCommitWidth] = useState(260);
@@ -388,20 +391,22 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
     setTabs(next);
     if (activeTabId === id) setActiveTabId(next[Math.min(index, next.length - 1)]?.id ?? null);
   };
-  const renderBranches = (nodes: BranchNode[], depth: number): React.ReactNode[] => nodes.map((node) => {
+  const renderBranches = (nodes: BranchNode[], group: Branch["group"]): React.ReactNode[] => nodes.map((node) => {
     if (node.kind === "folder") return <View key={node.path}>
-      <Pressable accessibilityRole="button" accessibilityLabel={`${branchCollapsed.has(node.path) ? "展开" : "折叠"} ${node.name}`} onPress={() => toggleBranchFolder(node.path)} style={[styles.branchRow, { paddingLeft: 14 + depth * 18 }]}>
+      <Pressable accessibilityRole="button" accessibilityLabel={`${branchCollapsed.has(node.path) ? "展开" : "折叠"} ${node.name}`} onPress={() => toggleBranchFolder(node.path)} style={styles.branchRow}>
         <Icon name={branchCollapsed.has(node.path) ? "ChevronRight" : "ChevronDown"} size={14} color="#64748b" />
         <Icon name="Folder" size={15} color="#64748b" />
         <Text style={styles.branchName} numberOfLines={1}>{node.name}</Text>
       </Pressable>
-      {!branchCollapsed.has(node.path) ? renderBranches(node.children, depth + 1) : null}
+      {!branchCollapsed.has(node.path) || branchSearch.trim() ? <View style={styles.branchChildren}>{renderBranches(node.children, group)}</View> : null}
     </View>;
-    return <Pressable key={node.fullName} accessibilityRole="button" accessibilityLabel={`查看分支 ${node.fullName}`} accessibilityState={{ selected: branch === node.fullName }} onPress={() => chooseBranch(node.fullName)} style={[styles.branchRow, { paddingLeft: 14 + depth * 18 }, branch === node.fullName && styles.selected]}>
+    const isCurrent = group === "local" && node.fullName === currentBranch;
+    const isMain = (group === "local" && (node.fullName === "main" || node.fullName === "master")) || (group === "remote" && (node.fullName === "origin/main" || node.fullName === "origin/master"));
+    return <Pressable key={`${group}/${node.fullName}`} accessibilityRole="button" accessibilityLabel={`查看${group === "tag" ? "标签" : "分支"} ${node.fullName}`} accessibilityState={{ selected: branch === node.fullName }} onPress={() => chooseBranch(node.fullName)} style={[styles.branchRow, branch === node.fullName && styles.branchSelected]}>
       <View style={styles.branchIndent} />
-      <Icon name={node.fullName === currentBranch ? "GitBranch" : "GitCommitHorizontal"} size={14} color={node.fullName === currentBranch ? "#0f8b59" : "#64748b"} />
-      <Text style={[styles.branchName, branch === node.fullName && styles.activeBranch]} numberOfLines={1}>{node.name}</Text>
-      {node.fullName === currentBranch ? <Text style={styles.currentMarker}>当前</Text> : null}
+      {isCurrent && isMain ? <Image source={{ uri: CURRENT_BRANCH_ICON }} style={styles.currentBranchIcon} /> : isMain ? <Text style={styles.mainBranchIcon}>★</Text> : <Icon name={group === "tag" || isCurrent ? "Tag" : "GitBranch"} size={14} color={isCurrent ? "#f5a400" : "#64748b"} />}
+      <Text style={[styles.branchLeafName, branch === node.fullName && styles.activeBranch]} numberOfLines={1}>{node.name}</Text>
+      {group === "local" && (node.ahead > 0 || node.behind > 0) ? <View style={styles.branchTracking}>{node.behind > 0 ? <><Icon name="ArrowDownLeft" size={14} color="#3478f6" /><Text style={styles.behindCount}>{node.behind}</Text></> : null}{node.ahead > 0 ? <><Icon name="ArrowUpRight" size={14} color="#30a653" /><Text style={styles.aheadCount}>{node.ahead}</Text></> : null}</View> : null}
     </Pressable>;
   });
   const renderFiles = (nodes: TreeNode[], depth: number): React.ReactNode[] => nodes.map((node) => {
@@ -493,14 +498,18 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
       {!historyMinimized ? <View style={styles.bottomViewport}>
       <View style={[styles.columns, { height: Math.max(0, bottomHeight - 58) }]}>
         <View style={[styles.sidebar, { width: resolvedBranchColumnWidth }]}>
-          <Text style={styles.columnHeading}>分支</Text>
+          <View style={styles.branchSearchRow}><Icon name="Search" size={16} color="#64748b" /><TextInput value={branchSearch} onChangeText={setBranchSearch} placeholder="Branch or tag" style={styles.branchSearchInput} /></View>
           <ScrollView style={styles.sidebarScroll}>
-            <Pressable accessibilityRole="button" accessibilityLabel="查看全部分支的提交" accessibilityState={{ selected: branch === "" }} onPress={() => chooseBranch("")} style={[styles.branchRow, branch === "" && styles.selected]}><Icon name="GitBranch" size={15} color="#64748b" /><Text style={[styles.branchName, branch === "" && styles.activeBranch]}>全部提交</Text></Pressable>
-            {currentBranch ? <Pressable accessibilityRole="button" accessibilityLabel={`查看当前分支 ${currentBranch}`} onPress={() => chooseBranch(currentBranch)} style={styles.branchRow}><Icon name="GitCommitHorizontal" size={15} color="#64748b" /><Text style={styles.branchName} numberOfLines={1}>HEAD · {currentBranch}</Text></Pressable> : null}
-            {(["local", "remote"] as const).map((group) => <View key={group}>
-              <Pressable accessibilityRole="button" accessibilityLabel={`${branchCollapsed.has(group) ? "展开" : "折叠"}${group === "local" ? "本地" : "远程"}分支`} onPress={() => toggleBranchFolder(group)} style={styles.branchGroup}><Icon name={branchCollapsed.has(group) ? "ChevronRight" : "ChevronDown"} size={14} color="#64748b" /><Text style={styles.branchGroupText}>{group === "local" ? "本地" : "远程"}</Text><Text style={styles.branchCount}>{branches.filter((item) => item.group === group).length}</Text></Pressable>
-              {!branchCollapsed.has(group) ? renderBranches(branchTree(branches, group), 0) : null}
-            </View>)}
+            {(["local", "remote", "tag"] as const).map((group) => {
+              const query = branchSearch.trim().toLowerCase();
+              const matching = branches.filter((item) => item.group === group && (!query || item.name.toLowerCase().includes(query)));
+              if (!matching.length) return null;
+              const label = group === "local" ? "Local" : group === "remote" ? "Remote" : "Tags";
+              return <View key={group}>
+                <Pressable accessibilityRole="button" accessibilityLabel={`${branchCollapsed.has(group) ? "展开" : "折叠"}${label}`} onPress={() => toggleBranchFolder(group)} style={styles.branchGroup}><Icon name={branchCollapsed.has(group) ? "ChevronRight" : "ChevronDown"} size={14} color="#64748b" /><Text style={styles.branchGroupText}>{label}</Text></Pressable>
+                {!branchCollapsed.has(group) || query ? <View style={styles.branchChildren}>{renderBranches(branchTree(matching, group), group)}</View> : null}
+              </View>;
+            })}
           </ScrollView>
         </View>
         <ResizeHandle direction="vertical" appearance="line" label="调整分支列表宽度" onResize={(delta) => setBranchColumnWidth((width) => Math.max(minimumBranchWidth, Math.min(maximumBranchWidth, Math.max(minimumBranchWidth, Math.min(maximumBranchWidth, width ?? resolvedBranchColumnWidth)) + delta)))} />
@@ -583,15 +592,23 @@ const styles = StyleSheet.create({
   columns: { flexDirection: "row", minWidth: 0, minHeight: 0 },
   sidebar: { minHeight: 0 },
   sidebarScroll: { flex: 1, minHeight: 0 },
+  branchSearchRow: { height: 38, flexDirection: "row", alignItems: "center", gap: 7, margin: 5, paddingHorizontal: 9, borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 5 },
+  branchSearchInput: { flex: 1, minWidth: 0, fontSize: 12, color: "#111827" },
   columnHeading: { paddingHorizontal: 10, paddingVertical: 9, fontSize: 12, fontWeight: "600", color: "#374151", borderBottomWidth: 1, borderColor: "#e5e7eb" },
   branchGroup: { minHeight: 32, flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 10 },
   branchGroupText: { fontSize: 12, color: "#374151", fontWeight: "600" },
-  branchCount: { marginLeft: "auto", fontSize: 11, color: "#9ca3af" },
-  branchRow: { minHeight: 29, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12 },
+  branchChildren: { marginLeft: 17, borderLeftWidth: 1, borderLeftColor: "#e2e8f0" },
+  branchRow: { minHeight: 29, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 8 },
+  branchSelected: { backgroundColor: "#d7e4ff", borderRadius: 5, marginHorizontal: 4, paddingHorizontal: 4 },
   branchIndent: { width: 14 },
   branchName: { flex: 1, fontSize: 12, color: "#374151" },
+  branchLeafName: { minWidth: 0, flexShrink: 1, fontSize: 12, color: "#374151" },
+  branchTracking: { flexDirection: "row", alignItems: "center", gap: 2, marginLeft: 8, flexShrink: 0 },
+  aheadCount: { fontSize: 11, color: "#30a653" },
+  behindCount: { fontSize: 11, color: "#3478f6" },
   activeBranch: { color: "#1641ad", fontWeight: "600" },
-  currentMarker: { fontSize: 10, color: "#0f8b59" },
+  mainBranchIcon: { width: 14, fontSize: 18, lineHeight: 20, color: "#f5a400", textAlign: "center" },
+  currentBranchIcon: { width: 16, height: 16 },
   logColumn: { minWidth: 0, minHeight: 0 },
   logToolbar: { flexDirection: "row", alignItems: "center", gap: 8, borderBottomWidth: 1, borderColor: "#e5e7eb" },
   search: { flex: 1, marginHorizontal: 8, borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 5, paddingHorizontal: 8, paddingVertical: 4, fontSize: 12 },
