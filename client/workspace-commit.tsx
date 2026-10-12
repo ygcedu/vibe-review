@@ -9,7 +9,7 @@ import { SplitDiff } from "./split-diff";
 import { WrapToggleButton } from "./wrap-toggle";
 
 type File = { path: string; status: string; staged: boolean; unstaged: boolean; untracked: boolean };
-type Selection = { path: string; staged: boolean };
+type Selection = { path: string; staged: boolean; status?: string };
 type TreeNode = { kind: "folder"; name: string; path: string; files: File[]; children: TreeNode[] } | { kind: "file"; name: string; file: File };
 const checkboxState = (files: File[], selected: Set<string>) => files.length > 0 && files.every((file) => selected.has(file.path)) ? "all" : files.some((file) => selected.has(file.path)) ? "partial" : "none";
 const checkboxIcon = (state: "all" | "partial" | "none") => state === "all" ? "SquareCheck" : state === "partial" ? "SquareMinus" : "Square";
@@ -158,7 +158,7 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
   useEffect(() => {
     let active = true;
     setDiff("");
-    if (!onFilePreview && selected) void getDiff({ workspaceId, ...selected }).then(
+    if (!onFilePreview && selected) void getDiff({ workspaceId, path: selected.path, staged: selected.staged }).then(
       (value) => { if (active) setDiff(value.diff); },
       (reason: unknown) => { if (active) setError(String(reason)); },
     );
@@ -265,7 +265,7 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
         <Icon name={checkboxIcon(checkboxState([file], selectedPaths))} size={17} color="#64748b" />
       </Pressable>
       <Pressable accessibilityRole="button" accessibilityLabel={`查看 ${file.path} 的差异`} onPress={() => {
-        const selection = { path: file.path, staged: !file.unstaged && file.staged };
+        const selection = { path: file.path, staged: !file.unstaged && file.staged, status: file.untracked ? "??" : file.status };
         if (onFilePreview) onFilePreview(selection);
         else setSelected(selection);
       }} style={styles.fileButton}>

@@ -12,7 +12,7 @@ import { WrapToggleButton } from "./wrap-toggle";
 
 type Commit = { hash: string; parents: string[]; author: string; email: string; date: string; subject: string; refs: string[] };
 type ChangedFile = { path: string; status: string };
-type DiffTab = { id: string; source: "working"; path: string; staged: boolean } | { id: string; source: "history"; path: string; hash: string };
+type DiffTab = { id: string; source: "working"; path: string; staged: boolean; status?: string } | { id: string; source: "history"; path: string; hash: string; status: string };
 type TreeNode = { kind: "folder"; name: string; path: string; count: number; children: TreeNode[] } | { kind: "file"; name: string; file: ChangedFile };
 type Branch = { name: string; group: "local" | "remote" };
 type BranchNode = { kind: "folder"; name: string; path: string; children: BranchNode[] } | { kind: "branch"; name: string; fullName: string };
@@ -34,6 +34,7 @@ function ReorderableTab({ tab, active, onActivate, onClose, onReorder, onNode }:
     if (!node) return;
     onNode(tab.id, node);
     node.draggable = true;
+    node.title = tab.path;
     const start = (event: DragEvent) => {
       event.dataTransfer?.setData(TAB_DRAG_TYPE, tab.id);
       if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
@@ -57,6 +58,7 @@ function ReorderableTab({ tab, active, onActivate, onClose, onReorder, onNode }:
     node.addEventListener("mouseleave", leave);
     return () => {
       node.draggable = false;
+      node.removeAttribute("title");
       node.removeEventListener("dragstart", start);
       node.removeEventListener("dragover", over);
       node.removeEventListener("drop", drop);
@@ -64,12 +66,12 @@ function ReorderableTab({ tab, active, onActivate, onClose, onReorder, onNode }:
       node.removeEventListener("mouseleave", leave);
       onNode(tab.id, null);
     };
-  }, [tab.id, onNode]);
+  }, [tab.id, tab.path, onNode]);
   return <View ref={ref} style={[styles.tab, hovered && !active && styles.hoveredTab, active && styles.activeTab]}>
     <Pressable accessibilityRole="tab" accessibilityLabel={`${tab.source === "working" ? "工作区" : "历史提交"} ${tab.path}`} accessibilityState={{ selected: active }} onPress={onActivate} style={styles.tabSelect}>
       <FileTypeIcon fileName={tab.path} />
-      <Text style={[styles.tabTitle, active && styles.activeTabTitle]} numberOfLines={1}>{tab.path.split("/").at(-1)}</Text>
-      <Text style={styles.tabSource}>{tab.source === "working" ? "工作区" : tab.hash.slice(0, 7)}</Text>
+      <Text style={[styles.tabTitle, fileColor(tab.status ?? "M")]} numberOfLines={1}>{tab.path.split("/").at(-1)}</Text>
+      <Text style={styles.tabSource} numberOfLines={1}>{tab.source === "working" ? "工作区" : tab.hash.slice(0, 7)}</Text>
     </Pressable>
     <Pressable accessibilityRole="button" accessibilityLabel={`关闭 ${tab.path} 标签`} onPress={onClose} onHoverIn={() => setCloseHovered(true)} onHoverOut={() => setCloseHovered(false)} style={[styles.tabClose, closeHovered && styles.tabCloseHovered]}><Icon name="X" size={13} color="#94a3b8" /></Pressable>
   </View>;
@@ -135,8 +137,8 @@ function tree(files: ChangedFile[]): TreeNode[] {
 }
 
 function fileColor(status: string) {
-  if (status.startsWith("D")) return styles.deleted;
-  if (status.startsWith("A")) return styles.added;
+  if (status.includes("D") || status.includes("?")) return styles.deleted;
+  if (status.includes("A")) return styles.added;
   return styles.modified;
 }
 
@@ -309,7 +311,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
       {!collapsed.has(node.path) ? renderFiles(node.children, depth + 1) : null}
     </View>;
     const tabId = `history:${selectedHash}:${node.file.path}`;
-    return <Pressable key={node.file.path} accessibilityRole="button" accessibilityLabel={`查看 ${node.file.path} 的提交差异`} onPress={() => { if (selectedHash) openTab({ id: tabId, source: "history", hash: selectedHash, path: node.file.path }); }} style={[styles.fileRow, { paddingLeft: 8 + depth * 18 }, activeTabId === tabId && styles.selected]}>
+    return <Pressable key={node.file.path} accessibilityRole="button" accessibilityLabel={`查看 ${node.file.path} 的提交差异`} onPress={() => { if (selectedHash) openTab({ id: tabId, source: "history", hash: selectedHash, path: node.file.path, status: node.file.status }); }} style={[styles.fileRow, { paddingLeft: 8 + depth * 18 }, activeTabId === tabId && styles.selected]}>
       <View style={styles.fileIndent} />
       <FileTypeIcon fileName={node.name} />
       <Text style={[styles.fileName, fileColor(node.file.status)]} numberOfLines={1}>{node.name}</Text>
@@ -338,7 +340,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
               {tabs.map((tab) => <View key={tab.id} style={[styles.tabMenuRow, activeTabId === tab.id && styles.tabMenuRowActive]}>
                 <Pressable accessibilityRole="button" accessibilityLabel={`切换到 ${tab.path}`} onPress={() => { setActiveTabId(tab.id); setTabMenuOpen(false); }} style={styles.tabMenuSelect}>
                   <FileTypeIcon fileName={tab.path} />
-                  <Text style={styles.tabMenuTitle} numberOfLines={1}>{tab.path.split("/").at(-1)}</Text>
+                  <Text style={[styles.tabMenuTitle, fileColor(tab.status ?? "M")]} numberOfLines={1}>{tab.path.split("/").at(-1)}</Text>
                   <Text style={styles.tabSource}>{tab.source === "working" ? "工作区" : tab.hash.slice(0, 7)}</Text>
                 </Pressable>
                 <Pressable accessibilityRole="button" accessibilityLabel={`关闭 ${tab.path} 标签`} onPress={() => closeTab(tab.id)} style={styles.tabMenuClose}><Icon name="X" size={14} color="#94a3b8" /></Pressable>
@@ -411,9 +413,8 @@ const styles = StyleSheet.create({
   activeTab: { backgroundColor: "#e4ecff", borderColor: "#9cbcff" },
   tabSelect: { flexDirection: "row", alignItems: "center", gap: 5, flexShrink: 1, paddingHorizontal: 8, height: 27 },
   tabTitle: { flexShrink: 1, fontSize: 12, color: "#475569" },
-  activeTabTitle: { color: "#111827" },
-  tabSource: { fontSize: 10, color: "#9ca3af" },
-  tabClose: { width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  tabSource: { flexShrink: 0, fontSize: 10, color: "#9ca3af" },
+  tabClose: { width: 20, height: 20, flexShrink: 0, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   tabCloseHovered: { backgroundColor: "#d7d9de" },
   tabMenuButton: { width: 34, height: 35, alignItems: "center", justifyContent: "center", borderLeftWidth: 1, borderColor: "#e5e7eb", backgroundColor: "#fff" },
   tabMenuButtonActive: { backgroundColor: "#e8f0ff" },
