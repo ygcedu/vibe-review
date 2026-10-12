@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useRpc, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { gitCommitDetailRpc, gitCommitFileDiffRpc, gitHistoryRpc } from "../shared/git-history";
@@ -12,9 +12,68 @@ import { WrapToggleButton } from "./wrap-toggle";
 
 type Commit = { hash: string; parents: string[]; author: string; email: string; date: string; subject: string; refs: string[] };
 type ChangedFile = { path: string; status: string };
+type DiffTab = { id: string; source: "working"; path: string; staged: boolean } | { id: string; source: "history"; path: string; hash: string };
 type TreeNode = { kind: "folder"; name: string; path: string; count: number; children: TreeNode[] } | { kind: "file"; name: string; file: ChangedFile };
 type Branch = { name: string; group: "local" | "remote" };
 type BranchNode = { kind: "folder"; name: string; path: string; children: BranchNode[] } | { kind: "branch"; name: string; fullName: string };
+const TAB_DRAG_TYPE = "application/x-vibe-review-diff-tab";
+
+function ReorderableTab({ tab, active, onActivate, onClose, onReorder, onNode }: {
+  tab: DiffTab; active: boolean; onActivate: () => void; onClose: () => void;
+  onReorder: (source: string, target: string, after: boolean) => void;
+  onNode: (id: string, node: HTMLElement | null) => void;
+}) {
+  const ref = useRef<View>(null);
+  const [hovered, setHovered] = useState(false);
+  const [closeHovered, setCloseHovered] = useState(false);
+  const reorderRef = useRef(onReorder);
+  reorderRef.current = onReorder;
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const node = ref.current as unknown as HTMLElement | null;
+    if (!node) return;
+    onNode(tab.id, node);
+    node.draggable = true;
+    const start = (event: DragEvent) => {
+      event.dataTransfer?.setData(TAB_DRAG_TYPE, tab.id);
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+    };
+    const over = (event: DragEvent) => {
+      if (event.dataTransfer?.types.includes(TAB_DRAG_TYPE)) event.preventDefault();
+    };
+    const drop = (event: DragEvent) => {
+      const source = event.dataTransfer?.getData(TAB_DRAG_TYPE);
+      if (!source) return;
+      event.preventDefault();
+      const bounds = node.getBoundingClientRect();
+      reorderRef.current(source, tab.id, event.clientX > bounds.left + bounds.width / 2);
+    };
+    const enter = () => setHovered(true);
+    const leave = () => { setHovered(false); setCloseHovered(false); };
+    node.addEventListener("dragstart", start);
+    node.addEventListener("dragover", over);
+    node.addEventListener("drop", drop);
+    node.addEventListener("mouseenter", enter);
+    node.addEventListener("mouseleave", leave);
+    return () => {
+      node.draggable = false;
+      node.removeEventListener("dragstart", start);
+      node.removeEventListener("dragover", over);
+      node.removeEventListener("drop", drop);
+      node.removeEventListener("mouseenter", enter);
+      node.removeEventListener("mouseleave", leave);
+      onNode(tab.id, null);
+    };
+  }, [tab.id, onNode]);
+  return <View ref={ref} style={[styles.tab, hovered && !active && styles.hoveredTab, active && styles.activeTab]}>
+    <Pressable accessibilityRole="tab" accessibilityLabel={`${tab.source === "working" ? "工作区" : "历史提交"} ${tab.path}`} accessibilityState={{ selected: active }} onPress={onActivate} style={styles.tabSelect}>
+      <FileTypeIcon fileName={tab.path} />
+      <Text style={[styles.tabTitle, active && styles.activeTabTitle]} numberOfLines={1}>{tab.path.split("/").at(-1)}</Text>
+      <Text style={styles.tabSource}>{tab.source === "working" ? "工作区" : tab.hash.slice(0, 7)}</Text>
+    </Pressable>
+    <Pressable accessibilityRole="button" accessibilityLabel={`关闭 ${tab.path} 标签`} onPress={onClose} onHoverIn={() => setCloseHovered(true)} onHoverOut={() => setCloseHovered(false)} style={[styles.tabClose, closeHovered && styles.tabCloseHovered]}><Icon name="X" size={13} color="#94a3b8" /></Pressable>
+  </View>;
+}
 
 function branchTree(branches: Branch[], group: Branch["group"]): BranchNode[] {
   const root: BranchNode[] = [];
@@ -99,9 +158,14 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
   const [revision, setRevision] = useState(0);
   const [selectedHash, setSelectedHash] = useState<string | null>(null);
   const [detail, setDetail] = useState<{ message: string; files: ChangedFile[] } | null>(null);
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [workingFile, setWorkingFile] = useState<{ path: string; staged: boolean } | null>(null);
-  const [diff, setDiff] = useState("");
+  const [tabs, setTabs] = useState<DiffTab[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const [tabMenuOpen, setTabMenuOpen] = useState(false);
+  const [tabViewportWidth, setTabViewportWidth] = useState(0);
+  const [tabContentWidth, setTabContentWidth] = useState(0);
+  const tabBarRef = useRef<ScrollView>(null);
+  const tabNodes = useRef(new Map<string, HTMLElement>());
+  const [diff, setDiff] = useState<{ tabId: string | null; text: string; loading: boolean }>({ tabId: null, text: "", loading: false });
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [branchCollapsed, setBranchCollapsed] = useState<Set<string>>(new Set());
   const [panelWidth, setPanelWidth] = useState(0);
@@ -110,6 +174,42 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
   const [diffHeight, setDiffHeight] = useState(0);
   const [wrapLines, setWrapLines] = useState(false);
   const [error, setError] = useState("");
+  const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;
+  const tabOverflow = tabContentWidth > tabViewportWidth + 2;
+
+  const registerTabNode = useCallback((id: string, node: HTMLElement | null) => {
+    if (node) tabNodes.current.set(id, node);
+    else tabNodes.current.delete(id);
+  }, []);
+  const reorderTab = useCallback((source: string, target: string, after: boolean) => {
+    if (source === target) return;
+    setTabs((current) => {
+      const moved = current.find((item) => item.id === source);
+      if (!moved) return current;
+      const next = current.filter((item) => item.id !== source);
+      const targetIndex = next.findIndex((item) => item.id === target);
+      if (targetIndex < 0) return current;
+      next.splice(targetIndex + (after ? 1 : 0), 0, moved);
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== "web" || !activeTabId) return;
+    const frame = requestAnimationFrame(() => {
+      const scroller = tabBarRef.current as unknown as HTMLElement | null;
+      const tabNode = tabNodes.current.get(activeTabId);
+      if (!scroller || !tabNode) return;
+      const viewport = scroller.getBoundingClientRect();
+      const selected = tabNode.getBoundingClientRect();
+      const offset = selected.left < viewport.left ? selected.left - viewport.left
+        : selected.right > viewport.right ? selected.right - viewport.right : 0;
+      if (offset) scroller.scrollLeft += offset;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeTabId, tabs, tabViewportWidth]);
+
+  useEffect(() => { setTabs([]); setActiveTabId(null); setTabMenuOpen(false); setDiff({ tabId: null, text: "", loading: false }); }, [workspaceId]);
 
   useEffect(() => {
     const timer = setTimeout(() => { setSkip(0); setQuery(searchText); }, 250);
@@ -134,9 +234,6 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
   useEffect(() => {
     let active = true;
     setDetail(null);
-    setSelectedFile(null);
-    setWorkingFile(null);
-    setDiff("");
     if (selectedHash) void getDetail({ workspaceId, hash: selectedHash }).then((value) => {
       if (!active) return;
       setDetail(value);
@@ -147,25 +244,18 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
 
   useEffect(() => {
     let active = true;
-    setDiff("");
-    if (!workingFile && selectedHash && selectedFile) void getFileDiff({ workspaceId, hash: selectedHash, path: selectedFile }).then(
-      (value) => { if (active) setDiff(value.diff); },
-      (reason: unknown) => { if (active) setError(String(reason)); },
-    );
-    return () => { active = false; };
-  }, [workspaceId, selectedHash, selectedFile, workingFile?.path]);
-
-  useEffect(() => {
-    let active = true;
-    if (workingFile) {
-      setDiff("");
-      void getWorkingDiff({ workspaceId, ...workingFile }).then(
-        (value) => { if (active) setDiff(value.diff); },
-        (reason: unknown) => { if (active) setError(String(reason)); },
+    setDiff({ tabId: activeTab?.id ?? null, text: "", loading: Boolean(activeTab) });
+    if (activeTab) {
+      const request = activeTab.source === "working"
+        ? getWorkingDiff({ workspaceId, path: activeTab.path, staged: activeTab.staged })
+        : getFileDiff({ workspaceId, hash: activeTab.hash, path: activeTab.path });
+      void request.then(
+        (value) => { if (active) setDiff({ tabId: activeTab.id, text: value.diff, loading: false }); },
+        (reason: unknown) => { if (active) { setDiff({ tabId: activeTab.id, text: "", loading: false }); setError(String(reason)); } },
       );
     }
     return () => { active = false; };
-  }, [workspaceId, workingFile?.path, workingFile?.staged]);
+  }, [workspaceId, activeTab?.id, activeTab?.source === "working" ? activeTab.staged : undefined]);
 
   const toggleFolder = (path: string) => setCollapsed((current) => {
     const next = new Set(current);
@@ -180,6 +270,18 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
     return next;
   });
   const chooseBranch = (name: string) => { setBranch(name); setSkip(0); };
+  const openTab = (tab: DiffTab) => {
+    setTabs((current) => current.some((item) => item.id === tab.id)
+      ? current.map((item) => item.id === tab.id ? tab : item)
+      : [...current, tab]);
+    setActiveTabId(tab.id);
+  };
+  const closeTab = (id: string) => {
+    const index = tabs.findIndex((tab) => tab.id === id);
+    const next = tabs.filter((tab) => tab.id !== id);
+    setTabs(next);
+    if (activeTabId === id) setActiveTabId(next[Math.min(index, next.length - 1)]?.id ?? null);
+  };
   const renderBranches = (nodes: BranchNode[], depth: number): React.ReactNode[] => nodes.map((node) => {
     if (node.kind === "folder") return <View key={node.path}>
       <Pressable accessibilityRole="button" accessibilityLabel={`${branchCollapsed.has(node.path) ? "展开" : "折叠"} ${node.name}`} onPress={() => toggleBranchFolder(node.path)} style={[styles.branchRow, { paddingLeft: 14 + depth * 18 }]}>
@@ -206,15 +308,16 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
       </Pressable>
       {!collapsed.has(node.path) ? renderFiles(node.children, depth + 1) : null}
     </View>;
-    return <Pressable key={node.file.path} accessibilityRole="button" accessibilityLabel={`查看 ${node.file.path} 的提交差异`} onPress={() => { setWorkingFile(null); setSelectedFile(node.file.path); }} style={[styles.fileRow, { paddingLeft: 8 + depth * 18 }, selectedFile === node.file.path && styles.selected]}>
+    const tabId = `history:${selectedHash}:${node.file.path}`;
+    return <Pressable key={node.file.path} accessibilityRole="button" accessibilityLabel={`查看 ${node.file.path} 的提交差异`} onPress={() => { if (selectedHash) openTab({ id: tabId, source: "history", hash: selectedHash, path: node.file.path }); }} style={[styles.fileRow, { paddingLeft: 8 + depth * 18 }, activeTabId === tabId && styles.selected]}>
       <View style={styles.fileIndent} />
       <FileTypeIcon fileName={node.name} />
       <Text style={[styles.fileName, fileColor(node.file.status)]} numberOfLines={1}>{node.name}</Text>
     </Pressable>;
   });
   const selectedCommit = commits.find((item) => item.hash === selectedHash);
-  const parsed = parseDiffFiles(diff);
-  const previewPath = workingFile?.path ?? selectedFile;
+  const parsed = parseDiffFiles(activeTab?.id === diff.tabId ? diff.text : "");
+  const diffLoading = Boolean(activeTab && (activeTab.id !== diff.tabId || diff.loading));
   const contentHeight = Math.max(0, panelHeight - toolbarHeight);
   const topHeight = Math.round(contentHeight * 0.53);
   const bottomHeight = contentHeight - topHeight;
@@ -224,16 +327,31 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
     <View style={styles.toolbar} onLayout={(event) => setToolbarHeight(event.nativeEvent.layout.height)}><Text style={styles.heading}>Git 历史</Text><Pressable accessibilityRole="button" accessibilityLabel="刷新提交历史" onPress={() => { setSkip(0); setRevision((value) => value + 1); }}><Icon name="RefreshCw" size={17} color="#64748b" /></Pressable></View>
     <ScrollView horizontal style={[styles.horizontalViewport, { height: topHeight }]} contentContainerStyle={styles.horizontalContent} nestedScrollEnabled>
       <View style={[styles.topRow, { width: contentWidth, height: topHeight }]}>
-        <View style={styles.commitArea}><WorkspaceCommitPanel {...props} externalPreview={workingFile} onFilePreview={(selection) => { setSelectedFile(null); setWorkingFile(selection); }} /></View>
+        <View style={styles.commitArea}><WorkspaceCommitPanel {...props} externalPreview={activeTab?.source === "working" ? activeTab : null} onFilePreview={(selection) => openTab({ id: `working:${selection.path}`, source: "working", ...selection })} /></View>
         <View style={styles.topDiff} onLayout={(event) => setDiffHeight(event.nativeEvent.layout.height)}>
+          <View style={styles.tabStrip}>
+            <ScrollView ref={tabBarRef} horizontal style={styles.tabBar} contentContainerStyle={styles.tabBarContent} showsHorizontalScrollIndicator={false} onLayout={(event) => setTabViewportWidth(event.nativeEvent.layout.width)} onContentSizeChange={(width) => setTabContentWidth(width)}>
+              {tabs.length ? tabs.map((tab) => <ReorderableTab key={tab.id} tab={tab} active={activeTabId === tab.id} onActivate={() => setActiveTabId(tab.id)} onClose={() => closeTab(tab.id)} onReorder={reorderTab} onNode={registerTabNode} />) : <Text style={styles.emptyTab}>Diff 预览</Text>}
+            </ScrollView>
+            {tabOverflow && tabs.length ? <Pressable accessibilityRole="button" accessibilityLabel="显示所有打开的文件" accessibilityState={{ expanded: tabMenuOpen }} onPress={() => setTabMenuOpen((value) => !value)} style={[styles.tabMenuButton, tabMenuOpen && styles.tabMenuButtonActive]}><Icon name="ChevronDown" size={16} color="#64748b" /></Pressable> : null}
+            {tabMenuOpen && tabOverflow ? <ScrollView style={[styles.tabMenu, { maxHeight: Math.min(360, Math.max(100, diffHeight - 45)) }]} nestedScrollEnabled>
+              {tabs.map((tab) => <View key={tab.id} style={[styles.tabMenuRow, activeTabId === tab.id && styles.tabMenuRowActive]}>
+                <Pressable accessibilityRole="button" accessibilityLabel={`切换到 ${tab.path}`} onPress={() => { setActiveTabId(tab.id); setTabMenuOpen(false); }} style={styles.tabMenuSelect}>
+                  <FileTypeIcon fileName={tab.path} />
+                  <Text style={styles.tabMenuTitle} numberOfLines={1}>{tab.path.split("/").at(-1)}</Text>
+                  <Text style={styles.tabSource}>{tab.source === "working" ? "工作区" : tab.hash.slice(0, 7)}</Text>
+                </Pressable>
+                <Pressable accessibilityRole="button" accessibilityLabel={`关闭 ${tab.path} 标签`} onPress={() => closeTab(tab.id)} style={styles.tabMenuClose}><Icon name="X" size={14} color="#94a3b8" /></Pressable>
+              </View>)}
+            </ScrollView> : null}
+          </View>
           <View style={styles.diffHeader}>
-            <Text style={styles.diffPath} numberOfLines={1}>{previewPath ? `${workingFile ? "Working Diff" : "Repository Diff"}: ${previewPath}` : "Diff 预览"}</Text>
-            {previewPath ? <>
+            <Text style={styles.diffPath} numberOfLines={1}>{activeTab ? `${activeTab.source === "working" ? "Working Diff" : "Repository Diff"}: ${activeTab.path}` : "选择文件查看差异"}</Text>
+            {activeTab ? <>
               <WrapToggleButton active={wrapLines} onToggle={() => setWrapLines((value) => !value)} tooltipPlacement="below" />
-              <Pressable accessibilityRole="button" accessibilityLabel="关闭差异预览" onPress={() => { setWorkingFile(null); setSelectedFile(null); setDiff(""); }} style={styles.diffAction}><Icon name="X" size={16} color="#64748b" /></Pressable>
             </> : null}
           </View>
-          {previewPath && parsed[0] && diffHeight > 40 ? <SplitDiff file={parsed[0]} wrapLines={wrapLines} maxHeight={Math.max(32, diffHeight - 39)} /> : <Text style={styles.empty}>{previewPath ? "没有可显示的文本差异" : "点击左侧或下方变更文件，在这里查看 Diff"}</Text>}
+          {activeTab && parsed[0] && diffHeight > 75 ? <SplitDiff file={parsed[0]} wrapLines={wrapLines} maxHeight={Math.max(32, diffHeight - 75)} /> : <Text style={styles.empty}>{diffLoading ? "加载差异…" : activeTab ? "没有可显示的文本差异" : "点击左侧或下方变更文件，在这里查看 Diff"}</Text>}
         </View>
       </View>
     </ScrollView>
@@ -285,6 +403,27 @@ const styles = StyleSheet.create({
   topRow: { flexDirection: "row", minHeight: 0, borderBottomWidth: 1, borderColor: "#d1d5db" },
   commitArea: { width: 260, minHeight: 0, overflow: "hidden", borderRightWidth: 1, borderColor: "#d1d5db" },
   topDiff: { flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden" },
+  tabStrip: { flexDirection: "row", height: 36, minWidth: 0, position: "relative", zIndex: 10, borderBottomWidth: 1, borderColor: "#e5e7eb" },
+  tabBar: { flex: 1, minWidth: 0, height: 35 },
+  tabBarContent: { flexDirection: "row", alignItems: "center", paddingHorizontal: 4 },
+  tab: { flexDirection: "row", alignItems: "center", maxWidth: 220, height: 29, marginHorizontal: 3, borderWidth: 1, borderColor: "transparent", borderRadius: 7, paddingRight: 3 },
+  hoveredTab: { backgroundColor: "#eeeeef" },
+  activeTab: { backgroundColor: "#e4ecff", borderColor: "#9cbcff" },
+  tabSelect: { flexDirection: "row", alignItems: "center", gap: 5, flexShrink: 1, paddingHorizontal: 8, height: 27 },
+  tabTitle: { flexShrink: 1, fontSize: 12, color: "#475569" },
+  activeTabTitle: { color: "#111827" },
+  tabSource: { fontSize: 10, color: "#9ca3af" },
+  tabClose: { width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  tabCloseHovered: { backgroundColor: "#d7d9de" },
+  tabMenuButton: { width: 34, height: 35, alignItems: "center", justifyContent: "center", borderLeftWidth: 1, borderColor: "#e5e7eb", backgroundColor: "#fff" },
+  tabMenuButtonActive: { backgroundColor: "#e8f0ff" },
+  tabMenu: { position: "absolute", top: 35, right: 0, width: 300, backgroundColor: "#fff", borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 5, zIndex: 20, shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 8, elevation: 8 },
+  tabMenuRow: { flexDirection: "row", alignItems: "center", minHeight: 32 },
+  tabMenuRowActive: { backgroundColor: "#e8f0ff" },
+  tabMenuSelect: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 7, paddingLeft: 10, minHeight: 32 },
+  tabMenuTitle: { flex: 1, minWidth: 0, fontSize: 12, color: "#374151" },
+  tabMenuClose: { width: 30, height: 30, alignItems: "center", justifyContent: "center" },
+  emptyTab: { paddingHorizontal: 10, paddingVertical: 9, color: "#6b7280", fontSize: 12 },
   bottomViewport: { borderTopWidth: 1, borderColor: "#d1d5db" },
   columns: { flexDirection: "row", minHeight: 0 },
   sidebar: { width: 230, minHeight: 0, borderRightWidth: 1, borderColor: "#e5e7eb" },
@@ -335,7 +474,6 @@ const styles = StyleSheet.create({
   deleted: { color: "#bc3145" },
   diffHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 38, paddingHorizontal: 9, position: "relative", zIndex: 3 },
   diffPath: { flex: 1, fontSize: 12, color: "#374151" },
-  diffAction: { width: 28, height: 28, alignItems: "center", justifyContent: "center" },
   empty: { padding: 12, fontSize: 12, color: "#6b7280" },
   error: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 9, paddingVertical: 5, color: "#b91c1c", backgroundColor: "#fff", fontSize: 11 },
 });
