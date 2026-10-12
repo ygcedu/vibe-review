@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.1.0](https://github.com/ygcedu/vibe-review/compare/v1.0.0...v1.1.0) (2026-10-12)
+
+
+### Features
+
+* Diff 预览支持多标签切换与拖拽排序，溢出时下拉菜单管理标签 ([50faef2](https://github.com/ygcedu/vibe-review/commit/50faef24bd20cd202c5592b925c680b98814a674))
+* Git 历史时间列改为相对/本地化显示并左对齐等宽，hash 列同步收紧左对齐 ([dc7232b](https://github.com/ygcedu/vibe-review/commit/dc7232b6c53308f5ec3ac8ffaa6e868d596b450a))
+* Git 历史面板增加可拖拽分割条、最小化切换及分支信息栏 ([06ede20](https://github.com/ygcedu/vibe-review/commit/06ede20189a997d3ba8e427a3abfce3fc6bd50db))
+* Git 历史面板增加留白与四角圆角，窄屏列宽动态收缩 ([58bd81a](https://github.com/ygcedu/vibe-review/commit/58bd81a2810bc1b05ae2d0f829b7650edc90b046))
+* Git 历史面板统一上方共享 Diff 预览，新增折行切换按钮组件 ([0566b8b](https://github.com/ygcedu/vibe-review/commit/0566b8b04dc2dc0f635d04e3353024fae54e6ee7))
+* Git 历史项重构为作者-提交-时间-hash 布局，当前用户加粗，hash 列等宽字体 ([b390ce5](https://github.com/ygcedu/vibe-review/commit/b390ce5156391ffb8b55b3b62f61162efbbbb074))
+* render Edit tool patches with split diff ([649f534](https://github.com/ygcedu/vibe-review/commit/649f534f46779e27e85f71ffd42c2fd9d90bd126))
+* 分支列增加标签分组、搜索过滤及本地分支领先/落后指示，主分支与当前分支专属图标 ([545254d](https://github.com/ygcedu/vibe-review/commit/545254de427f2ad522d33b512903f959b40bc56f))
+* 提交详情区支持完整 message 换行、作者邮箱与包含分支，文件树与说明区高度可拖动 ([c101470](https://github.com/ygcedu/vibe-review/commit/c1014705de9084ec232ec62c7c15ab57e995b3d0))
+* 新增 Git 历史面板，支持分支筛选、提交搜索及文件差异展示 ([ee69ca5](https://github.com/ygcedu/vibe-review/commit/ee69ca59b412f6a9a5395917311143b3d1ada1c9))
+* 新增提交更改工作区面板 ([b47e03d](https://github.com/ygcedu/vibe-review/commit/b47e03d0ec22def01338752c7f9292ca34981b32))
+* 标签文件名按状态着色并悬停显示完整路径 ([3468c85](https://github.com/ygcedu/vibe-review/commit/3468c855ee40f12c32f89479b7a35aae38484eee))
+
+
+### Bug Fixes
+
+* adapt review and verifier to Paseo 0.11 types ([6ca508c](https://github.com/ygcedu/vibe-review/commit/6ca508c40037e81a062b82eceac133d44fa21886))
+
 ## 1.0.0 (2026-10-10)
 
 
