@@ -9,7 +9,7 @@ export const workspaceGitStatusRpc = defineRpc({
 });
 export const workspaceGitDiffRpc = defineRpc({
   name: "vibe-review.workspace-git-diff",
-  input: z.object({ workspaceId: z.string(), path: z.string(), staged: z.boolean() }),
+  input: z.object({ workspaceId: z.string(), path: z.string(), staged: z.boolean(), fullContext: z.boolean().optional() }),
   output: z.object({ diff: z.string() }),
 });
 export const workspaceGitTrackRpc = defineRpc({

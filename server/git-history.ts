@@ -70,14 +70,14 @@ export function registerGitHistory(server: PluginServerContext) {
     const inHead = await git(cwd, ["merge-base", "--is-ancestor", hash, "HEAD"]).then(() => true, () => false);
     return { message, files: await changedFiles(cwd, hash, base), containingBranches: inHead ? ["HEAD", ...branchNames] : branchNames };
   });
-  server.handle(gitCommitFileDiffRpc, async ({ workspaceId, hash, path }, { paseo }) => {
+  server.handle(gitCommitFileDiffRpc, async ({ workspaceId, hash, path, fullContext }, { paseo }) => {
     const cwd = await directory(paseo, workspaceId);
     const base = await commitBase(cwd, hash);
     const files = await changedFiles(cwd, hash, base);
     if (!files.some((file) => file.path === path)) throw new Error("文件不属于该提交");
     const diff = base
-      ? await git(cwd, ["diff", "--no-ext-diff", "--no-renames", "--unified=3", base, hash, "--", path])
-      : await git(cwd, ["show", "--format=", "--root", "--no-ext-diff", hash, "--", path]);
+      ? await git(cwd, ["diff", "--no-ext-diff", "--no-renames", `--unified=${fullContext ? 999999 : 3}`, base, hash, "--", path])
+      : await git(cwd, ["show", "--format=", "--root", "--no-ext-diff", ...(fullContext ? ["--unified=999999"] : []), hash, "--", path]);
     return { diff };
   });
 }

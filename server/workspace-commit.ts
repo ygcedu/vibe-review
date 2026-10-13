@@ -33,19 +33,19 @@ export function registerWorkspaceCommit(server: PluginServerContext) {
     const branch = (await git(cwd, ["branch", "--show-current"])).trim();
     return { files: await status(cwd), branch };
   });
-  server.handle(workspaceGitDiffRpc, async ({ workspaceId, path, staged }, { paseo }) => {
+  server.handle(workspaceGitDiffRpc, async ({ workspaceId, path, staged, fullContext }, { paseo }) => {
     const cwd = await directory(paseo, workspaceId);
     await checkedPath(cwd, path);
     const file = (await status(cwd)).find((item) => item.path === path)!;
     if (file.untracked) {
-      try { return { diff: await git(cwd, ["diff", "--no-index", "--", "/dev/null", path]) }; }
+      try { return { diff: await git(cwd, ["diff", "--no-index", ...(fullContext ? ["--unified=999999"] : []), "--", "/dev/null", path]) }; }
       catch (error) {
         const result = error as { code?: number; stdout?: string };
         if (result.code === 1) return { diff: result.stdout ?? "" };
         throw error;
       }
     }
-    return { diff: await git(cwd, ["diff", "--no-ext-diff", "--no-renames", ...(staged ? ["--cached"] : []), "--", path]) };
+    return { diff: await git(cwd, ["diff", "--no-ext-diff", "--no-renames", ...(fullContext ? ["--unified=999999"] : []), ...(staged ? ["--cached"] : []), "--", path]) };
   });
   server.handle(workspaceGitTrackRpc, async ({ workspaceId, paths }, { paseo }) => {
     const cwd = await directory(paseo, workspaceId);

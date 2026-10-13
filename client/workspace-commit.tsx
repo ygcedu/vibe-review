@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type ViewStyle } from "react-native";
 import { useRpc, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
@@ -6,7 +6,7 @@ import { workspaceGitCommitRpc, workspaceGitDiffRpc, workspaceGitPushRpc, worksp
 import { parseDiffFiles } from "./diff";
 import { FileTypeIcon } from "./file-icons";
 import { SplitDiff } from "./split-diff";
-import { WrapToggleButton } from "./wrap-toggle";
+import { DiffOptionButton, WrapToggleButton } from "./wrap-toggle";
 
 type File = { path: string; status: string; staged: boolean; unstaged: boolean; untracked: boolean };
 type Selection = { path: string; staged: boolean; status?: string };
@@ -136,6 +136,8 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
   const [result, setResult] = useState("");
   const [revision, setRevision] = useState(0);
   const [wrapLines, setWrapLines] = useState(false);
+  const [collapseUnchanged, setCollapseUnchanged] = useState(true);
+  const [syncScrolling, setSyncScrolling] = useState(true);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
@@ -222,7 +224,12 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
     result[changeKind(file)]++;
     return result;
   }, { added: 0, modified: 0, deleted: 0 });
-  const parsed = parseDiffFiles(diff);
+  const parsed = useMemo(() => parseDiffFiles(diff), [diff]);
+  const loadFullDiff = async () => {
+    if (!selected) return null;
+    const result = await getDiff({ workspaceId, path: selected.path, staged: selected.staged, fullContext: true });
+    return parseDiffFiles(result.diff)[0] ?? null;
+  };
   const toggleFolder = (key: string) => setCollapsed((current) => {
     const next = new Set(current);
     if (next.has(key)) next.delete(key);
@@ -313,10 +320,10 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
     {!onFilePreview && selected ? <View style={styles.preview} onLayout={(event) => setPreviewHeight(event.nativeEvent.layout.height)}>
       <View style={styles.previewHeader} onLayout={(event) => setPreviewHeaderHeight(event.nativeEvent.layout.height)}>
         <Text style={styles.previewTitle} numberOfLines={1}>{selected.path}</Text>
-        <WrapToggleButton active={wrapLines} onToggle={() => setWrapLines((value) => !value)} tooltipPlacement="below" />
+        <View style={styles.previewActions}><DiffOptionButton active={collapseUnchanged} onToggle={() => setCollapseUnchanged((value) => !value)} label="折叠未变更代码" icon="ChevronsDownUp" /><DiffOptionButton active={syncScrolling} onToggle={() => setSyncScrolling((value) => !value)} label="左右同步滚动" icon="ArrowDownUp" /><WrapToggleButton active={wrapLines} onToggle={() => setWrapLines((value) => !value)} tooltipPlacement="below" /></View>
         <Pressable accessibilityRole="button" accessibilityLabel="关闭文件差异预览" onPress={() => setSelected(null)} style={styles.previewAction}><Icon name="X" size={16} color="#64748b" /></Pressable>
       </View>
-      {parsed[0] && previewHeight > previewHeaderHeight ? <SplitDiff file={parsed[0]} wrapLines={wrapLines} maxHeight={Math.max(32, previewHeight - previewHeaderHeight - 1)} /> : !parsed[0] ? <Text style={styles.empty}>没有可显示的文本差异</Text> : null}
+      {parsed[0] && previewHeight > previewHeaderHeight ? <SplitDiff key={`${selected.path}:${selected.staged}`} file={parsed[0]} wrapLines={wrapLines} collapseUnchanged={collapseUnchanged} syncScrolling={syncScrolling} loadFullFile={loadFullDiff} maxHeight={Math.max(32, previewHeight - previewHeaderHeight - 1)} /> : !parsed[0] ? <Text style={styles.empty}>没有可显示的文本差异</Text> : null}
     </View> : null}
     <View style={styles.footer}>
       {selectedFiles.length > 0 ? <View style={styles.summaryRow}>
@@ -362,6 +369,7 @@ const styles = StyleSheet.create({
   empty: { padding: 12, color: "#6b7280" },
   preview: { flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden", borderTopWidth: 1, borderColor: "#e5e7eb" },
   previewHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 9, position: "relative", zIndex: 3 },
+  previewActions: { flexDirection: "row", alignItems: "center", gap: 7, flexShrink: 0 },
   previewTitle: { flex: 1, fontSize: 13, color: "#111827" },
   previewAction: { width: 28, height: 28, alignItems: "center", justifyContent: "center" },
   footer: { borderTopWidth: 1, borderColor: "#e5e7eb", padding: 10, gap: 7 },

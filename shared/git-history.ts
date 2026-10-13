@@ -16,6 +16,6 @@ export const gitCommitDetailRpc = defineRpc({
 });
 export const gitCommitFileDiffRpc = defineRpc({
   name: "vibe-review.git-commit-file-diff",
-  input: z.object({ workspaceId: z.string(), hash: z.string(), path: z.string() }),
+  input: z.object({ workspaceId: z.string(), hash: z.string(), path: z.string(), fullContext: z.boolean().optional() }),
   output: z.object({ diff: z.string() }),
 });
