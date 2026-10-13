@@ -7,6 +7,7 @@ import { parseDiffFiles } from "./diff";
 import { FileTypeIcon } from "./file-icons";
 import { SplitDiff } from "./split-diff";
 import { DiffOptionButton, WrapToggleButton } from "./wrap-toggle";
+import { compactTree, sortTreeNodes } from "./file-tree-utils";
 
 type File = { path: string; status: string; staged: boolean; unstaged: boolean; untracked: boolean };
 type Selection = { path: string; staged: boolean; status?: string };
@@ -99,24 +100,8 @@ function fileTree(files: File[]): TreeNode[] {
     }
     children.push({ kind: "file", name: parts.at(-1) ?? file.path, file });
   }
-  const sort = (nodes: TreeNode[]) => {
-    nodes.sort((a, b) => a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === "folder" ? -1 : 1);
-    nodes.forEach((node) => { if (node.kind === "folder") sort(node.children); });
-  };
-  sort(root);
-  const compact = (nodes: TreeNode[]): TreeNode[] => nodes.map((node) => {
-    if (node.kind === "folder") {
-      node.children = compact(node.children);
-      while (node.children.length === 1 && node.children[0]?.kind === "folder") {
-        const child = node.children[0];
-        node.name += `/${child.name}`;
-        node.path = child.path;
-        node.children = child.children;
-      }
-    }
-    return node;
-  });
-  return compact(root);
+  sortTreeNodes(root);
+  return compactTree(root);
 }
 
 export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPreview }: PluginWorkspacePanelProps & { onFilePreview?: (selection: Selection) => void; externalPreview?: Selection | null }) {

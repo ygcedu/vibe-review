@@ -5,6 +5,7 @@ import { parseDiffFiles, type DiffFile } from "./diff";
 import { FileTypeIcon } from "./file-icons";
 import { SplitDiff } from "./split-diff";
 import { DiffOptionButton, WrapToggleButton } from "./wrap-toggle";
+import { sortTreeNodes } from "./file-tree-utils";
 
 type FolderNode = { kind: "folder"; name: string; path: string; count: number; children: TreeNode[] };
 type FileNode = { kind: "file"; name: string; file: DiffFile; index: number };
@@ -30,11 +31,7 @@ function buildFileTree(files: DiffFile[]): TreeNode[] {
     }
     children.push({ kind: "file", name: parts.at(-1) ?? file.path, file, index });
   });
-  const sortNodes = (nodes: TreeNode[]) => {
-    nodes.sort((a, b) => a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === "folder" ? -1 : 1);
-    nodes.forEach((node) => { if (node.kind === "folder") sortNodes(node.children); });
-  };
-  sortNodes(root);
+  sortTreeNodes(root);
   return root;
 }
 
