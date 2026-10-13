@@ -125,7 +125,21 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
   getCommitStatusRef.current = getCommitStatus;
   const getPendingDiff = useRpc(getPendingCommitDiffRpc);
   const getPendingDiffRef = useRef(getPendingDiff);
-  getPendingDiffRef.current = getPendingDiff;
+  const groupNode = useRef<View>(null);
+  // Skip the 15s availability poll while the card is off-screen (multi-card
+  // timelines); re-poll immediately once visible again.
+  const [isVisible, setIsVisible] = useState(true);
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const node = groupNode.current as unknown as HTMLElement | null;
+    if (!node || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => {
+      const entry = entries[0];
+      if (entry) setIsVisible(entry.isIntersecting);
+    }, { rootMargin: "200px" });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
   useEffect(() => {
     let active = true;
     const refresh = () => {
@@ -134,10 +148,11 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
         () => { if (active) { setCommitCwd(null); setCommitUnavailableReason(null); } },
       );
     };
-    refresh();
+    if (isVisible) refresh();
+    if (!isVisible) return () => { active = false; };
     const timer = setInterval(refresh, 15_000);
     return () => { active = false; clearInterval(timer); };
-  }, [props.agentId, data.scoredAt]);
+  }, [props.agentId, data.scoredAt, isVisible]);
   useEffect(() => {
     if (!commitCwd) return;
     const subscription = paseo.agents.ref(props.agentId).timeline.subscribe(({ event }: { event: { type: string; item?: { type: string } } }) => {
@@ -261,7 +276,7 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
   };
 
   return (
-    <View style={[styles.reviewGroup, { backgroundColor: cardColors.background, borderColor: cardColors.border }]}>
+    <View ref={groupNode} style={[styles.reviewGroup, { backgroundColor: cardColors.background, borderColor: cardColors.border }]}>
     <View style={[styles.container, { borderBottomColor: cardColors.divider }]}>
       <View style={styles.header}>
         <View style={styles.headerIdentity}>
