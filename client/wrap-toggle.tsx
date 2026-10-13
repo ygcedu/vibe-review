@@ -18,6 +18,14 @@ export function WrapToggleButton({ active, onToggle, tooltipPlacement = "above" 
   </View>;
 }
 
+export function DiffOptionButton({ active, onToggle, label, icon }: { active: boolean; onToggle(): void; label: string; icon: string }) {
+  const [hovered, setHovered] = useState(false);
+  return <View style={styles.container}>
+    <Pressable accessibilityRole="button" accessibilityLabel={label} aria-pressed={active} onHoverIn={() => setHovered(true)} onHoverOut={() => setHovered(false)} onPress={onToggle} style={[styles.button, active && styles.active, hovered && styles.hover]}><Icon name={icon} size={14} color="#64748b" /></Pressable>
+    {hovered ? <View pointerEvents="none" style={[styles.tooltip, styles.below, { width: 112 }]}><Text style={styles.tooltipText}>{label}</Text></View> : null}
+  </View>;
+}
+
 const styles = StyleSheet.create({
   container: { position: "relative", zIndex: 2 },
   button: { width: 20, height: 20, borderRadius: 4, alignItems: "center", justifyContent: "center" },

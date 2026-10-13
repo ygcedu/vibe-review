@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useRpc, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
@@ -8,7 +8,7 @@ import { parseDiffFiles } from "./diff";
 import { FileTypeIcon } from "./file-icons";
 import { SplitDiff } from "./split-diff";
 import { WorkspaceCommitPanel } from "./workspace-commit";
-import { WrapToggleButton } from "./wrap-toggle";
+import { DiffOptionButton, WrapToggleButton } from "./wrap-toggle";
 
 type Commit = { hash: string; parents: string[]; author: string; email: string; date: string; subject: string; refs: string[] };
 type ChangedFile = { path: string; status: string };
@@ -277,6 +277,8 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
   const [historyMinimized, setHistoryMinimized] = useState(false);
   const [diffHeight, setDiffHeight] = useState(0);
   const [wrapLines, setWrapLines] = useState(false);
+  const [collapseUnchanged, setCollapseUnchanged] = useState(true);
+  const [syncScrolling, setSyncScrolling] = useState(true);
   const [error, setError] = useState("");
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;
   const tabOverflow = tabContentWidth > tabViewportWidth + 2;
@@ -441,7 +443,14 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
     </Pressable>;
   });
   const selectedCommit = commits.find((item) => item.hash === selectedHash);
-  const parsed = parseDiffFiles(activeTab?.id === diff.tabId ? diff.text : "");
+  const parsed = useMemo(() => parseDiffFiles(activeTab?.id === diff.tabId ? diff.text : ""), [activeTab?.id, diff.tabId, diff.text]);
+  const loadFullDiff = async () => {
+    if (!activeTab) return null;
+    const result = activeTab.source === "working"
+      ? await getWorkingDiff({ workspaceId, path: activeTab.path, staged: activeTab.staged, fullContext: true })
+      : await getFileDiff({ workspaceId, hash: activeTab.hash, path: activeTab.path, fullContext: true });
+    return parseDiffFiles(result.diff)[0] ?? null;
+  };
   const diffLoading = Boolean(activeTab && (activeTab.id !== diff.tabId || diff.loading));
   const contentHeight = Math.max(0, panelHeight - PANEL_PADDING * 2);
   const contentWidth = Math.max(0, panelWidth - PANEL_PADDING * 2);
@@ -494,10 +503,10 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
           <View style={styles.diffHeader}>
             <Text style={styles.diffPath} numberOfLines={1}>{activeTab ? `${activeTab.source === "working" ? "Working Diff" : "Repository Diff"}: ${activeTab.path}` : "选择文件查看差异"}</Text>
             {activeTab ? <>
-              <WrapToggleButton active={wrapLines} onToggle={() => setWrapLines((value) => !value)} tooltipPlacement="below" />
+              <View style={styles.diffActions}><DiffOptionButton active={collapseUnchanged} onToggle={() => setCollapseUnchanged((value) => !value)} label="折叠未变更代码" icon="ChevronsDownUp" /><DiffOptionButton active={syncScrolling} onToggle={() => setSyncScrolling((value) => !value)} label="左右同步滚动" icon="ArrowDownUp" /><WrapToggleButton active={wrapLines} onToggle={() => setWrapLines((value) => !value)} tooltipPlacement="below" /></View>
             </> : null}
           </View>
-          {activeTab && parsed[0] && diffHeight > 75 ? <SplitDiff file={parsed[0]} wrapLines={wrapLines} maxHeight={Math.max(32, diffHeight - 75)} /> : <Text style={styles.empty}>{diffLoading ? "加载差异…" : activeTab ? "没有可显示的文本差异" : "点击左侧或下方变更文件，在这里查看 Diff"}</Text>}
+          {activeTab && parsed[0] && diffHeight > 75 ? <SplitDiff key={activeTab.id} file={parsed[0]} wrapLines={wrapLines} collapseUnchanged={collapseUnchanged} syncScrolling={syncScrolling} loadFullFile={loadFullDiff} maxHeight={Math.max(32, diffHeight - 75)} /> : <Text style={styles.empty}>{diffLoading ? "加载差异…" : activeTab ? "没有可显示的文本差异" : "点击左侧或下方变更文件，在这里查看 Diff"}</Text>}
         </View>
     </View>
     <ResizeHandle direction="horizontal" appearance="gutter" label="调整 Git 历史面板高度" onResize={(delta) => { setPreferredTopHeight((height) => Math.max(minimumTop, Math.min(availableHeight - minimumBottom, (historyMinimized ? availableHeight - 36 : height ?? defaultTopHeight) + delta))); setHistoryMinimized(false); }} />
@@ -658,6 +667,7 @@ const styles = StyleSheet.create({
   modified: { color: "#1641ad" },
   deleted: { color: "#bc3145" },
   diffHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 38, paddingHorizontal: 9, position: "relative", zIndex: 3 },
+  diffActions: { flexDirection: "row", alignItems: "center", gap: 7, flexShrink: 0 },
   diffPath: { flex: 1, fontSize: 12, color: "#374151" },
   empty: { padding: 12, fontSize: 12, color: "#6b7280" },
   error: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 9, paddingVertical: 5, color: "#b91c1c", backgroundColor: "#fff", fontSize: 11 },

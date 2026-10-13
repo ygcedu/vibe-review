@@ -100,6 +100,40 @@ export function buildSplitDiffRows(lines: DiffLine[]): SplitDiffRow[] {
   return rows;
 }
 
+function firstNumber(row: SplitDiffRow, side: "before" | "after"): number | undefined {
+  return row.kind === "context" ? row[side].number : row.kind === "change" ? row[side][0]?.number : undefined;
+}
+
+function lastNumber(row: SplitDiffRow, side: "before" | "after"): number | undefined {
+  return row.kind === "context" ? row[side].number : row.kind === "change" ? row[side].at(-1)?.number : undefined;
+}
+
+export function gapKey(row: SplitDiffRow): string {
+  return `${firstNumber(row, "before") ?? ""}:${firstNumber(row, "after") ?? ""}`;
+}
+
+/** Insert only the unchanged ranges the user has opened; other gaps stay collapsed. */
+export function expandCollapsedRows(rows: SplitDiffRow[], fullRows: SplitDiffRow[], opened: Set<string>): SplitDiffRow[] {
+  const result: SplitDiffRow[] = [];
+  let before = 0;
+  let after = 0;
+  for (const row of rows) {
+    const nextBefore = firstNumber(row, "before");
+    const nextAfter = firstNumber(row, "after");
+    if (opened.has(gapKey(row)) && (nextBefore !== undefined || nextAfter !== undefined)) {
+      result.push(...fullRows.filter((candidate) => candidate.kind === "context" &&
+        candidate.before.number !== undefined && candidate.after.number !== undefined &&
+        candidate.before.number > before && candidate.after.number > after &&
+        (nextBefore === undefined || candidate.before.number < nextBefore) &&
+        (nextAfter === undefined || candidate.after.number < nextAfter)));
+    }
+    result.push(row);
+    before = lastNumber(row, "before") ?? before;
+    after = lastNumber(row, "after") ?? after;
+  }
+  return result;
+}
+
 export function parseDiffFiles(diffText?: string): DiffFile[] {
   if (!diffText?.trim()) return [];
   const files: DiffFile[] = [];

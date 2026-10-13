@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PanResponder, Platform, ScrollView, StyleSheet, View, type NativeScrollEvent, type NativeSyntheticEvent, type PointerEvent as RNPointerEvent, type ViewStyle } from "react-native";
 import type { DiffCell, DiffFile } from "./diff";
-import { buildPaneRows, buildSplitDiffRows } from "./diff";
+import { buildPaneRows, buildSplitDiffRows, expandCollapsedRows, gapKey } from "./diff";
 import { highlightSplitRows } from "./syntax";
 import { changedSpansByCell } from "./intraline";
 import { buildVerticalTrack, positionForOffset, positionsAt } from "./vertical-sync";
@@ -42,8 +42,32 @@ function measuredBounds(fallback: ChangeBounds, measured: ChangeBounds): ChangeB
 }
 
 /** Two aligned panes modeled after an IDE side-by-side diff. */
-export function SplitDiff({ file, wrapLines, maxHeight = MAX_VIEWPORT_HEIGHT }: { file: DiffFile; wrapLines: boolean; maxHeight?: number }) {
-  const rows = useMemo(() => buildSplitDiffRows(file.lines), [file.lines]);
+export function SplitDiff({ file, wrapLines, collapseUnchanged = true, syncScrolling = true, loadFullFile, maxHeight = MAX_VIEWPORT_HEIGHT }: { file: DiffFile; wrapLines: boolean; collapseUnchanged?: boolean; syncScrolling?: boolean; loadFullFile?: () => Promise<DiffFile | null>; maxHeight?: number }) {
+  const [fullFile, setFullFile] = useState<DiffFile | null>(null);
+  const [openedGaps, setOpenedGaps] = useState<Set<string>>(new Set());
+  useEffect(() => { setFullFile(null); setOpenedGaps(new Set()); }, [file.lines]);
+  useEffect(() => { if (collapseUnchanged) setOpenedGaps(new Set()); }, [collapseUnchanged]);
+  const requestFullFile = async () => {
+    if (fullFile) return fullFile;
+    try {
+      const loaded = await loadFullFile?.() ?? null;
+      if (loaded) setFullFile(loaded);
+      return loaded;
+    } catch { return null; }
+  };
+  useEffect(() => { if (!collapseUnchanged && !fullFile) void requestFullFile(); }, [collapseUnchanged, fullFile, file.lines]);
+  const rows = useMemo(() => {
+    const base = buildSplitDiffRows(file.lines);
+    if (!fullFile) return base;
+    const full = buildSplitDiffRows(fullFile.lines);
+    return collapseUnchanged ? expandCollapsedRows(base, full, openedGaps) : full;
+  }, [file.lines, fullFile?.lines, collapseUnchanged, openedGaps]);
+  const expandWave = (index: number) => {
+    const row = rows[index];
+    if (!row) return;
+    const key = gapKey(row);
+    void requestFullFile().then((loaded) => { if (loaded) setOpenedGaps((current) => new Set(current).add(key)); });
+  };
   const changedSpans = useMemo(() => changedSpansByCell(rows), [rows]);
   const beforeRows = useMemo(() => buildPaneRows(rows, "before"), [rows]);
   const afterRows = useMemo(() => buildPaneRows(rows, "after"), [rows]);
@@ -140,6 +164,13 @@ export function SplitDiff({ file, wrapLines, maxHeight = MAX_VIEWPORT_HEIGHT }: 
     } else setNativeScrollPosition(next);
     setVerticalOffsets((current) => Math.abs(current.before - offsets.before) < 0.5 && Math.abs(current.after - offsets.after) < 0.5 ? current : offsets);
   };
+  const applySideVerticalOffset = (side: "before" | "after", offset: number) => {
+    const next = Math.max(0, Math.min(Math.max(0, paneHeights[side] - viewportHeight), offset));
+    requestedVertical.current = { ...requestedVertical.current, [side]: next };
+    (side === "before" ? beforeVertical : afterVertical).current?.scrollTo({ y: next, animated: false });
+    setVerticalOffsets({ ...requestedVertical.current });
+    drawConnector(requestedVertical.current);
+  };
   useLayoutEffect(() => {
     if (Platform.OS !== "web") return;
     const viewport = viewportNode.current as unknown as HTMLElement | null;
@@ -149,7 +180,7 @@ export function SplitDiff({ file, wrapLines, maxHeight = MAX_VIEWPORT_HEIGHT }: 
     // A non-passive capture listener blocks native asynchronous wheel scrolling.
     // The panes and connector can then move together before the next paint.
     const onWheel = (event: WheelEvent) => {
-      if (event.ctrlKey || event.shiftKey || !Number.isFinite(event.deltaY) || Math.abs(event.deltaX) > Math.abs(event.deltaY) || !verticalTrack.length) return;
+      if (!syncScrolling || event.ctrlKey || event.shiftKey || !Number.isFinite(event.deltaY) || Math.abs(event.deltaX) > Math.abs(event.deltaY) || !verticalTrack.length) return;
       event.preventDefault();
       const unit = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? viewportHeight : 1;
       applyVerticalPosition(virtualPosition.current + event.deltaY * unit);
@@ -157,6 +188,12 @@ export function SplitDiff({ file, wrapLines, maxHeight = MAX_VIEWPORT_HEIGHT }: 
     const onNativeScroll = (side: "before" | "after", element: HTMLElement) => {
       const y = element.scrollTop;
       if (Math.abs(requestedVertical.current[side] - y) < 1) return;
+      if (!syncScrolling) {
+        requestedVertical.current = { ...requestedVertical.current, [side]: y };
+        setVerticalOffsets({ ...requestedVertical.current });
+        drawConnector(requestedVertical.current);
+        return;
+      }
       virtualPosition.current = positionForOffset(verticalTrack, side, y);
       applyVerticalPosition(virtualPosition.current);
     };
@@ -170,7 +207,7 @@ export function SplitDiff({ file, wrapLines, maxHeight = MAX_VIEWPORT_HEIGHT }: 
       before.removeEventListener("scroll", onBeforeScroll);
       after.removeEventListener("scroll", onAfterScroll);
     };
-  }, [verticalTrack, viewportHeight, paneHeights, beforeRows, changeBounds, waveBounds]);
+  }, [verticalTrack, viewportHeight, paneHeights, beforeRows, changeBounds, waveBounds, syncScrolling]);
   useLayoutEffect(() => {
     const nextKey = `${file.path}\0${wrapLines}`;
     if (measuredLayoutKey.current === nextKey) return;
@@ -258,6 +295,7 @@ export function SplitDiff({ file, wrapLines, maxHeight = MAX_VIEWPORT_HEIGHT }: 
     if (Math.abs(sourceX - previousX) < 0.01) return;
     (side === "before" ? beforeScroll : afterScroll).current?.scrollTo({ x: sourceX, animated: false });
     (side === "before" ? beforeFooter : afterFooter).current?.scrollTo({ x: sourceX, animated: false });
+    if (!syncScrolling) { setHorizontalOffsets({ ...horizontalPositions.current }); return; }
     // Keep the same physical scroll offset on both sides. A shorter side stops
     // at its own end while the longer side can continue and return independently.
     const targetMax = side === "before" ? afterMaxScroll : beforeMaxScroll;
@@ -274,8 +312,8 @@ export function SplitDiff({ file, wrapLines, maxHeight = MAX_VIEWPORT_HEIGHT }: 
   const syncScroll = (side: "before" | "after", event: NativeSyntheticEvent<NativeScrollEvent>) => applyHorizontalScroll(side, event.nativeEvent.contentOffset.x);
   const renderPane = (side: "before" | "after", paneWidth: number) => {
     const paneRows = side === "before" ? beforeRows : afterRows;
-    if (wrapLines) return <WrapPane rows={paneRows} side={side} width={paneWidth} tokens={tokens} changedSpans={changedSpans} onChange={onChange} onWave={onWave} />;
-    return <NoWrapPane rows={paneRows} side={side} width={paneWidth} contentWidth={Math.max(paneWidth - LINE_NUMBER_WIDTH, minCodeWidths[side])} tokens={tokens} changedSpans={changedSpans} scrollRef={side === "before" ? beforeScroll : afterScroll} onScroll={(event) => syncScroll(side, event)} onChange={onChange} onWave={onWave} waveBounds={Platform.OS === "web" ? waveBounds : nativeWaveBounds} />;
+    if (wrapLines) return <WrapPane rows={paneRows} side={side} width={paneWidth} tokens={tokens} changedSpans={changedSpans} onChange={onChange} onWave={onWave} onExpandWave={expandWave} />;
+    return <NoWrapPane rows={paneRows} side={side} width={paneWidth} contentWidth={Math.max(paneWidth - LINE_NUMBER_WIDTH, minCodeWidths[side])} tokens={tokens} changedSpans={changedSpans} scrollRef={side === "before" ? beforeScroll : afterScroll} onScroll={(event) => syncScroll(side, event)} onChange={onChange} onWave={onWave} onExpandWave={expandWave} waveBounds={Platform.OS === "web" ? waveBounds : nativeWaveBounds} />;
   };
   const webPointerHandlers = Platform.OS === "web" ? {
     onPointerDown: (event: RNPointerEvent) => {
@@ -305,13 +343,15 @@ export function SplitDiff({ file, wrapLines, maxHeight = MAX_VIEWPORT_HEIGHT }: 
       const clickedThumb = event.target !== event.currentTarget;
       const offset = clickedThumb ? verticalOffsets[side] : Math.max(0, Math.min(maxOffset, (event.nativeEvent.clientY - trackTop - thumbHeight / 2) / thumbTravel * maxOffset));
       scrollbarDrag.current = { side, startY: event.nativeEvent.clientY, startOffset: offset };
-      applyVerticalPosition(positionForOffset(verticalTrack, side, offset));
+      if (syncScrolling) applyVerticalPosition(positionForOffset(verticalTrack, side, offset));
+      else applySideVerticalOffset(side, offset);
     };
     const onPointerMove = (event: RNPointerEvent) => {
       const drag = scrollbarDrag.current;
       if (!drag || drag.side !== side) return;
       const offset = Math.max(0, Math.min(maxOffset, drag.startOffset + (event.nativeEvent.clientY - drag.startY) / thumbTravel * maxOffset));
-      applyVerticalPosition(positionForOffset(verticalTrack, side, offset));
+      if (syncScrolling) applyVerticalPosition(positionForOffset(verticalTrack, side, offset));
+      else applySideVerticalOffset(side, offset);
     };
     return <View key={`${side}-scrollbar`} pointerEvents={scrollbarsVisible ? "auto" : "none"} style={[styles.scrollbarTrack, { left, height: viewportHeight, opacity: scrollbarsVisible ? 1 : 0 }, { transition: "opacity 400ms ease-out" } as ViewStyle]} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={() => { scrollbarDrag.current = null; }} onPointerCancel={() => { scrollbarDrag.current = null; }}>
       <View style={[styles.scrollbarThumb, side === "before" ? { left: 2 } : { right: 2 }, { top, height: thumbHeight, backgroundColor: hoveredScrollbar === side ? "rgba(100,116,139,0.65)" : "rgba(100,116,139,0.42)" }]} onPointerEnter={() => setHoveredScrollbar(side)} onPointerLeave={() => setHoveredScrollbar((current) => current === side ? null : current)} />

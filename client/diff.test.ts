@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildPaneRows, buildSplitDiffRows, parseDiffFiles } from "./diff.ts";
+import { buildPaneRows, buildSplitDiffRows, expandCollapsedRows, gapKey, parseDiffFiles } from "./diff.ts";
 
 test("snapshot diff renders only code rows, with correct file and line numbers", () => {
   const diff = [
@@ -60,4 +60,19 @@ test("legacy repeated edit markers do not appear as visible rows", () => {
   ].join("\n"));
   assert.equal(files.length, 1);
   assert.deepEqual(buildSplitDiffRows(files[0]!.lines).map((row) => row.kind), ["change", "change"]);
+});
+
+test("opening one skipped range inserts only its unchanged lines", () => {
+  const compact = buildSplitDiffRows([
+    { type: "header", content: "@@ -1 +1 @@" }, { type: "context", content: " one" },
+    { type: "header", content: "@@ -4 +4 @@" }, { type: "context", content: " four" },
+    { type: "header", content: "@@ -7 +7 @@" }, { type: "context", content: " seven" },
+  ]);
+  const full = buildSplitDiffRows([
+    { type: "header", content: "@@ -1,7 +1,7 @@" },
+    ...["one", "two", "three", "four", "five", "six", "seven"].map((text) => ({ type: "context" as const, content: ` ${text}` })),
+  ]);
+  const expanded = expandCollapsedRows(compact, full, new Set([gapKey(compact[1]!) ]));
+  assert.deepEqual(expanded.map((row) => row.kind === "context" ? row.before.text : "change"), ["one", "two", "three", "four", "seven"]);
+  assert.equal(buildPaneRows(expanded, "before").filter((row) => row.kind === "wave").length, 1);
 });
