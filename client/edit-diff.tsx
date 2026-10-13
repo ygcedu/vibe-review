@@ -69,14 +69,14 @@ export function EditDiffItem({ item, theme, agentId }: PluginTimelineItemProps<z
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 30, marginHorizontal: -13, paddingHorizontal: 8 },
+  row: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 30, marginHorizontal: -13, paddingHorizontal: 8, position: "relative", zIndex: 3 },
   fileButton: { flex: 1, minWidth: 0, minHeight: 30, flexDirection: "row", alignItems: "center", gap: 7 },
   iconSlot: { width: 22, height: 22, alignItems: "center", justifyContent: "center", marginRight: -3 },
   pencilNudge: { marginLeft: -1 },
   chevronNudge: { marginLeft: -4, transform: [{ scale: 1.3 }] },
   editLabel: { fontSize: 14 },
   path: { fontSize: 14, flexShrink: 1, color: "#0133b3" },
-  actions: { flexDirection: "row", alignItems: "center", gap: 5 },
+  actions: { flexDirection: "row", alignItems: "center", gap: 5, position: "relative", zIndex: 4 },
   added: { color: "#077d18", fontSize: 14, fontWeight: "600" },
   removed: { color: "#b91c1c", fontSize: 14, fontWeight: "600" },
 });

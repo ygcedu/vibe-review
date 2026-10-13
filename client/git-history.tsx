@@ -503,7 +503,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
           <View style={styles.diffHeader}>
             <Text style={styles.diffPath} numberOfLines={1}>{activeTab ? `${activeTab.source === "working" ? "Working Diff" : "Repository Diff"}: ${activeTab.path}` : "选择文件查看差异"}</Text>
             {activeTab ? <>
-              <View style={styles.diffActions}><DiffOptionButton active={collapseUnchanged} onToggle={() => setCollapseUnchanged((value) => !value)} label="折叠未变更代码" icon="ChevronsDownUp" /><DiffOptionButton active={syncScrolling} onToggle={() => setSyncScrolling((value) => !value)} label="左右同步滚动" icon="ArrowDownUp" /><WrapToggleButton active={wrapLines} onToggle={() => setWrapLines((value) => !value)} tooltipPlacement="below" /></View>
+              <View style={styles.diffActions}><DiffOptionButton active={collapseUnchanged} onToggle={() => setCollapseUnchanged((value) => !value)} label="折叠未变更代码" icon="ChevronsDownUp" /><DiffOptionButton active={syncScrolling} onToggle={() => setSyncScrolling((value) => !value)} label="左右同步滚动" icon="ArrowDownUp" /><WrapToggleButton active={wrapLines} onToggle={() => setWrapLines((value) => !value)} /></View>
             </> : null}
           </View>
           {activeTab && parsed[0] && diffHeight > 75 ? <SplitDiff key={activeTab.id} file={parsed[0]} wrapLines={wrapLines} collapseUnchanged={collapseUnchanged} syncScrolling={syncScrolling} loadFullFile={loadFullDiff} maxHeight={Math.max(32, diffHeight - 75)} /> : <Text style={styles.empty}>{diffLoading ? "加载差异…" : activeTab ? "没有可显示的文本差异" : "点击左侧或下方变更文件，在这里查看 Diff"}</Text>}
@@ -666,7 +666,7 @@ const styles = StyleSheet.create({
   added: { color: "#07833d" },
   modified: { color: "#1641ad" },
   deleted: { color: "#bc3145" },
-  diffHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 38, paddingHorizontal: 9, position: "relative", zIndex: 3 },
+  diffHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 38, paddingHorizontal: 9, position: "relative", zIndex: 20 },
   diffActions: { flexDirection: "row", alignItems: "center", gap: 7, flexShrink: 0 },
   diffPath: { flex: 1, fontSize: 12, color: "#374151" },
   empty: { padding: 12, fontSize: 12, color: "#6b7280" },
