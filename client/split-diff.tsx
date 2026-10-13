@@ -312,8 +312,8 @@ export function SplitDiff({ file, wrapLines, collapseUnchanged = true, syncScrol
   const syncScroll = (side: "before" | "after", event: NativeSyntheticEvent<NativeScrollEvent>) => applyHorizontalScroll(side, event.nativeEvent.contentOffset.x);
   const renderPane = (side: "before" | "after", paneWidth: number) => {
     const paneRows = side === "before" ? beforeRows : afterRows;
-    if (wrapLines) return <WrapPane rows={paneRows} side={side} width={paneWidth} tokens={tokens} changedSpans={changedSpans} onChange={onChange} onWave={onWave} onExpandWave={expandWave} />;
-    return <NoWrapPane rows={paneRows} side={side} width={paneWidth} contentWidth={Math.max(paneWidth - LINE_NUMBER_WIDTH, minCodeWidths[side])} tokens={tokens} changedSpans={changedSpans} scrollRef={side === "before" ? beforeScroll : afterScroll} onScroll={(event) => syncScroll(side, event)} onChange={onChange} onWave={onWave} onExpandWave={expandWave} waveBounds={Platform.OS === "web" ? waveBounds : nativeWaveBounds} />;
+    if (wrapLines) return <WrapPane rows={paneRows} side={side} width={paneWidth} tokens={tokens} changedSpans={changedSpans} onChange={onChange} onWave={onWave} onExpandWave={loadFullFile ? expandWave : undefined} />;
+    return <NoWrapPane rows={paneRows} side={side} width={paneWidth} contentWidth={Math.max(paneWidth - LINE_NUMBER_WIDTH, minCodeWidths[side])} tokens={tokens} changedSpans={changedSpans} scrollRef={side === "before" ? beforeScroll : afterScroll} onScroll={(event) => syncScroll(side, event)} onChange={onChange} onWave={onWave} onExpandWave={loadFullFile ? expandWave : undefined} waveBounds={Platform.OS === "web" ? waveBounds : nativeWaveBounds} />;
   };
   const webPointerHandlers = Platform.OS === "web" ? {
     onPointerDown: (event: RNPointerEvent) => {

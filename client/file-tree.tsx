@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import type { DiffFile } from "./diff";
+import { parseDiffFiles, type DiffFile } from "./diff";
 import { FileTypeIcon } from "./file-icons";
 import { SplitDiff } from "./split-diff";
-import { WrapToggleButton } from "./wrap-toggle";
+import { DiffOptionButton, WrapToggleButton } from "./wrap-toggle";
 
 type FolderNode = { kind: "folder"; name: string; path: string; count: number; children: TreeNode[] };
 type FileNode = { kind: "file"; name: string; file: DiffFile; index: number };
@@ -38,7 +38,7 @@ function buildFileTree(files: DiffFile[]): TreeNode[] {
   return root;
 }
 
-export function FileTree({ files, collapseFoldersInitially = false }: { files: DiffFile[]; collapseFoldersInitially?: boolean }) {
+export function FileTree({ files, fullDiff, collapseFoldersInitially = false }: { files: DiffFile[]; fullDiff?: string; collapseFoldersInitially?: boolean }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(() => {
     const folders = new Set<string>();
     if (!collapseFoldersInitially) return folders;
@@ -52,6 +52,9 @@ export function FileTree({ files, collapseFoldersInitially = false }: { files: D
   });
   const [openFile, setOpenFile] = useState<number | null>(null);
   const [wrapLines, setWrapLines] = useState(false);
+  const [collapseUnchanged, setCollapseUnchanged] = useState(true);
+  const [syncScrolling, setSyncScrolling] = useState(true);
+  const fullFiles = useMemo(() => parseDiffFiles(fullDiff), [fullDiff]);
   const nodes = buildFileTree(files);
 
   const toggleFolder = (path: string) => setCollapsed((current) => {
@@ -81,6 +84,7 @@ export function FileTree({ files, collapseFoldersInitially = false }: { files: D
     }
     const { file, index } = node;
     const isOpen = openFile === index;
+    const fullFile = fullFiles.find((item) => item.path === file.path) ?? null;
     return <View key={`file:${file.path}`}>
       <View style={[styles.row, isOpen && styles.selected, { paddingLeft: 12 + depth * 20 }]}>
         <TouchableOpacity
@@ -97,11 +101,11 @@ export function FileTree({ files, collapseFoldersInitially = false }: { files: D
           <FileTypeIcon fileName={node.name} />
           <Text style={[styles.fileName, fileNameColors[file.status]]} numberOfLines={1}>{node.name}</Text>
         </TouchableOpacity>
-        {isOpen ? <View style={styles.fileActions}><WrapToggleButton active={wrapLines} onToggle={() => setWrapLines((current) => !current)} /></View> : null}
+        {isOpen ? <View style={styles.fileActions}><DiffOptionButton active={collapseUnchanged} onToggle={() => setCollapseUnchanged((current) => !current)} label="折叠未变更代码" icon="ChevronsDownUp" disabled={!fullFile} /><DiffOptionButton active={syncScrolling} onToggle={() => setSyncScrolling((current) => !current)} label="左右同步滚动" icon="ArrowDownUp" /><WrapToggleButton active={wrapLines} onToggle={() => setWrapLines((current) => !current)} /></View> : null}
         <Text style={styles.added}>+{file.added}</Text>
         <Text style={styles.removed}>-{file.removed}</Text>
       </View>
-      {isOpen ? <SplitDiff file={file} wrapLines={wrapLines} /> : null}
+      {isOpen ? <SplitDiff file={file} wrapLines={wrapLines} collapseUnchanged={collapseUnchanged} syncScrolling={syncScrolling} loadFullFile={fullFile ? async () => fullFile : undefined} /> : null}
     </View>;
   });
 
@@ -112,7 +116,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 34, paddingRight: 12 },
   selected: { backgroundColor: "#e8f0ff", zIndex: 3 },
   fileSelect: { flex: 1, minHeight: 34, flexDirection: "row", alignItems: "center", gap: 6 },
-  fileActions: { flexDirection: "row-reverse", alignItems: "center", gap: 4, position: "relative", zIndex: 2 },
+  fileActions: { flexDirection: "row", alignItems: "center", gap: 4, position: "relative", zIndex: 2 },
   folderName: { color: "#111827", fontSize: 12, fontWeight: "600", flexShrink: 1 },
   count: { color: "#6b7280", fontSize: 11 },
   fileIndent: { width: 15 },

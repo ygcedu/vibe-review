@@ -53,12 +53,12 @@ export async function captureWorktree(cwd: string, previous?: WorktreeSnapshot):
 }
 
 /** The net file contents changed between two turn boundaries, including new/deleted files. */
-export async function diffSnapshots(before: WorktreeSnapshot, after: WorktreeSnapshot): Promise<string> {
+export async function diffSnapshots(before: WorktreeSnapshot, after: WorktreeSnapshot, fullContext = false): Promise<string> {
   if (before.repoRoot !== after.repoRoot || before.cwd !== after.cwd) {
     throw new Error("Workspace changed during the turn");
   }
   return git(before.cwd, [
-    "diff", "--no-ext-diff", "--no-renames", "--no-color", "--unified=3",
+    "diff", "--no-ext-diff", "--no-renames", "--no-color", `--unified=${fullContext ? 999999 : 3}`,
     before.tree, after.tree, "--", ".",
   ], before);
 }

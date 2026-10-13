@@ -203,7 +203,7 @@ export function verdictOf(
  * doesn't read as the *current* turn's verdict.
  */
 export type TurnOutcome = { kind: string; error?: { message?: string } };
-export type FileChanges = { diff: string; diffIncomplete: boolean };
+export type FileChanges = { diff: string; fullDiff?: string; diffIncomplete: boolean };
 
 export function queueReview(
   paseo: PaseoApi,
@@ -248,6 +248,7 @@ async function runReview(
   // A review started after plugin reload or from the command center has no turn-start baseline.
   // Never present a series of tool edits as if it were the final file diff.
   const lastTurnDiff = fileChanges?.diff;
+  const fullTurnDiff = fileChanges?.fullDiff;
   const diffIncomplete = fileChanges?.diffIncomplete ?? true;
   // Nothing was actually done — skip review.
   if (!summary.task && summary.userMessages.length === 0) return;
@@ -262,7 +263,7 @@ async function runReview(
         type: "plugin", id: cardId, kind: REVIEW_KIND, version: REVIEW_VERSION,
         data: { verdict: "review", completed: 0, drift: "in_scope", summary: summary.task,
           goal: summary.task, scoredAt: new Date().toISOString(), turnId,
-          processing: true, diff: lastTurnDiff, diffIncomplete },
+          processing: true, diff: lastTurnDiff, fullDiff: fullTurnDiff, diffIncomplete },
       });
     } catch (error) {
       console.warn("[vibe-review] pending review card unavailable:", error);
@@ -333,6 +334,7 @@ async function runReview(
     narrative: distilled.narrative,
     followups: distilled.followups,
     diff: lastTurnDiff || undefined,
+    fullDiff: fullTurnDiff || undefined,
     diffIncomplete,
     detail: distilled.promptNoDiff,
   };

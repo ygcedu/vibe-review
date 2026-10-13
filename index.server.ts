@@ -16,10 +16,12 @@ import { buildTaskSummary, isSessionControlCommand } from "./server/inspect";
 import { isVerifierHookAgent, verifyWithPaseoProvider } from "./server/verify";
 import { registerWorkspaceCommit } from "./server/workspace-commit";
 import { registerGitHistory } from "./server/git-history";
+import { registerEditDiff } from "./server/edit-diff";
 
 export default function contribute(server: PluginServerContext) {
   registerWorkspaceCommit(server);
   registerGitHistory(server);
+  registerEditDiff(server);
   const settings = server.registerSettings(llmSettings);
   const piSettings = server.registerSettings(piCommitSettings);
   const verifySettings = server.registerSettings(verificationSettings);
@@ -85,11 +87,13 @@ export default function contribute(server: PluginServerContext) {
       console.log("[vibe-review] skipped session control command:", event.agent.id, event.turnId);
       return;
     }
-    let fileChanges: { diff: string; diffIncomplete: boolean } | undefined;
+    let fileChanges: { diff: string; fullDiff?: string; diffIncomplete: boolean } | undefined;
     if (started && started.turnId === event.turnId) {
       try {
-        const diff = await diffSnapshots(started.snapshot, await captureWorktree(event.agent.cwd, started.snapshot));
-        fileChanges = { diff, diffIncomplete: /Binary files .* differ|^GIT binary patch/m.test(diff) };
+        const ended = await captureWorktree(event.agent.cwd, started.snapshot);
+        const diff = await diffSnapshots(started.snapshot, ended);
+        const fullDiff = diff ? await diffSnapshots(started.snapshot, ended, true) : "";
+        fileChanges = { diff, fullDiff, diffIncomplete: /Binary files .* differ|^GIT binary patch/m.test(diff) };
         console.log("[vibe-review] turn snapshot compared:", event.agent.id, event.turnId, "diff bytes", diff.length);
       } catch (error) {
         console.warn("[vibe-review] turn-end snapshot unavailable:", error);

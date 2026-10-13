@@ -18,11 +18,11 @@ export function WrapToggleButton({ active, onToggle, tooltipPlacement = "above" 
   </View>;
 }
 
-export function DiffOptionButton({ active, onToggle, label, icon }: { active: boolean; onToggle(): void; label: string; icon: string }) {
+export function DiffOptionButton({ active, onToggle, label, icon, disabled = false, disabledReason = "旧卡片未保存完整上下文" }: { active: boolean; onToggle(): void; label: string; icon: string; disabled?: boolean; disabledReason?: string }) {
   const [hovered, setHovered] = useState(false);
   return <View style={styles.container}>
-    <Pressable accessibilityRole="button" accessibilityLabel={label} aria-pressed={active} onHoverIn={() => setHovered(true)} onHoverOut={() => setHovered(false)} onPress={onToggle} style={[styles.button, active && styles.active, hovered && styles.hover]}><Icon name={icon} size={14} color="#64748b" /></Pressable>
-    {hovered ? <View pointerEvents="none" style={[styles.tooltip, styles.below, { width: 112 }]}><Text style={styles.tooltipText}>{label}</Text></View> : null}
+    <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled }} aria-pressed={active} disabled={disabled} onHoverIn={() => setHovered(true)} onHoverOut={() => setHovered(false)} onPress={onToggle} style={[styles.button, active && styles.active, hovered && !disabled && styles.hover, disabled && styles.disabled]}><Icon name={icon} size={14} color="#64748b" /></Pressable>
+    {hovered ? <View pointerEvents="none" style={[styles.tooltip, styles.below, { width: disabled ? 150 : 112 }]}><Text style={styles.tooltipText}>{disabled ? disabledReason : label}</Text></View> : null}
   </View>;
 }
 
@@ -31,6 +31,7 @@ const styles = StyleSheet.create({
   button: { width: 20, height: 20, borderRadius: 4, alignItems: "center", justifyContent: "center" },
   active: { backgroundColor: "#cbcbcd" },
   hover: { backgroundColor: "#e5e7eb" },
+  disabled: { opacity: 0.45 },
   tooltip: { position: "absolute", right: 0, width: 72, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 5, backgroundColor: "#1e293b", zIndex: 4 },
   above: { bottom: 24 },
   below: { top: 24 },

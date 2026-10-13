@@ -205,7 +205,7 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
     const timer = setInterval(refresh, 2_000);
     return () => { active = false; clearInterval(timer); };
   }, [paseo, props.agentId, data.scoredAt, commitRunning, commitProgress?.kind]);
-  const diffFiles = parseDiffFiles(data.diff);
+  const diffFiles = useMemo(() => parseDiffFiles(data.diff), [data.diff]);
   const totalAdded = diffFiles.reduce((total, file) => total + file.added, 0);
   const totalRemoved = diffFiles.reduce((total, file) => total + file.removed, 0);
   const followups = verificationRunning ? [] : data.followups ?? [];
@@ -346,7 +346,7 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
     </View>
     {diffFiles.length && showFiles ? (
       <View style={[styles.diffBox, { borderTopColor: cardColors.divider }]}>
-        <FileTree files={diffFiles} />
+        <FileTree files={diffFiles} fullDiff={data.fullDiff} />
       </View>
     ) : data.diffIncomplete ? (
       <Text style={styles.missingDiff}>文件变更可能未被记录</Text>

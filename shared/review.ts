@@ -30,6 +30,8 @@ export const reviewResultSchema = z.object({
   detail: z.string().optional(),
   /** 本轮工作树快照的净变更；缺失起点快照时省略。 */
   diff: z.string().optional(),
+  /** 轮次结束时的完整上下文差异，用于展开评估卡片中的省略区。 */
+  fullDiff: z.string().optional(),
   diffIncomplete: z.boolean().optional(),
 });
 

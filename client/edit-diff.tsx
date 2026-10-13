@@ -1,21 +1,39 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import type { PluginTimelineItemProps } from "@getpaseo/plugin/client";
+import { useRpc, type PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { z } from "zod";
 import { parseDiffFiles } from "./diff";
 import { FileTypeIcon } from "./file-icons";
 import { SplitDiff } from "./split-diff";
+import { DiffOptionButton, WrapToggleButton } from "./wrap-toggle";
+import { editFullDiffRpc } from "../shared/edit-diff";
 
 export const EDIT_DIFF_KIND = "edit-diff";
 export const editDiffSchema = z.object({ path: z.string(), diff: z.string(), status: z.string() });
 
-export function EditDiffItem({ item, theme }: PluginTimelineItemProps<z.output<typeof editDiffSchema>>) {
+export function EditDiffItem({ item, theme, agentId }: PluginTimelineItemProps<z.output<typeof editDiffSchema>>) {
+  const getFullDiff = useRpc(editFullDiffRpc);
   const [openFile, setOpenFile] = useState<number | null>(null);
   const [hoveredFile, setHoveredFile] = useState<number | null>(null);
   const [wrapLines, setWrapLines] = useState(false);
-  const files = parseDiffFiles(item.data.diff);
+  const [collapseUnchanged, setCollapseUnchanged] = useState(true);
+  const [syncScrolling, setSyncScrolling] = useState(true);
+  const [fullContextUnavailable, setFullContextUnavailable] = useState(false);
+  const files = useMemo(() => parseDiffFiles(item.data.diff), [item.data.diff]);
   if (files.length === 1) files[0]!.path = item.data.path;
+  const loadFullFile = async (path: string) => {
+    try {
+      const result = await getFullDiff({ agentId, path, diff: item.data.diff });
+      const full = parseDiffFiles(result.diff)[0] ?? null;
+      if (full) full.path = path;
+      return full;
+    } catch {
+      setCollapseUnchanged(true);
+      setFullContextUnavailable(true);
+      return null;
+    }
+  };
 
   return <View>{files.map((file, index) => {
     const open = openFile === index;
@@ -28,7 +46,7 @@ export function EditDiffItem({ item, theme }: PluginTimelineItemProps<z.output<t
           accessibilityState={{ expanded: open }}
           onHoverIn={() => setHoveredFile(index)}
           onHoverOut={() => setHoveredFile((current) => current === index ? null : current)}
-          onPress={() => { setOpenFile(open ? null : index); setWrapLines(false); }}
+          onPress={() => { setOpenFile(open ? null : index); setWrapLines(false); setFullContextUnavailable(false); }}
           style={styles.fileButton}
         >
           <View style={styles.iconSlot}>
@@ -41,13 +59,11 @@ export function EditDiffItem({ item, theme }: PluginTimelineItemProps<z.output<t
           <Text style={styles.path} numberOfLines={1}>{file.path}</Text>
           {/* TODO(Paseo): Add a file-page shortcut here when timeline renderer props expose a supported openFile navigation API. */}
         </Pressable>
-        {open ? <Pressable accessibilityRole="button" accessibilityLabel="折行显示" accessibilityState={{ selected: wrapLines }} onPress={() => setWrapLines((value) => !value)} style={styles.wrapButton}>
-          <Icon name="WrapText" size={14} color={theme.colors.foregroundMuted} />
-        </Pressable> : null}
+        {open ? <View style={styles.actions}><DiffOptionButton active={collapseUnchanged} onToggle={() => setCollapseUnchanged((value) => !value)} label="折叠未变更代码" icon="ChevronsDownUp" disabled={fullContextUnavailable} disabledReason="当前文件无法还原完整上下文" /><DiffOptionButton active={syncScrolling} onToggle={() => setSyncScrolling((value) => !value)} label="左右同步滚动" icon="ArrowDownUp" /><WrapToggleButton active={wrapLines} onToggle={() => setWrapLines((value) => !value)} /></View> : null}
         <Text style={styles.added}>+{file.added}</Text>
         <Text style={styles.removed}>-{file.removed}</Text>
       </View>
-      {open ? <SplitDiff file={file} wrapLines={wrapLines} /> : null}
+      {open ? <SplitDiff file={file} wrapLines={wrapLines} collapseUnchanged={collapseUnchanged} syncScrolling={syncScrolling} loadFullFile={fullContextUnavailable ? undefined : () => loadFullFile(file.path)} /> : null}
     </View>;
   })}</View>;
 }
@@ -60,7 +76,7 @@ const styles = StyleSheet.create({
   chevronNudge: { marginLeft: -4, transform: [{ scale: 1.3 }] },
   editLabel: { fontSize: 14 },
   path: { fontSize: 14, flexShrink: 1, color: "#0133b3" },
-  wrapButton: { width: 20, height: 20, alignItems: "center", justifyContent: "center" },
+  actions: { flexDirection: "row", alignItems: "center", gap: 5 },
   added: { color: "#077d18", fontSize: 14, fontWeight: "600" },
   removed: { color: "#b91c1c", fontSize: 14, fontWeight: "600" },
 });

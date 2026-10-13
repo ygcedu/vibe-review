@@ -43,3 +43,28 @@ test("turn snapshots show net changes without altering the user's index", async 
     await rm(cwd, { recursive: true, force: true });
   }
 });
+
+test("full-context snapshot preserves lines omitted from the card diff", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "vibe-review-full-diff-test-"));
+  let before: WorktreeSnapshot | undefined;
+  try {
+    execFileSync("git", ["init", "-q"], { cwd });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd });
+    execFileSync("git", ["config", "user.name", "Test"], { cwd });
+    const original = Array.from({ length: 20 }, (_, index) => `line ${index + 1}`).join("\n") + "\n";
+    await writeFile(join(cwd, "sample.txt"), original);
+    execFileSync("git", ["add", "sample.txt"], { cwd });
+    execFileSync("git", ["commit", "-qm", "initial"], { cwd });
+    before = await captureWorktree(cwd);
+    await writeFile(join(cwd, "sample.txt"), original.replace("line 10", "changed 10"));
+    const after = await captureWorktree(cwd, before);
+    const compact = await diffSnapshots(before, after);
+    const full = await diffSnapshots(before, after, true);
+    assert.doesNotMatch(compact, / line 1\n/);
+    assert.match(full, / line 1\n/);
+    assert.match(full, / line 20(?:\n|$)/);
+  } finally {
+    if (before) await disposeSnapshot(before);
+    await rm(cwd, { recursive: true, force: true });
+  }
+});

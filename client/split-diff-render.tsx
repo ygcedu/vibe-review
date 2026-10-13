@@ -61,7 +61,7 @@ const waveTile = `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http
 function Wave({ width, side, onLayout, onPress }: { width: number; side: "before" | "after"; onLayout?: (top: number, height: number) => void; onPress?: () => void }) {
   const webStyle = Platform.OS === "web" ? ({ backgroundImage: waveTile, backgroundRepeat: "repeat-x", backgroundPositionX: side === "before" ? width % WAVE_PERIOD : 0 } as unknown as ViewStyle) : undefined;
   const nativePhase = side === "before" ? width % WAVE_PERIOD - WAVE_PERIOD : 0;
-  return <Pressable accessibilityRole="button" accessibilityLabel="展开省略的代码" onPress={onPress} onLayout={onLayout ? (event) => onLayout(event.nativeEvent.layout.y, event.nativeEvent.layout.height) : undefined} style={[styles.wave, { width }, webStyle]}>{Platform.OS !== "web" ? (
+  return <Pressable accessibilityRole={onPress ? "button" : undefined} accessibilityLabel={onPress ? "展开省略的代码" : undefined} disabled={!onPress} onPress={onPress} onLayout={onLayout ? (event) => onLayout(event.nativeEvent.layout.y, event.nativeEvent.layout.height) : undefined} style={[styles.wave, { width }, webStyle, !onPress && { cursor: "auto" }]}>{Platform.OS !== "web" ? (
     <View style={{ flexDirection: "row", position: "absolute", left: nativePhase, top: 0 }}>
       {Array.from({ length: Math.ceil((width - nativePhase) / WAVE_PERIOD) }, (_, index) => (
         <Image key={index} source={{ uri: nativeWaveTile }} resizeMode="stretch" style={{ width: WAVE_PERIOD, height: WAVE_HEIGHT }} />
@@ -97,9 +97,9 @@ export function fixedNoWrapBounds(beforeRows: PaneRow[], afterRows: PaneRow[]): 
   return { changes, waves };
 }
 
-export function WrapPane({ rows, side, width, tokens, changedSpans, onChange, onWave, onExpandWave }: { rows: PaneRow[]; side: "before" | "after"; width: number; tokens: Map<DiffCell, HighlightToken[]>; changedSpans: Map<DiffCell, TextSpan[]>; onChange: RecordChange; onWave: RecordChange; onExpandWave: (index: number) => void }) {
+export function WrapPane({ rows, side, width, tokens, changedSpans, onChange, onWave, onExpandWave }: { rows: PaneRow[]; side: "before" | "after"; width: number; tokens: Map<DiffCell, HighlightToken[]>; changedSpans: Map<DiffCell, TextSpan[]>; onChange: RecordChange; onWave: RecordChange; onExpandWave?: (index: number) => void }) {
   return <View style={{ width }}>
-    {rows.map((row) => row.kind === "wave" ? <Wave key={row.key} width={width} side={side} onPress={() => onExpandWave(row.index)} onLayout={(top, height) => onWave(side, row.index, top, height)} /> : row.kind === "code" ? (
+    {rows.map((row) => row.kind === "wave" ? <Wave key={row.key} width={width} side={side} onPress={onExpandWave ? () => onExpandWave(row.index) : undefined} onLayout={(top, height) => onWave(side, row.index, top, height)} /> : row.kind === "code" ? (
       <CodeLine key={row.key} side={side} cell={row.cell} tokens={tokens.get(row.cell)} wrapLines />
     ) : <View key={row.key} onLayout={(event) => onChange(side, row.index, event.nativeEvent.layout.y, event.nativeEvent.layout.height)}>
       {row.cells.length ? row.cells.map((cell, index) => <CodeLine key={index} side={side} cell={cell} tone={row.tone} tokens={tokens.get(cell)} changedSpans={changedSpans.get(cell)} wrapLines />) : <View style={[styles.emptyChange, { backgroundColor: changeColors[row.tone] }]} />}
@@ -119,7 +119,7 @@ function NoWrapGutter({ rows, side, onChange, onWave }: { rows: PaneRow[]; side:
   </View>;
 }
 
-export function NoWrapPane({ rows, side, width, contentWidth, tokens, changedSpans, scrollRef, onScroll, onChange, onWave, waveBounds, onExpandWave }: { rows: PaneRow[]; side: "before" | "after"; width: number; contentWidth: number; tokens: Map<DiffCell, HighlightToken[]>; changedSpans: Map<DiffCell, TextSpan[]>; scrollRef: RefObject<ScrollView | null>; onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void; onChange: RecordChange; onWave: RecordChange; waveBounds: WaveBounds; onExpandWave: (index: number) => void }) {
+export function NoWrapPane({ rows, side, width, contentWidth, tokens, changedSpans, scrollRef, onScroll, onChange, onWave, waveBounds, onExpandWave }: { rows: PaneRow[]; side: "before" | "after"; width: number; contentWidth: number; tokens: Map<DiffCell, HighlightToken[]>; changedSpans: Map<DiffCell, TextSpan[]>; scrollRef: RefObject<ScrollView | null>; onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void; onChange: RecordChange; onWave: RecordChange; waveBounds: WaveBounds; onExpandWave?: (index: number) => void }) {
   const code = <ScrollView horizontal nestedScrollEnabled bounces={false} overScrollMode="never" showsHorizontalScrollIndicator={false} ref={scrollRef} onScroll={onScroll} scrollEventThrottle={16} style={{ width: width - LINE_NUMBER_WIDTH }}>
       <View style={{ width: contentWidth }}>
         {rows.map((row) => row.kind === "wave" ? <View key={row.key} style={{ height: WAVE_HEIGHT }} /> : row.kind === "code" ? (
@@ -137,7 +137,7 @@ export function NoWrapPane({ rows, side, width, contentWidth, tokens, changedSpa
     {rows.filter((row) => row.kind === "wave").map((row) => {
       if (row.kind !== "wave") return null;
       const bounds = waveBounds[row.index]?.[side];
-      return bounds ? <View key={row.key} style={{ position: "absolute", top: bounds.top, left: 0, zIndex: 1 }}><Wave width={width} side={side} onPress={() => onExpandWave(row.index)} /></View> : null;
+      return bounds ? <View key={row.key} style={{ position: "absolute", top: bounds.top, left: 0, zIndex: 1 }}><Wave width={width} side={side} onPress={onExpandWave ? () => onExpandWave(row.index) : undefined} /></View> : null;
     })}
   </View>;
 }
