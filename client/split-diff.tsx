@@ -45,15 +45,24 @@ function measuredBounds(fallback: ChangeBounds, measured: ChangeBounds): ChangeB
 export function SplitDiff({ file, wrapLines, collapseUnchanged = true, syncScrolling = true, loadFullFile, maxHeight = MAX_VIEWPORT_HEIGHT }: { file: DiffFile; wrapLines: boolean; collapseUnchanged?: boolean; syncScrolling?: boolean; loadFullFile?: () => Promise<DiffFile | null>; maxHeight?: number }) {
   const [fullFile, setFullFile] = useState<DiffFile | null>(null);
   const [openedGaps, setOpenedGaps] = useState<Set<string>>(new Set());
-  useEffect(() => { setFullFile(null); setOpenedGaps(new Set()); }, [file.lines]);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadLoading, setLoadLoading] = useState(false);
+  const loading = useRef(false);
+  useEffect(() => { setFullFile(null); setOpenedGaps(new Set()); setLoadFailed(false); setLoadLoading(false); loading.current = false; }, [file.lines]);
   useEffect(() => { if (collapseUnchanged) setOpenedGaps(new Set()); }, [collapseUnchanged]);
   const requestFullFile = async () => {
     if (fullFile) return fullFile;
+    if (loading.current) return null;
+    loading.current = true;
+    setLoadFailed(false);
+    setLoadLoading(true);
     try {
       const loaded = await loadFullFile?.() ?? null;
       if (loaded) setFullFile(loaded);
+      else setLoadFailed(true);
       return loaded;
-    } catch { return null; }
+    } catch { setLoadFailed(true); return null; }
+    finally { loading.current = false; setLoadLoading(false); }
   };
   useEffect(() => { if (!collapseUnchanged && !fullFile) void requestFullFile(); }, [collapseUnchanged, fullFile, file.lines]);
   const rows = useMemo(() => {
@@ -316,8 +325,8 @@ export function SplitDiff({ file, wrapLines, collapseUnchanged = true, syncScrol
   const syncScroll = (side: "before" | "after", event: NativeSyntheticEvent<NativeScrollEvent>) => applyHorizontalScroll(side, event.nativeEvent.contentOffset.x);
   const renderPane = (side: "before" | "after", paneWidth: number) => {
     const paneRows = side === "before" ? beforeRows : afterRows;
-    if (wrapLines) return <WrapPane rows={paneRows} side={side} width={paneWidth} tokens={tokens} changedSpans={changedSpans} onChange={onChange} onWave={onWave} onExpandWave={loadFullFile ? expandWave : undefined} />;
-    return <NoWrapPane rows={paneRows} side={side} width={paneWidth} contentWidth={Math.max(paneWidth - LINE_NUMBER_WIDTH, minCodeWidths[side])} tokens={tokens} changedSpans={changedSpans} scrollRef={side === "before" ? beforeScroll : afterScroll} onScroll={(event) => syncScroll(side, event)} onChange={onChange} onWave={onWave} onExpandWave={loadFullFile ? expandWave : undefined} waveBounds={displayWaveBounds} visibleOffset={verticalOffsets[side]} viewportHeight={Platform.OS === "web" ? viewportHeight : nativeViewportHeight} />;
+    if (wrapLines) return <WrapPane rows={paneRows} side={side} width={paneWidth} tokens={tokens} changedSpans={changedSpans} onChange={onChange} onWave={onWave} onExpandWave={loadFullFile ? expandWave : undefined} waveFailed={loadFailed} waveLoading={loadLoading} />;
+    return <NoWrapPane rows={paneRows} side={side} width={paneWidth} contentWidth={Math.max(paneWidth - LINE_NUMBER_WIDTH, minCodeWidths[side])} tokens={tokens} changedSpans={changedSpans} scrollRef={side === "before" ? beforeScroll : afterScroll} onScroll={(event) => syncScroll(side, event)} onChange={onChange} onWave={onWave} onExpandWave={loadFullFile ? expandWave : undefined} waveBounds={displayWaveBounds} waveFailed={loadFailed} waveLoading={loadLoading} visibleOffset={verticalOffsets[side]} viewportHeight={Platform.OS === "web" ? viewportHeight : nativeViewportHeight} />;
   };
   const webPointerHandlers = Platform.OS === "web" ? {
     onPointerDown: (event: RNPointerEvent) => {
