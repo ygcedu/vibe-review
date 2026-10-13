@@ -13,6 +13,7 @@
     "shared/"
   ],
   "scripts": {
+    "test": "node --test server/*.test.ts shared/*.test.ts client/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
