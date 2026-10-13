@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { PluginHandlerContext, PluginServerContext } from "@getpaseo/plugin/server";
-import { gitCommitDetailRpc, gitCommitFileDiffRpc, gitHistoryRpc } from "../shared/git-history";
+import { gitCommitDetailRpc, gitCommitFileDiffRpc, gitHistoryRpc } from "../shared/git-history.ts";
 
 const runFile = promisify(execFile);
 const PAGE_SIZE = 50;
@@ -16,11 +16,19 @@ async function directory(paseo: PluginHandlerContext["paseo"], workspaceId: stri
 }
 
 const format = "%H%x1f%P%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%D%x1e";
-function parseCommits(raw: string) {
+export function parseCommits(raw: string) {
   return raw.split("\x1e").map((record) => record.trimStart()).filter(Boolean).map((record) => {
     const [hash = "", parents = "", author = "", email = "", date = "", subject = "", refs = ""] = record.split("\x1f");
     return { hash, parents: parents ? parents.split(" ") : [], author, email, date, subject, refs: refs ? refs.split(", ") : [] };
   });
+}
+
+export type ChangedFile = { path: string; status: string };
+export function parseChangedFiles(raw: string): ChangedFile[] {
+  const parts = raw.split("\0").filter(Boolean);
+  const files: ChangedFile[] = [];
+  for (let i = 0; i + 1 < parts.length; i += 2) files.push({ status: parts[i]!, path: parts[i + 1]! });
+  return files;
 }
 
 async function commitBase(cwd: string, hash: string) {
@@ -34,10 +42,7 @@ async function changedFiles(cwd: string, hash: string, base: string | null) {
   const args = base
     ? ["diff", "--name-status", "--no-renames", "-z", base, hash]
     : ["diff-tree", "--root", "--no-commit-id", "--name-status", "--no-renames", "-r", "-z", hash];
-  const parts = (await git(cwd, args)).split("\0").filter(Boolean);
-  const files: Array<{ path: string; status: string }> = [];
-  for (let i = 0; i + 1 < parts.length; i += 2) files.push({ status: parts[i]!, path: parts[i + 1]! });
-  return files;
+  return parseChangedFiles(await git(cwd, args));
 }
 
 export function registerGitHistory(server: PluginServerContext) {
