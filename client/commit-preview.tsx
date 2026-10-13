@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useRpc, type PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import type { z } from "zod";
 import { cancelPiCommitRpc, commitPreviewSchema, confirmPiCommitRpc, getPiCommitPreviewRpc } from "../shared/commit";
@@ -49,6 +49,21 @@ export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.i
     return () => { active = false; if (timer) clearTimeout(timer); };
   }, [agentId, proposalId, previewRequest]);
 
+  const groupNode = useRef<View>(null);
+  // Skip the 3s poll while the card is off-screen (multi-card timelines);
+  // re-poll immediately once visible again.
+  const [isVisible, setIsVisible] = useState(true);
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const node = groupNode.current as unknown as HTMLElement | null;
+    if (!node || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => {
+      const entry = entries[0];
+      if (entry) setIsVisible(entry.isIntersecting);
+    }, { rootMargin: "200px" });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
   useEffect(() => {
     if (previewState !== "pending") return;
     let active = true;
@@ -65,9 +80,11 @@ export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.i
         }
       }, () => { /* Retain the visible preview and retry after reconnect. */ });
     };
+    if (isVisible) refresh();
+    if (!isVisible) return () => { active = false; };
     const timer = setInterval(refresh, 3_000);
     return () => { active = false; clearInterval(timer); };
-  }, [agentId, proposalId, previewState]);
+  }, [agentId, proposalId, previewState, isVisible]);
 
   const submit = () => {
     if (busy || previewState !== "pending" || !diff || !validMessage) return;
@@ -98,7 +115,7 @@ export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.i
     </TouchableOpacity>
   </View>;
 
-  return <View style={styles.card}>
+  return <View ref={groupNode} style={styles.card}>
     {done ? submitted ? <>
       <Text selectable style={styles.done}>已提交 · {submitted[1]}</Text>
       <Text selectable style={styles.doneMessage}>{submitted[2]}</Text>
