@@ -79,7 +79,7 @@ export function fixedNoWrapHeight(rows: PaneRow[]): number {
   return rows.reduce((height, row) => height + (row.kind === "wave" ? WAVE_HEIGHT : row.kind === "change" ? Math.max(1, row.cells.length * 22) : 22), 0);
 }
 
-/** Fixed-height rows let the web view mount only the visible slice of a long file. */
+/** Fixed-height rows let either renderer mount only the visible slice of a long file. */
 const rowOffsets = new WeakMap<PaneRow[], number[]>();
 export function noWrapWindow(rows: PaneRow[], offset: number, viewportHeight: number) {
   let offsets = rowOffsets.get(rows);
@@ -146,7 +146,7 @@ function NoWrapGutter({ rows, side, onChange, onWave }: { rows: PaneRow[]; side:
 }
 
 export function NoWrapPane({ rows, side, width, contentWidth, tokens, changedSpans, scrollRef, onScroll, onChange, onWave, waveBounds, onExpandWave, visibleOffset = 0, viewportHeight = 520 }: { rows: PaneRow[]; side: "before" | "after"; width: number; contentWidth: number; tokens: Map<DiffCell, HighlightToken[]>; changedSpans: Map<DiffCell, TextSpan[]>; scrollRef: RefObject<ScrollView | null>; onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void; onChange: RecordChange; onWave: RecordChange; waveBounds: WaveBounds; onExpandWave?: (index: number) => void; visibleOffset?: number; viewportHeight?: number }) {
-  const virtualized = Platform.OS === "web" && rows.length > 120;
+  const virtualized = rows.length > 120;
   const window = virtualized ? noWrapWindow(rows, visibleOffset, viewportHeight) : { start: 0, end: rows.length, top: 0, bottom: 0 };
   const visibleRows = rows.slice(window.start, window.end);
   const code = <ScrollView horizontal nestedScrollEnabled bounces={false} overScrollMode="never" showsHorizontalScrollIndicator={false} ref={scrollRef} onScroll={onScroll} scrollEventThrottle={16} style={{ width: width - LINE_NUMBER_WIDTH }}>
