@@ -83,6 +83,8 @@ export function SplitDiff({ file, wrapLines, collapseUnchanged = true, syncScrol
   }, [rows, file.path]);
   const [changeBounds, setChangeBounds] = useState<ChangeBounds>({});
   const [waveBounds, setWaveBounds] = useState<WaveBounds>({});
+  const displayChangeBounds = wrapLines ? changeBounds : noWrapBounds.changes;
+  const displayWaveBounds = wrapLines ? waveBounds : noWrapBounds.waves;
   const nativeChangeBounds = wrapLines ? changeBounds : measuredBounds(noWrapBounds.changes, changeBounds);
   const nativeWaveBounds = wrapLines ? waveBounds : measuredBounds(noWrapBounds.waves, waveBounds);
   const [paneHeights, setPaneHeights] = useState({ before: 0, after: 0 });
@@ -128,23 +130,23 @@ export function SplitDiff({ file, wrapLines, collapseUnchanged = true, syncScrol
     const points = [{ before: 0, after: 0 }];
     for (const row of beforeRows) {
       if (row.kind !== "change" && row.kind !== "wave") continue;
-      const pair = row.kind === "change" ? changeBounds[row.index] : waveBounds[row.index];
+      const pair = row.kind === "change" ? displayChangeBounds[row.index] : displayWaveBounds[row.index];
       if (!pair?.before || !pair.after) continue;
       points.push({ before: pair.before.top, after: pair.after.top });
       points.push({ before: pair.before.bottom, after: pair.after.bottom });
     }
     points.push({ before: scrollHeights.before, after: scrollHeights.after });
     return buildVerticalTrack(points);
-  }, [beforeRows, changeBounds, waveBounds, scrollHeights.before, scrollHeights.after]);
+  }, [beforeRows, displayChangeBounds, displayWaveBounds, scrollHeights.before, scrollHeights.after]);
   const nativeVirtualHeight = Math.max(nativeViewportHeight, verticalTrack.at(-1)?.virtualEnd ?? 0, nativeContentHeight);
   const drawConnector = (offsets: { before: number; after: number }) => {
     if (Platform.OS !== "web") return;
     const drawing = connectorDrawing.current as unknown as HTMLElement | null;
-    if (drawing) drawing.innerHTML = connectorSvg(beforeRows, changeBounds, waveBounds, offsets, viewportHeight);
+    if (drawing) drawing.innerHTML = connectorSvg(beforeRows, displayChangeBounds, displayWaveBounds, offsets, viewportHeight);
   };
   useLayoutEffect(() => {
     drawConnector(requestedVertical.current);
-  }, [beforeRows, changeBounds, waveBounds, viewportHeight]);
+  }, [beforeRows, displayChangeBounds, displayWaveBounds, viewportHeight]);
   const applyVerticalPosition = (position: number) => {
     showScrollbars();
     const visibleHeight = Platform.OS === "web" ? viewportHeight : nativeViewportHeight;
@@ -207,7 +209,7 @@ export function SplitDiff({ file, wrapLines, collapseUnchanged = true, syncScrol
       before.removeEventListener("scroll", onBeforeScroll);
       after.removeEventListener("scroll", onAfterScroll);
     };
-  }, [verticalTrack, viewportHeight, paneHeights, beforeRows, changeBounds, waveBounds, syncScrolling]);
+  }, [verticalTrack, viewportHeight, paneHeights, beforeRows, displayChangeBounds, displayWaveBounds, syncScrolling]);
   useLayoutEffect(() => {
     const nextKey = `${file.path}\0${wrapLines}`;
     if (measuredLayoutKey.current === nextKey) return;
@@ -313,7 +315,7 @@ export function SplitDiff({ file, wrapLines, collapseUnchanged = true, syncScrol
   const renderPane = (side: "before" | "after", paneWidth: number) => {
     const paneRows = side === "before" ? beforeRows : afterRows;
     if (wrapLines) return <WrapPane rows={paneRows} side={side} width={paneWidth} tokens={tokens} changedSpans={changedSpans} onChange={onChange} onWave={onWave} onExpandWave={loadFullFile ? expandWave : undefined} />;
-    return <NoWrapPane rows={paneRows} side={side} width={paneWidth} contentWidth={Math.max(paneWidth - LINE_NUMBER_WIDTH, minCodeWidths[side])} tokens={tokens} changedSpans={changedSpans} scrollRef={side === "before" ? beforeScroll : afterScroll} onScroll={(event) => syncScroll(side, event)} onChange={onChange} onWave={onWave} onExpandWave={loadFullFile ? expandWave : undefined} waveBounds={Platform.OS === "web" ? waveBounds : nativeWaveBounds} />;
+    return <NoWrapPane rows={paneRows} side={side} width={paneWidth} contentWidth={Math.max(paneWidth - LINE_NUMBER_WIDTH, minCodeWidths[side])} tokens={tokens} changedSpans={changedSpans} scrollRef={side === "before" ? beforeScroll : afterScroll} onScroll={(event) => syncScroll(side, event)} onChange={onChange} onWave={onWave} onExpandWave={loadFullFile ? expandWave : undefined} waveBounds={displayWaveBounds} visibleOffset={verticalOffsets[side]} viewportHeight={viewportHeight} />;
   };
   const webPointerHandlers = Platform.OS === "web" ? {
     onPointerDown: (event: RNPointerEvent) => {

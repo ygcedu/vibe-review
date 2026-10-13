@@ -79,6 +79,32 @@ export function fixedNoWrapHeight(rows: PaneRow[]): number {
   return rows.reduce((height, row) => height + (row.kind === "wave" ? WAVE_HEIGHT : row.kind === "change" ? Math.max(1, row.cells.length * 22) : 22), 0);
 }
 
+/** Fixed-height rows let the web view mount only the visible slice of a long file. */
+const rowOffsets = new WeakMap<PaneRow[], number[]>();
+export function noWrapWindow(rows: PaneRow[], offset: number, viewportHeight: number) {
+  let offsets = rowOffsets.get(rows);
+  if (!offsets) {
+    offsets = [0];
+    for (const row of rows) offsets.push(offsets[offsets.length - 1]! + (row.kind === "wave" ? WAVE_HEIGHT : row.kind === "change" ? Math.max(1, row.cells.length * 22) : 22));
+    rowOffsets.set(rows, offsets);
+  }
+  const upper = Math.max(0, offset - 440);
+  const lower = offset + viewportHeight + 440;
+  const firstAfter = (height: number) => {
+    let lo = 0;
+    let hi = rows.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (offsets![mid + 1]! < height) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  };
+  const start = firstAfter(upper);
+  const end = Math.min(rows.length, firstAfter(lower) + 1);
+  return { start, end, top: offsets[start]!, bottom: offsets[rows.length]! - offsets[end]! };
+}
+
 /** No-wrap rows have fixed heights, so their connector positions need no native layout callbacks. */
 export function fixedNoWrapBounds(beforeRows: PaneRow[], afterRows: PaneRow[]): { changes: ChangeBounds; waves: WaveBounds } {
   const changes: ChangeBounds = {};
@@ -119,22 +145,27 @@ function NoWrapGutter({ rows, side, onChange, onWave }: { rows: PaneRow[]; side:
   </View>;
 }
 
-export function NoWrapPane({ rows, side, width, contentWidth, tokens, changedSpans, scrollRef, onScroll, onChange, onWave, waveBounds, onExpandWave }: { rows: PaneRow[]; side: "before" | "after"; width: number; contentWidth: number; tokens: Map<DiffCell, HighlightToken[]>; changedSpans: Map<DiffCell, TextSpan[]>; scrollRef: RefObject<ScrollView | null>; onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void; onChange: RecordChange; onWave: RecordChange; waveBounds: WaveBounds; onExpandWave?: (index: number) => void }) {
+export function NoWrapPane({ rows, side, width, contentWidth, tokens, changedSpans, scrollRef, onScroll, onChange, onWave, waveBounds, onExpandWave, visibleOffset = 0, viewportHeight = 520 }: { rows: PaneRow[]; side: "before" | "after"; width: number; contentWidth: number; tokens: Map<DiffCell, HighlightToken[]>; changedSpans: Map<DiffCell, TextSpan[]>; scrollRef: RefObject<ScrollView | null>; onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void; onChange: RecordChange; onWave: RecordChange; waveBounds: WaveBounds; onExpandWave?: (index: number) => void; visibleOffset?: number; viewportHeight?: number }) {
+  const virtualized = Platform.OS === "web" && rows.length > 120;
+  const window = virtualized ? noWrapWindow(rows, visibleOffset, viewportHeight) : { start: 0, end: rows.length, top: 0, bottom: 0 };
+  const visibleRows = rows.slice(window.start, window.end);
   const code = <ScrollView horizontal nestedScrollEnabled bounces={false} overScrollMode="never" showsHorizontalScrollIndicator={false} ref={scrollRef} onScroll={onScroll} scrollEventThrottle={16} style={{ width: width - LINE_NUMBER_WIDTH }}>
       <View style={{ width: contentWidth }}>
-        {rows.map((row) => row.kind === "wave" ? <View key={row.key} style={{ height: WAVE_HEIGHT }} /> : row.kind === "code" ? (
+        {window.top > 0 ? <View style={{ height: window.top }} /> : null}
+        {visibleRows.map((row) => row.kind === "wave" ? <View key={row.key} style={{ height: WAVE_HEIGHT }} /> : row.kind === "code" ? (
           <CodeLine key={row.key} side={side} cell={row.cell} tokens={tokens.get(row.cell)} wrapLines={false} showLineNumber={false} visibleCodeWidth={width - LINE_NUMBER_WIDTH} />
         ) : (
           <View key={row.key}>
             {row.cells.length ? row.cells.map((cell, index) => <CodeLine key={index} side={side} cell={cell} tone={row.tone} tokens={tokens.get(cell)} changedSpans={changedSpans.get(cell)} wrapLines={false} showLineNumber={false} visibleCodeWidth={width - LINE_NUMBER_WIDTH} />) : <View style={[styles.emptyChange, { backgroundColor: changeColors[row.tone] }]} />}
           </View>
         ))}
+        {window.bottom > 0 ? <View style={{ height: window.bottom }} /> : null}
       </View>
   </ScrollView>;
-  const gutter = <NoWrapGutter rows={rows} side={side} onChange={onChange} onWave={onWave} />;
+  const gutter = <View style={styles.lineNumberGutter}>{window.top > 0 ? <View style={{ height: window.top }} /> : null}<NoWrapGutter rows={visibleRows} side={side} onChange={virtualized ? () => {} : onChange} onWave={virtualized ? () => {} : onWave} />{window.bottom > 0 ? <View style={{ height: window.bottom }} /> : null}</View>;
   return <View style={[styles.codeRow, { width, position: "relative" }]}>
     {side === "before" ? <>{code}{gutter}</> : <>{gutter}{code}</>}
-    {rows.filter((row) => row.kind === "wave").map((row) => {
+    {visibleRows.filter((row) => row.kind === "wave").map((row) => {
       if (row.kind !== "wave") return null;
       const bounds = waveBounds[row.index]?.[side];
       return bounds ? <View key={row.key} style={{ position: "absolute", top: bounds.top, left: 0, zIndex: 1 }}><Wave width={width} side={side} onPress={onExpandWave ? () => onExpandWave(row.index) : undefined} /></View> : null;
