@@ -265,7 +265,8 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
   const tabNodes = useRef(new Map<string, HTMLElement>());
   const [diff, setDiff] = useState<{ tabId: string | null; text: string; loading: boolean }>({ tabId: null, text: "", loading: false });
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [branchCollapsed, setBranchCollapsed] = useState<Set<string>>(new Set());
+  const [branchCollapsed, setBranchCollapsed] = useState<Set<string>>(new Set(["remote", "tag"]));
+  const branchDefaultsWorkspace = useRef<string | null>(null);
   const [branchSearch, setBranchSearch] = useState("");
   const [panelWidth, setPanelWidth] = useState(0);
   const [panelHeight, setPanelHeight] = useState(0);
@@ -332,6 +333,19 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps) {
       setCommits((existing) => skip === 0 ? value.commits : [...existing, ...value.commits]);
       setBranches(value.branches);
       setCurrentBranch(value.currentBranch);
+      if (branchDefaultsWorkspace.current !== workspaceId) {
+        const initiallyCollapsed = new Set(["remote", "tag"]);
+        for (const item of value.branches) {
+          if (item.group !== "local") continue;
+          const parts = item.name.split("/");
+          for (let depth = 1; depth < parts.length; depth++) {
+            const folder = parts.slice(0, depth).join("/");
+            if (!value.currentBranch.startsWith(`${folder}/`)) initiallyCollapsed.add(`local/${folder}`);
+          }
+        }
+        setBranchCollapsed(initiallyCollapsed);
+        branchDefaultsWorkspace.current = workspaceId;
+      }
       setCurrentGitUser(value.currentGitUser);
       setHasMore(value.hasMore);
       if (skip === 0) setSelectedHash(value.commits[0]?.hash ?? null);
