@@ -1,8 +1,9 @@
-import { createHash, randomUUID } from "node:crypto";
-import { readFile, rename, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CommitProposal } from "./pi-commit.ts";
+import { atomicWriteJson } from "./atomic-write.ts";
 
 function recordPath(agentId: string): string {
   const id = createHash("sha256").update(agentId).digest("hex");
@@ -29,14 +30,7 @@ export async function loadCommitProposal(agentId: string, proposalId?: string): 
 }
 
 export async function saveCommitProposal(proposal: CommitProposal): Promise<void> {
-  const path = recordPath(proposal.agentId);
-  const temporary = `${path}.${randomUUID()}.tmp`;
-  try {
-    await writeFile(temporary, JSON.stringify(proposal), { mode: 0o600 });
-    await rename(temporary, path);
-  } finally {
-    await rm(temporary, { force: true });
-  }
+  await atomicWriteJson(recordPath(proposal.agentId), proposal);
 }
 
 export async function removeCommitProposal(agentId: string, proposalId: string): Promise<void> {

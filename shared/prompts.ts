@@ -15,12 +15,6 @@ const VERIFICATION_SEGMENTS = [
   '只输出 JSON：{"status":"passed|failed|unavailable","summary":"结论","evidence":["观察到的事实"],"cases":[{"name":"用例","steps":["执行的步骤"],"expected":"预期","actual":"实际结果和证据","status":"passed|failed|blocked"}]}。有失败则 failed；关键用例受阻且无法判断则 unavailable；全部关键用例通过才 passed。',
   "用户目标：\n{{goal}}", "声称完成的结果：\n{{claimedResult}}",
 ];
-const LEGACY_VERIFICATION_SEGMENTS = [
-  "只读检查，禁止修改文件、发送消息、提交或执行破坏性操作。",
-  '只输出一个 JSON 对象：{"status":"passed|failed|unavailable","summary":"简短结论","evidence":["实际观察到的事实"],"cases":[{"name":"用例名称","steps":["实际执行的步骤"],"expected":"预期结果","actual":"实际结果及证据","status":"passed|failed|blocked"}]}。有用例失败则总体 failed；关键用例受阻且无法判断则 unavailable；所有关键用例通过才 passed。',
-  "<goal>\n{{goal}}\n</goal>", "<claimed_result>\n{{claimedResult}}\n</claimed_result>",
-  "<assistant_messages>\n{{assistantMessages}}\n</assistant_messages>", "{{changedFiles}}",
-];
 export const VERIFICATION_CONTEXT = VERIFICATION_SEGMENTS.join("\n");
 
 const PI_SEGMENTS = [
@@ -93,22 +87,6 @@ export function renderPrompt(template: string, variables: Record<string, string>
 // Preserve instruction-only settings written by v1 while adding editable variable positions.
 function migrateInstruction(kind: PromptKind, value: unknown, fromVersion: number): string {
   if (typeof value !== "string" || !value.trim()) return { review: DEFAULT_REVIEW_PROMPT, verification: DEFAULT_VERIFICATION_PROMPT, piCommit: DEFAULT_PI_COMMIT_PROMPT }[kind];
-  if (kind === "verification" && fromVersion < 6 && !promptEditableParts(kind, value)) {
-    let remainder = value;
-    const custom: string[] = [];
-    for (const segment of LEGACY_VERIFICATION_SEGMENTS) {
-      const index = remainder.indexOf(segment);
-      if (index < 0) { custom.length = 0; break; }
-      custom.push(remainder.slice(0, index));
-      remainder = remainder.slice(index + segment.length);
-    }
-    if (custom.length) {
-      custom.push(remainder);
-      const instruction = custom.join("\n").trim();
-      if (instruction.startsWith("请独立验证本轮声称的结果。先根据可验证主张和主要风险设计少量具体测试用例") && instruction.includes("以工具取得的一手观察为依据，区分事实和推测。")) return DEFAULT_VERIFICATION_PROMPT;
-      return instruction ? `${instruction}\n\n${VERIFICATION_CONTEXT}` : DEFAULT_VERIFICATION_PROMPT;
-    }
-  }
   const parts = promptEditableParts(kind, value);
   if (parts) {
     if (fromVersion >= 5) return value;

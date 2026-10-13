@@ -422,19 +422,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 20,
   },
-  expandBtn: {
-    marginTop: 2,
-    paddingVertical: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  expandLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  expandChevron: { fontSize: 18, lineHeight: 18 },
   goal: {
     fontSize: 15,
     lineHeight: 22,

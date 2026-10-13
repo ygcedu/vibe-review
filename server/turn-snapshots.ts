@@ -1,7 +1,8 @@
-import { createHash, randomUUID } from "node:crypto";
-import { readFile, rename, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { atomicWriteJson } from "./atomic-write.ts";
 import { disposeSnapshot, type WorktreeSnapshot } from "./snapshot.ts";
 
 type SavedTurnSnapshot = { turnId: string | null; snapshot: WorktreeSnapshot };
@@ -26,14 +27,7 @@ export async function takeTurnSnapshot(agentId: string): Promise<SavedTurnSnapsh
 }
 
 export async function saveTurnSnapshot(agentId: string, saved: SavedTurnSnapshot): Promise<void> {
-  const path = recordPath(agentId);
-  const temporary = `${path}.${randomUUID()}.tmp`;
-  try {
-    await writeFile(temporary, JSON.stringify(saved), { mode: 0o600 });
-    await rename(temporary, path);
-  } finally {
-    await rm(temporary, { force: true });
-  }
+  await atomicWriteJson(recordPath(agentId), saved);
 }
 
 export async function replaceTurnSnapshot(agentId: string, saved: SavedTurnSnapshot): Promise<void> {
