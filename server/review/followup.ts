@@ -1,4 +1,4 @@
-import type { PaseoApi } from "./paseo-api-types.ts";
+import type { PaseoApi } from "../paseo-api-types.ts";
 import { isSpawnedAgent } from "./verdict.ts";
 
 /** Auto follow-up only for spawned task agents (labeled by Paseo), never the user's main session. */

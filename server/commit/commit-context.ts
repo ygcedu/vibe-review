@@ -1,6 +1,6 @@
 import type { AgentTimelineItem } from "@getpaseo/protocol/agent-types";
-import { COMMIT_RESULT_KIND, commitResultSchema } from "../shared/commit.ts";
-import { REVIEW_KIND, reviewResultSchema } from "../shared/review.ts";
+import { COMMIT_RESULT_KIND, commitResultSchema } from "../../shared/commit.ts";
+import { REVIEW_KIND, reviewResultSchema } from "../../shared/review.ts";
 
 /** Only recent review cards for turns with recorded file changes inform the commit. */
 export function recentCommitContext(timeline: readonly AgentTimelineItem[]): string {

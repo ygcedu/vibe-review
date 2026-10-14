@@ -1,7 +1,7 @@
-import type { LlmConfig } from "../shared/settings";
-import { DEFAULT_REVIEW_PROMPT, renderPrompt } from "../shared/prompts.ts";
-import { parseFirstJsonObject } from "./llm-response.ts";
-import { isNoDrift } from "../shared/drift.ts";
+import type { LlmConfig } from "../../shared/settings";
+import { DEFAULT_REVIEW_PROMPT, renderPrompt } from "../../shared/prompts.ts";
+import { parseFirstJsonObject } from "../llm-response.ts";
+import { isNoDrift } from "../../shared/drift.ts";
 
 /** 解析 LLM 的固定字段，容错全角冒号与多余空行。 */
 function parseDistillText(text: string): { goal: string; drifts: string; narrative: string; result: string; taskType: string; followups: string[] } {

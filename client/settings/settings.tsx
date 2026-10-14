@@ -3,8 +3,8 @@ import { Pressable, Text, View, useColorScheme } from "react-native";
 import { useSettings } from "@getpaseo/plugin/client";
 import { SettingsCard, SettingsInput, SettingsRow, SettingsSection, SettingsSwitch } from "@getpaseo/plugin/client/ui";
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
-import { llmSettings, piCommitSettings, verificationSettings } from "../shared/settings";
-import { promptTemplateSettings, DEFAULT_REVIEW_PROMPT, DEFAULT_VERIFICATION_PROMPT, DEFAULT_PI_COMMIT_PROMPT, promptEditableParts, type PromptKind } from "../shared/prompts";
+import { llmSettings, piCommitSettings, verificationSettings } from "../../shared/settings";
+import { promptTemplateSettings, DEFAULT_REVIEW_PROMPT, DEFAULT_VERIFICATION_PROMPT, DEFAULT_PI_COMMIT_PROMPT, promptEditableParts, type PromptKind } from "../../shared/prompts";
 import { PromptTemplateEditor } from "./prompt-template-editor";
 
 type Page = "review" | "verification" | "pi" | "prompts";

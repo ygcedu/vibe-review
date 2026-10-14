@@ -1,16 +1,16 @@
 import type { ComponentType } from "react";
-import { isNoDrift } from "../shared/drift";
+import { isNoDrift } from "../../shared/drift";
 import { Linking, Platform, View, Text, StyleSheet, TouchableOpacity, useColorScheme } from "react-native";
 import { buildAgentDeepLink } from "@getpaseo/protocol/agent-deep-link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePaseo, useRpc, type PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import { output } from "zod";
-import { cancelVerificationRpc, reconcileVerificationRpc, openVerificationRpc, reviewResultSchema } from "../shared/review";
-import { parseDiffFiles } from "./diff";
-import { FileTree } from "./file-tree";
+import { cancelVerificationRpc, reconcileVerificationRpc, openVerificationRpc, reviewResultSchema } from "../../shared/review";
+import { parseDiffFiles } from "../diff/diff";
+import { FileTree } from "../diff/file-tree";
 import { copyText } from "@getpaseo/plugin/client/react-native";
 import { fillVisibleComposer } from "./composer-fill";
-import { commitAvailabilityRpc, preparePiCommitRpc, piCommitStatusRpc, getPendingCommitDiffRpc, COMMIT_PREVIEW_KIND, COMMIT_RESULT_KIND } from "../shared/commit";
+import { commitAvailabilityRpc, preparePiCommitRpc, piCommitStatusRpc, getPendingCommitDiffRpc, COMMIT_PREVIEW_KIND, COMMIT_RESULT_KIND } from "../../shared/commit";
 
 type ReviewResultData = output<typeof reviewResultSchema>;
 

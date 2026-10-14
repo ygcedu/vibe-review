@@ -4,12 +4,12 @@ import { useRpc, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client"
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { gitCommitDetailRpc, gitCommitFileDiffRpc, gitHistoryRpc } from "../shared/git-history";
 import { workspaceGitDiffRpc } from "../shared/workspace-commit";
-import { parseDiffFiles } from "./diff";
-import { FileTypeIcon } from "./file-icons";
-import { SplitDiff } from "./split-diff";
+import { parseDiffFiles } from "./diff/diff";
+import { FileTypeIcon } from "./diff/file-icons";
+import { SplitDiff } from "./diff/split-diff";
 import { WorkspaceCommitPanel } from "./workspace-commit";
-import { DiffOptionButton, WrapToggleButton } from "./wrap-toggle";
-import { compactTree, sortTreeNodes } from "./file-tree-utils";
+import { DiffOptionButton, WrapToggleButton } from "./diff/wrap-toggle";
+import { compactTree, sortTreeNodes } from "./diff/file-tree-utils";
 
 type Commit = { hash: string; parents: string[]; author: string; email: string; date: string; subject: string; refs: string[] };
 type ChangedFile = { path: string; status: string };

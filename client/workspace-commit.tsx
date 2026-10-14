@@ -3,11 +3,11 @@ import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, typ
 import { useRpc, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { workspaceGitCommitRpc, workspaceGitDiffRpc, workspaceGitPushRpc, workspaceGitTrackRpc, workspaceGitStatusRpc } from "../shared/workspace-commit";
-import { parseDiffFiles } from "./diff";
-import { FileTypeIcon } from "./file-icons";
-import { SplitDiff } from "./split-diff";
-import { DiffOptionButton, WrapToggleButton } from "./wrap-toggle";
-import { compactTree, sortTreeNodes } from "./file-tree-utils";
+import { parseDiffFiles } from "./diff/diff";
+import { FileTypeIcon } from "./diff/file-icons";
+import { SplitDiff } from "./diff/split-diff";
+import { DiffOptionButton, WrapToggleButton } from "./diff/wrap-toggle";
+import { compactTree, sortTreeNodes } from "./diff/file-tree-utils";
 
 type File = { path: string; status: string; staged: boolean; unstaged: boolean; untracked: boolean };
 type Selection = { path: string; staged: boolean; status?: string };

@@ -2,9 +2,9 @@ import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
 import { z } from "zod";
-import type { PiCommitConfig } from "../shared/settings";
-import { DEFAULT_PI_COMMIT_PROMPT, renderPrompt } from "../shared/prompts.ts";
-import { parseFirstJsonObject } from "./llm-response.ts";
+import type { PiCommitConfig } from "../../shared/settings";
+import { DEFAULT_PI_COMMIT_PROMPT, renderPrompt } from "../../shared/prompts.ts";
+import { parseFirstJsonObject } from "../llm-response.ts";
 import { captureWorktree, changedPathsFromHead, diffHeadToSnapshot, disposeSnapshot } from "./snapshot.ts";
 
 const exec = promisify(execFile);

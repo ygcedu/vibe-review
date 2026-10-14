@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cancelVerification, verdictOf } from "./review.ts";
-import { reviewResultSchema } from "../shared/review.ts";
-import type { PaseoApi } from "./paseo-api-types.ts";
+import { verdictOf } from "../review/verdict.ts";
+import { cancelVerification } from "./verification.ts";
+import { reviewResultSchema } from "../../shared/review.ts";
+import type { PaseoApi } from "../paseo-api-types.ts";
 
 // ponytail: verdictOf 为纯函数，覆盖 result×drift 全组合；runReview 主流程依赖
 // distillTask 的真实 LLM fetch，mock 不了，只补取消路径。

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { TextInput, copyText } from "@getpaseo/plugin/client/react-native";
 import type { PluginClientContext } from "@getpaseo/plugin/client";
-import { clarifyRpc } from "../shared/clarify";
+import { clarifyRpc } from "../../shared/clarify";
 
 /** HACK(Paseo mobile): composer pills expose a draft, but not its selected range. */
 type Draft = { getText(): string; replaceTextIfUnchanged(expected: string, replacement: string): boolean };

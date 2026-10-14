@@ -1,4 +1,4 @@
-import { isNoDrift } from "../shared/drift.ts";
+import { isNoDrift } from "../../shared/drift.ts";
 import type { DistilledTask } from "./distill.ts";
 
 export interface ReviewResult {

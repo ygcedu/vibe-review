@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { PaseoApi } from "./paseo-api-types";
+import type { PaseoApi } from "../paseo-api-types.ts";
 import { appendReviewWithRetry } from "./review-append.ts";
 
 const item = { type: "plugin" as const, id: "vibe-review-turn-1", kind: "review-result", version: 1, data: {} };

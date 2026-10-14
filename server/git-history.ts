@@ -31,8 +31,9 @@ export function parseChangedFiles(raw: string): ChangedFile[] {
   return files;
 }
 
+export const isValidHash = (hash: string) => /^[0-9a-f]{7,64}$/.test(hash);
 async function commitBase(cwd: string, hash: string) {
-  if (!/^[0-9a-f]{40,64}$/i.test(hash)) throw new Error("无效提交哈希");
+  if (!isValidHash(hash)) throw new Error("无效提交哈希");
   const ancestry = (await git(cwd, ["rev-list", "--parents", "-n", "1", hash])).trim().split(" ");
   if (ancestry[0] !== hash) throw new Error("提交不存在");
   return ancestry[1] ?? null;
@@ -68,6 +69,7 @@ export function registerGitHistory(server: PluginServerContext) {
     return { commits: commits.slice(0, PAGE_SIZE), hasMore: commits.length > PAGE_SIZE, branches, currentBranch, currentGitUser: { name: gitUserName, email: gitUserEmail } };
   });
   server.handle(gitCommitDetailRpc, async ({ workspaceId, hash }, { paseo }) => {
+    if (!isValidHash(hash)) throw new Error("无效提交哈希");
     const cwd = await directory(paseo, workspaceId);
     const base = await commitBase(cwd, hash);
     const message = (await git(cwd, ["show", "-s", "--format=%B", hash])).trim();
@@ -76,6 +78,7 @@ export function registerGitHistory(server: PluginServerContext) {
     return { message, files: await changedFiles(cwd, hash, base), containingBranches: inHead ? ["HEAD", ...branchNames] : branchNames };
   });
   server.handle(gitCommitFileDiffRpc, async ({ workspaceId, hash, path, fullContext }, { paseo }) => {
+    if (!isValidHash(hash)) throw new Error("无效提交哈希");
     const cwd = await directory(paseo, workspaceId);
     const base = await commitBase(cwd, hash);
     const files = await changedFiles(cwd, hash, base);

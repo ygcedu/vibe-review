@@ -1,5 +1,5 @@
-import { REVIEW_KIND } from "../shared/review.ts";
-import { COMMIT_PREVIEW_KIND } from "../shared/commit.ts";
+import { REVIEW_KIND } from "../../shared/review.ts";
+import { COMMIT_PREVIEW_KIND } from "../../shared/commit.ts";
 
 type TimelineEntry = {
   item: { type: string; kind?: string; data?: { scoredAt?: string; turnId?: string } };

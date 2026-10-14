@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { test } from "node:test";
 import { promisify } from "node:util";
-import { appleScriptString, notify } from "./notify.ts";
+import { appleScriptString, notify } from "../review/notify.ts";
 
 const execFileAsync = promisify(execFile);
 

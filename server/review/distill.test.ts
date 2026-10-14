@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildDistillPrompt, distillTask } from "./distill.ts";
-import { DEFAULT_REVIEW_PROMPT } from "../shared/prompts.ts";
+import { DEFAULT_REVIEW_PROMPT } from "../../shared/prompts.ts";
 
 test("follow-up prompt favors one suggestion and parser caps unique suggestions at three", async () => {
   const prompt = buildDistillPrompt(["修复登录"], ["已修复"]);

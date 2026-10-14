@@ -3,7 +3,7 @@ import { test } from "node:test";
 import type { AgentPermissionRequest, AgentTimelineItem } from "@getpaseo/protocol/agent-types";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import { isAllowedVerificationPermission, isVerifierHookAgent, usedVerificationTool, verifyWithPaseoProvider, VERIFIER_LABEL, VERIFIER_TITLE } from "./verify.ts";
-import { DEFAULT_VERIFICATION_PROMPT } from "../shared/prompts.ts";
+import { DEFAULT_VERIFICATION_PROMPT } from "../../shared/prompts.ts";
 
 test("verifier lifecycle events are recognized without labels", () => {
   assert.equal(isVerifierHookAgent({ title: VERIFIER_TITLE, parentAgentId: "parent-1" }), true);

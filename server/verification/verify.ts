@@ -1,8 +1,8 @@
 import type { AgentPermissionRequest, AgentTimelineItem } from "@getpaseo/protocol/agent-types";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
-import type { VerificationConfig } from "../shared/settings";
-import { DEFAULT_VERIFICATION_PROMPT, renderPrompt } from "../shared/prompts.ts";
-import { parseFirstJsonObject } from "./llm-response.ts";
+import type { VerificationConfig } from "../../shared/settings";
+import { DEFAULT_VERIFICATION_PROMPT, renderPrompt } from "../../shared/prompts.ts";
+import { parseFirstJsonObject } from "../llm-response.ts";
 
 export const VERIFIER_LABEL = "vibe-review.verification";
 export const VERIFIER_TITLE = "Vibe Review · 验证";

@@ -1,5 +1,5 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
-import { clarifyRpc } from "../shared/clarify";
+import { clarifyRpc } from "../../shared/clarify";
 
 type Selection = { input: HTMLTextAreaElement; fullText: string; start: number; end: number; text: string };
 

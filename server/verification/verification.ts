@@ -1,13 +1,13 @@
 import type { AgentTimelineItem } from "@getpaseo/protocol/agent-types";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
-import type { PaseoApi } from "./paseo-api-types.ts";
-import { reviewResultSchema, REVIEW_KIND, REVIEW_VERSION } from "../shared/review.ts";
+import type { PaseoApi } from "../paseo-api-types.ts";
+import { reviewResultSchema, REVIEW_KIND, REVIEW_VERSION } from "../../shared/review.ts";
 import type { output } from "zod";
-import { appendReviewWithRetry } from "./review-append.ts";
+import { appendReviewWithRetry } from "../review/review-append.ts";
 import { recoverFinishedVerification, VERIFIER_LABEL, VERIFIER_TITLE } from "./verify.ts";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { verdictOf } from "./verdict.ts";
+import { verdictOf } from "../review/verdict.ts";
 import type { VerificationControl, VerificationRequest, VerificationResult } from "./verify.ts";
 
 export type ReviewCardData = output<typeof reviewResultSchema>;
@@ -158,10 +158,10 @@ export async function runVerificationAndWrite(
   key: string,
   active: ActiveVerification,
   run: { verifyTask(agentId: string, request: VerificationRequest, control?: VerificationControl): Promise<VerificationResult> },
-  distilled: import("./distill.ts").DistilledTask,
+  distilled: import("../review/distill.ts").DistilledTask,
   assistantMessages: string[],
   lastTurnDiff: string | undefined,
-): Promise<import("./verdict.ts").ReviewResult | null> {
+): Promise<import("../review/verdict.ts").ReviewResult | null> {
   let verification: VerificationResult;
   try {
     verification = await run.verifyTask(agentId, {
@@ -198,7 +198,7 @@ export async function runVerificationAndWrite(
       result: distilled.result, verificationState: "complete", verificationStage: undefined, verificationAgentId: active.verifierAgentId,
       verification, followups: distilled.followups,
     });
-    return { verdict: finalVerdict.verdict, completed: finalVerdict.completed, drift: card.drift, summary: card.summary, scoredAt: card.scoredAt } as import("./verdict.ts").ReviewResult;
+    return { verdict: finalVerdict.verdict, completed: finalVerdict.completed, drift: card.drift, summary: card.summary, scoredAt: card.scoredAt } as import("../review/verdict.ts").ReviewResult;
   } catch (error) {
     console.error("[vibe-review] verification card update failed:", error);
   } finally {

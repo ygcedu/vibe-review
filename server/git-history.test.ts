@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseChangedFiles, parseCommits } from "./git-history.ts";
+import { isValidHash, parseChangedFiles, parseCommits } from "./git-history.ts";
 
 const RS = "\x1e"; // record separator (format 末尾 %x1e)
 const US = "\x1f"; // unit separator
@@ -48,4 +48,15 @@ test("parseChangedFiles pairs NUL-separated status and path tokens", () => {
 test("parseChangedFiles drops dangling status without a path and ignores empty output", () => {
   assert.deepEqual(parseChangedFiles("M\0"), []);
   assert.deepEqual(parseChangedFiles(""), []);
+});
+
+test("isValidHash accepts 7-64 lowercase hex chars, rejects shorter, longer, and uppercase", () => {
+  assert.equal(isValidHash("abcdef1"), true);
+  assert.equal(isValidHash("a".repeat(40)), true);
+  assert.equal(isValidHash("a".repeat(64)), true);
+  assert.equal(isValidHash("a"), false);
+  assert.equal(isValidHash("a".repeat(65)), false);
+  assert.equal(isValidHash("GHIJKL1"), false);
+  assert.equal(isValidHash("abc def"), false);
+  assert.equal(isValidHash(""), false);
 });

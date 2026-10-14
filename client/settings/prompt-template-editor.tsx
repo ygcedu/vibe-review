@@ -1,6 +1,6 @@
 import { Fragment, useLayoutEffect, useRef, useState } from "react";
 import { Platform, Pressable, Text, TextInput, View, useColorScheme } from "react-native";
-import { composePromptTemplate, promptEditableParts, promptFixedSegments, type PromptKind } from "../shared/prompts";
+import { composePromptTemplate, promptEditableParts, promptFixedSegments, type PromptKind } from "../../shared/prompts";
 
 const variablePattern = /(\{\{[A-Za-z][A-Za-z0-9]*\}\})/g;
 

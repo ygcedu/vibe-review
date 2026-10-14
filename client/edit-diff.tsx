@@ -3,10 +3,10 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useRpc, type PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { z } from "zod";
-import { parseDiffFiles } from "./diff";
-import { FileTypeIcon } from "./file-icons";
-import { SplitDiff } from "./split-diff";
-import { DiffOptionButton, WrapToggleButton } from "./wrap-toggle";
+import { parseDiffFiles } from "./diff/diff";
+import { FileTypeIcon } from "./diff/file-icons";
+import { SplitDiff } from "./diff/split-diff";
+import { DiffOptionButton, WrapToggleButton } from "./diff/wrap-toggle";
 import { editFullDiffRpc } from "../shared/edit-diff";
 
 export const EDIT_DIFF_KIND = "edit-diff";

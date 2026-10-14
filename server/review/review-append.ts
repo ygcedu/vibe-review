@@ -1,4 +1,4 @@
-import type { PaseoApi } from "./paseo-api-types";
+import type { PaseoApi } from "../paseo-api-types.ts";
 
 export interface AppendableReviewItem {
   type: "plugin";

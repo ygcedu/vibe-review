@@ -1,10 +1,10 @@
 import type { AgentTimelineItem } from "@getpaseo/protocol/agent-types";
-import type { PaseoApi } from "./paseo-api-types.ts";
+import type { PaseoApi } from "../paseo-api-types.ts";
 import { buildTaskSummary, isSessionControlCommand } from "./inspect.ts";
 import { distillTask, type DistilledTask } from "./distill.ts";
-import type { LlmConfig } from "../shared/settings.ts";
-import { REVIEW_KIND, REVIEW_VERSION } from "../shared/review.ts";
-import type { VerificationControl, VerificationRequest, VerificationResult } from "./verify.ts";
+import type { LlmConfig } from "../../shared/settings.ts";
+import { REVIEW_KIND, REVIEW_VERSION } from "../../shared/review.ts";
+import type { VerificationControl, VerificationRequest, VerificationResult } from "../verification/verify.ts";
 import { appendReviewWithRetry } from "./review-append.ts";
 import { notify } from "./notify.ts";
 import { verdictOf, type ReviewResult } from "./verdict.ts";
@@ -15,7 +15,7 @@ import {
   runVerificationAndWrite,
   type ActiveVerification,
   type ReviewCardData,
-} from "./verification.ts";
+} from "../verification/verification.ts";
 
 /** Settings access, injected from the server entry point. */
 export interface RunContext {

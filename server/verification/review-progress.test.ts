@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { AgentTimelineItem } from "@getpaseo/protocol/agent-types";
-import type { PaseoApi } from "./paseo-api-types.ts";
-import { cancelVerification, reconcileVerification, openVerification, queueReview, verdictOf, type RunContext } from "./review.ts";
+import type { PaseoApi } from "../paseo-api-types.ts";
+import { verdictOf } from "../review/verdict.ts";
+import { cancelVerification, reconcileVerification, openVerification } from "./verification.ts";
+import { queueReview, type RunContext } from "../review/run-review.ts";
 
 test("a punctuation-only no-drift answer passes review", () => {
   assert.deepEqual(verdictOf({ result: "done", drifts: ["无。"] }), { verdict: "pass", completed: 1, drift: "in_scope" });

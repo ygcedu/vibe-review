@@ -5,7 +5,7 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { confirmPiCommit, hasPendingCodeChanges, piPreviewArgs, preparePiCommit } from "./pi-commit.ts";
-import { DEFAULT_PI_COMMIT_PROMPT } from "../shared/prompts.ts";
+import { DEFAULT_PI_COMMIT_PROMPT } from "../../shared/prompts.ts";
 
 const fakePiScript = (message: string, files: string[]) => `#!/bin/sh\ncat <<'JSON'\n${JSON.stringify({ type: "agent_start" })}\n${JSON.stringify({ type: "message_start" })}\n${JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: JSON.stringify({ message, files }) }] } })}\nJSON\n`;
 

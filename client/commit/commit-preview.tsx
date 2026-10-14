@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useRpc, type PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import type { z } from "zod";
-import { cancelPiCommitRpc, commitPreviewSchema, confirmPiCommitRpc, getPiCommitPreviewRpc } from "../shared/commit";
-import { parseDiffFiles } from "./diff";
-import { FileTree } from "./file-tree";
+import { cancelPiCommitRpc, commitPreviewSchema, confirmPiCommitRpc, getPiCommitPreviewRpc } from "../../shared/commit";
+import { parseDiffFiles } from "../diff/diff";
+import { FileTree } from "../diff/file-tree";
 
 export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.infer<typeof commitPreviewSchema>>) {
   const [diff, setDiff] = useState<string | null>(null);

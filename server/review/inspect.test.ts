@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildTaskSummary, isSessionControlCommand } from "./inspect.ts";
+import { buildTaskSummary, isSessionControlCommand } from "../review/inspect.ts";
 import type { AgentTimelineItem } from "@getpaseo/protocol/agent-types";
 
 test("skips session controls without hiding task slash commands", () => {
