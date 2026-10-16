@@ -37,3 +37,12 @@ const SPAWNED_LABEL = "paseo.parent-agent-id";
 export function isSpawnedAgent(labels?: Record<string, string>): boolean {
   return Boolean(labels && labels[SPAWNED_LABEL]);
 }
+
+/** Verification can lower a claimed completion, but cannot invent unfinished work. */
+export function resultAfterVerification(
+  result: DistilledTask["result"] | undefined,
+  status: "passed" | "failed" | "unavailable",
+): DistilledTask["result"] | undefined {
+  if (result !== "done" || status === "passed") return result;
+  return status === "failed" ? "partial" : "unknown";
+}

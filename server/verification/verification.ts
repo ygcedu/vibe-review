@@ -1,4 +1,4 @@
-import type { AgentTimelineItem } from "@getpaseo/protocol/agent-types";
+import { pluginData } from "../../shared/timeline.ts";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import type { PaseoApi } from "../paseo-api-types.ts";
 import { reviewResultSchema, REVIEW_KIND, REVIEW_VERSION } from "../../shared/review.ts";
@@ -7,7 +7,7 @@ import { appendReviewWithRetry } from "../review/review-append.ts";
 import { recoverFinishedVerification, VERIFIER_LABEL, VERIFIER_TITLE } from "./verify.ts";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { verdictOf } from "../review/verdict.ts";
+import { resultAfterVerification, verdictOf, type ReviewResult } from "../review/verdict.ts";
 import type { VerificationControl, VerificationRequest, VerificationResult } from "./verify.ts";
 
 export type ReviewCardData = output<typeof reviewResultSchema>;
@@ -20,8 +20,8 @@ const execFileAsync = promisify(execFile);
 /** Resolve the verifier bound to one card, reviving its archived Paseo session. */
 export async function openVerification(paseo: PluginHandlerContext["paseo"], agentId: string, scoredAt: string): Promise<{ verifierAgentId: string; workspaceId: string }> {
   const page = await paseo.agents.ref(agentId).timeline.refetch({ limit: 200 });
-  const item = page.entries.find(({ item }: { item: AgentTimelineItem }) => item.type === "plugin" && item.kind === REVIEW_KIND &&
-    (item.data as { scoredAt?: string }).scoredAt === scoredAt)?.item;
+  const item = page.entries.find(({ item }) => item.type === "plugin" && item.kind === REVIEW_KIND &&
+    pluginData(item, REVIEW_KIND)?.scoredAt === scoredAt)?.item;
   const parsed = item?.type === "plugin" ? reviewResultSchema.safeParse(item.data) : null;
   const verifierAgentId = parsed?.success ? parsed.data.verificationAgentId : undefined;
   if (!verifierAgentId) throw new Error("这张卡没有保存验证 agent，无法跳转。");
@@ -50,8 +50,8 @@ export async function reconcileVerification(paseo: PluginHandlerContext["paseo"]
     const parent = paseo.agents.ref(agentId);
     const findCard = async () => {
       const page = await parent.timeline.refetch({ limit: 200 });
-      const item = page.entries.find(({ item }: { item: AgentTimelineItem }) => item.type === "plugin" && item.kind === REVIEW_KIND &&
-        (item.data as { scoredAt?: string }).scoredAt === scoredAt)?.item;
+      const item = page.entries.find(({ item }) => item.type === "plugin" && item.kind === REVIEW_KIND &&
+        pluginData(item, REVIEW_KIND)?.scoredAt === scoredAt)?.item;
       return item?.type === "plugin" ? item : undefined;
     };
     const item = await findCard();
@@ -69,8 +69,7 @@ export async function reconcileVerification(paseo: PluginHandlerContext["paseo"]
     const latest = await findCard();
     const latestParsed = latest?.type === "plugin" ? reviewResultSchema.safeParse(latest.data) : null;
     if (!latestParsed?.success || latestParsed.data.verificationState !== "running") return;
-    const result = card.result === "done" && verification.status === "failed" ? "partial"
-      : card.result === "done" && verification.status === "unavailable" ? "unknown" : card.result;
+    const result = resultAfterVerification(card.result, verification.status);
     const finalVerdict = verdictOf({ result: result ?? "unknown", drifts: card.drifts ?? [] });
     await appendReviewWithRetry(paseo, agentId, {
       type: "plugin", id: item.id, kind: REVIEW_KIND, version: REVIEW_VERSION,
@@ -112,7 +111,7 @@ export async function cancelVerification(paseo: PaseoApi, agentId: string, score
       }
     }
     const item = page?.entries?.map(({ item }) => item).find((entry) => entry.type === "plugin" && entry.kind === REVIEW_KIND &&
-      (entry.data as { scoredAt?: string }).scoredAt === scoredAt);
+      pluginData(entry, REVIEW_KIND)?.scoredAt === scoredAt);
     if (!item || item.type !== "plugin") throw new Error("审核卡片已失效，请刷新后重试。");
     cardId = item.id;
     cardData = item.data;
@@ -159,16 +158,12 @@ export async function runVerificationAndWrite(
   active: ActiveVerification,
   run: { verifyTask(agentId: string, request: VerificationRequest, control?: VerificationControl): Promise<VerificationResult> },
   distilled: import("../review/distill.ts").DistilledTask,
-  assistantMessages: string[],
-  lastTurnDiff: string | undefined,
-): Promise<import("../review/verdict.ts").ReviewResult | null> {
+): Promise<ReviewResult | null> {
   let verification: VerificationResult;
   try {
     verification = await run.verifyTask(agentId, {
       goal: distilled.goal,
       narrative: distilled.narrative,
-      assistantMessages,
-      diff: lastTurnDiff,
     }, {
       isCanceled: () => active.canceled,
       onAgentCreated: async (verifierAgentId) => {
@@ -190,15 +185,14 @@ export async function runVerificationAndWrite(
   }
   try {
     if (active.canceled) return null;
-    if (distilled.result === "done" && verification.status === "failed") distilled.result = "partial";
-    if (distilled.result === "done" && verification.status === "unavailable") distilled.result = "unknown";
-    const finalVerdict = verdictOf(distilled);
+    const result = resultAfterVerification(distilled.result, verification.status) ?? "unknown";
+    const finalVerdict = verdictOf({ result, drifts: distilled.drifts });
     await queueVerificationCardWrite(paseo, agentId, cardId, active, {
       ...card, verdict: finalVerdict.verdict, completed: finalVerdict.completed,
-      result: distilled.result, verificationState: "complete", verificationStage: undefined, verificationAgentId: active.verifierAgentId,
+      result, verificationState: "complete", verificationStage: undefined, verificationAgentId: active.verifierAgentId,
       verification, followups: distilled.followups,
     });
-    return { verdict: finalVerdict.verdict, completed: finalVerdict.completed, drift: card.drift, summary: card.summary, scoredAt: card.scoredAt } as import("../review/verdict.ts").ReviewResult;
+    return { verdict: finalVerdict.verdict, completed: finalVerdict.completed, drift: card.drift, summary: card.summary, scoredAt: card.scoredAt };
   } catch (error) {
     console.error("[vibe-review] verification card update failed:", error);
   } finally {

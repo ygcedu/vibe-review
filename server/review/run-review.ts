@@ -182,7 +182,7 @@ async function runReview(
 
   if (active) {
     const updated = await runVerificationAndWrite(
-      paseo, agentId, cardId, card, key, active, run, distilled, summary.assistantMessages, lastTurnDiff,
+      paseo, agentId, cardId, card, key, active, run, distilled,
     );
     if (updated) {
       result.verdict = updated.verdict;

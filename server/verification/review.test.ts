@@ -1,12 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { verdictOf } from "../review/verdict.ts";
+import { resultAfterVerification, verdictOf } from "../review/verdict.ts";
 import { cancelVerification } from "./verification.ts";
 import { reviewResultSchema } from "../../shared/review.ts";
 import type { PaseoApi } from "../paseo-api-types.ts";
 
-// ponytail: verdictOf 为纯函数，覆盖 result×drift 全组合；runReview 主流程依赖
-// distillTask 的真实 LLM fetch，mock 不了，只补取消路径。
 test("verdictOf maps LLM result and drift counts onto card verdict", () => {
   assert.deepEqual(verdictOf({ drifts: [], result: "done" }), { verdict: "pass", completed: 1, drift: "in_scope" });
   assert.deepEqual(verdictOf({ drifts: [], result: "partial" }), { verdict: "review", completed: 0.5, drift: "in_scope" });
@@ -74,4 +72,15 @@ test("cancelVerification rejects finished cards and missing cards", async () => 
     agents: { ref: () => ({ timeline: { refetch: async () => ({ entries: [] }) } }) },
   } as unknown as PaseoApi;
   await assert.rejects(cancelVerification(noCard, "agent-1", "2026-01-01T00:00:00Z"), /已失效/);
+});
+
+test("live and recovered verification use the same completion downgrade rules", () => {
+  assert.equal(resultAfterVerification("done", "passed"), "done");
+  assert.equal(resultAfterVerification("done", "failed"), "partial");
+  assert.equal(resultAfterVerification("done", "unavailable"), "unknown");
+  for (const result of ["partial", "none", "unknown", undefined] as const) {
+    for (const status of ["passed", "failed", "unavailable"] as const) {
+      assert.equal(resultAfterVerification(result, status), result);
+    }
+  }
 });

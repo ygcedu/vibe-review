@@ -66,8 +66,6 @@ export interface VerificationCase {
 export interface VerificationRequest {
   goal: string;
   narrative: string;
-  assistantMessages: string[];
-  diff?: string;
 }
 
 export interface VerificationControl {
@@ -144,21 +142,21 @@ export async function verifyWithPaseoProvider(
       unsubscribe = subscription;
       void subscription.ready.catch((error: unknown) => console.warn("[vibe-review] verification progress subscription unavailable:", error));
     }
-    const waitForVerifier = () => retryAfterReconnect<any>(
+    const waitForVerifier = () => retryAfterReconnect(
       () => agent.waitForFinish(0));
     let run = await waitForVerifier();
     for (let attempts = 0; run.status === "permission" && attempts < 12; attempts++) {
-      const current = (await retryAfterReconnect<any>(() => agent.refresh()))?.agent ?? agent.current();
+      const current = (await retryAfterReconnect(() => agent.refresh()))?.agent ?? agent.current();
       const pending = current?.pendingPermissions ?? [];
       if (pending.length === 0) {
         // The permission event may already have been answered while the run result was in flight.
         await new Promise((resolve) => setTimeout(resolve, 250));
       } else {
         const fullAccess = (config.modeId.trim() || "full-access") === "full-access";
-        const blocked = fullAccess ? undefined : pending.find((request: AgentPermissionRequest) => !isAllowedVerificationPermission(request));
+        const blocked = fullAccess ? undefined : pending.find((request) => !isAllowedVerificationPermission(request));
         if (blocked) {
-          const history = await retryAfterReconnect<any>(() => agent.timeline.refetch({ limit: 50 }));
-          const noBrowserHost = history.entries.some(({ item }: { item: AgentTimelineItem }) =>
+          const history = await retryAfterReconnect(() => agent.timeline.refetch({ limit: 50 }));
+          const noBrowserHost = history.entries.some(({ item }) =>
             item.type === "tool_call" && (item.detail as { output?: { structuredContent?: { error?: { code?: string } } } } | undefined)?.output?.structuredContent?.error?.code === "browser_no_host");
           console.warn("[vibe-review] verification agent needs permission:", agent.id, blocked.name, "browserHostUnavailable=", noBrowserHost);
           return { status: "unavailable", summary: noBrowserHost
@@ -173,8 +171,8 @@ export async function verifyWithPaseoProvider(
     }
     if (run.status !== "idle") return { status: "unavailable", summary: run.error || `验证任务状态：${run.status}`, evidence: [], provider };
     await control?.onProgress?.("正在整理验证结果…");
-    const timeline = await retryAfterReconnect<any>(() => agent.timeline.refetch({ limit: 200 }));
-    return parseVerificationResult(timeline.entries.map((entry: { item: AgentTimelineItem }) => entry.item), run.lastMessage ?? "", provider, agent.id);
+    const timeline = await retryAfterReconnect(() => agent.timeline.refetch({ limit: 200 }));
+    return parseVerificationResult(timeline.entries.map(({ item }) => item), run.lastMessage ?? "", provider, agent.id);
   } finally {
     unsubscribe?.();
     await agent.archive().catch((error: unknown) => console.warn("[vibe-review] verification agent archive failed:", error));
@@ -189,7 +187,7 @@ export async function recoverFinishedVerification(paseo: PluginHandlerContext["p
   const run = await agent.waitForFinish(1000);
   if (run.status !== "idle") return { status: "unavailable", summary: run.error || `验证任务状态：${run.status}`, evidence: [], provider };
   const timeline = await agent.timeline.refetch({ limit: 200 });
-  return parseVerificationResult(timeline.entries.map(({ item }: { item: AgentTimelineItem }) => item), run.lastMessage ?? "", provider, verifierId);
+  return parseVerificationResult(timeline.entries.map(({ item }) => item), run.lastMessage ?? "", provider, verifierId);
 }
 
 function parseVerificationResult(items: readonly AgentTimelineItem[], message: string, provider: string, agentId: string): VerificationResult {

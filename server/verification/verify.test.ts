@@ -43,7 +43,7 @@ test("an actual inspection tool is required for a passed verification", async ()
     } } }) },
   } as unknown as PluginHandlerContext["paseo"];
   const config = { enabled: true, provider: "codex", model: "gpt-6-sol", modeId: "full-access" };
-  const request = { goal: "检查按钮", narrative: "已添加按钮", assistantMessages: ["按钮已实现"] };
+  const request = { goal: "检查按钮", narrative: "已添加按钮" };
 
   const withoutTool = await verifyWithPaseoProvider(paseo, "parent-1", config, request);
   assert.equal(withoutTool.status, "unavailable");
@@ -97,7 +97,7 @@ test("verification resumes after a transient Paseo transport disconnect", async 
     agents: { ref: () => ({ current: () => ({ workspaceId: "workspace-1" }) }) },
     workspaces: { ref: () => ({ agents: { create: async () => verifier } }) },
   } as unknown as PluginHandlerContext["paseo"];
-  const result = await verifyWithPaseoProvider(paseo, "parent-1", { enabled: true, provider: "codex", model: "gpt-6-sol", modeId: "full-access" }, { goal: "检查设置页", narrative: "已更新", assistantMessages: [] });
+  const result = await verifyWithPaseoProvider(paseo, "parent-1", { enabled: true, provider: "codex", model: "gpt-6-sol", modeId: "full-access" }, { goal: "检查设置页", narrative: "已更新" });
   assert.equal(result.status, "passed");
   assert.equal(waits, 2);
   assert.equal(archived, true);
@@ -115,7 +115,7 @@ test("the verifier uses Paseo's unbounded wait instead of polling", async () => 
     agents: { ref: () => ({ current: () => ({ workspaceId: "workspace-1" }) }) },
     workspaces: { ref: () => ({ agents: { create: async () => verifier } }) },
   } as unknown as PluginHandlerContext["paseo"];
-  const result = await verifyWithPaseoProvider(paseo, "parent-1", { enabled: true, provider: "codex", model: "gpt-6-sol", modeId: "full-access" }, { goal: "页面", narrative: "已修改", assistantMessages: [] });
+  const result = await verifyWithPaseoProvider(paseo, "parent-1", { enabled: true, provider: "codex", model: "gpt-6-sol", modeId: "full-access" }, { goal: "页面", narrative: "已修改" });
   assert.equal(result.status, "passed");
   assert.deepEqual(waits, [0]);
 });
@@ -145,7 +145,7 @@ test("full-access verifier answers provider permission requests without promptin
     agents: { ref: () => ({ current: () => ({ workspaceId: "workspace-1" }) }) },
     workspaces: { ref: () => ({ agents: { create: async () => verifier } }) },
   } as unknown as PluginHandlerContext["paseo"];
-  const result = await verifyWithPaseoProvider(paseo, "parent-1", { enabled: true, provider: "codex", model: "gpt-6-sol", modeId: "full-access" }, { goal: "核对按钮", narrative: "已实现", assistantMessages: [] });
+  const result = await verifyWithPaseoProvider(paseo, "parent-1", { enabled: true, provider: "codex", model: "gpt-6-sol", modeId: "full-access" }, { goal: "核对按钮", narrative: "已实现" });
   assert.equal(result.status, "passed");
   assert.deepEqual(approvals, ["permission-1"]);
 });
