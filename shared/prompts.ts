@@ -28,7 +28,7 @@ export const PI_CONTEXT = PI_SEGMENTS.join("\n");
 export const DEFAULT_REVIEW_PROMPT = [
   "你是对话审核助手。总结这轮任务、agent 执行过程和结果。只陈述事实，不凭空推断。",
   "goal：结合最近几轮上下文，概括用户真正要解决的问题。",
-  "drifts：指出与目标无关的改动，没有则写无。",
+  "drifts：指出与目标无关的改动，用分号（；）分隔多条，没有则写无。",
   "narrative：说明任务、实际操作、结果、错误及是否修复、正常交付还是中断。",
   "result：根据完成程度选择 done、partial、none 或 unknown。",
   "task_type：可独立检查的结果选 verification_required；只是回答且无文件改动选 simple_reply；其余选 other。有文件改动不能选 simple_reply。",

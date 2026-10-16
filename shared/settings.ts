@@ -5,7 +5,7 @@ export const llmConfigSchema = z.object({
   /** OpenAI-compatible base URL, e.g. http://localhost:20128/v1 */
   baseUrl: z.string().default("http://localhost:20128/v1"),
   model: z.string().default("coding"),
-  apiKey: z.string().default("sk-1feb0b9107bbfd84-0cblos-5a98fa2e"),
+  apiKey: z.string().default(""),
 });
 
 export type LlmConfig = z.infer<typeof llmConfigSchema>;

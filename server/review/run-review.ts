@@ -118,9 +118,10 @@ async function runReview(
 
   // The classifier can mistake a code-changing turn for a simple reply. A
   // measured workspace diff is definitive evidence that the turn needs a card.
+  // Override to verification_required so file-changing turns get independent checks.
   if (distilled.taskType === "simple_reply" && lastTurnDiff?.trim()) {
-    console.warn("[vibe-review] overriding simple_reply because files changed:", agentId, turnId);
-    distilled.taskType = "other";
+    console.warn("[vibe-review] overriding simple_reply to verification_required because files changed:", agentId, turnId);
+    distilled.taskType = "verification_required";
   }
 
   if (distilled.taskType === "simple_reply" && !interrupted) {

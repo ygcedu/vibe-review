@@ -3,28 +3,30 @@ import { DEFAULT_REVIEW_PROMPT, renderPrompt } from "../../shared/prompts.ts";
 import { completeChat } from "../llm-client.ts";
 import { isNoDrift } from "../../shared/drift.ts";
 
-/** 解析 LLM 的固定字段，容错全角冒号与多余空行。 */
+/** 解析 LLM 的固定字段，容错全角冒号与多余空行。
+ *  按行首精确匹配 key（半角或全角冒号），避免字段内容中的 "key:" 字面量误切。 */
+const KNOWN_KEYS = new Set(["goal", "drifts", "narrative", "result", "task_type", "followups"]);
 function parseDistillText(text: string): { goal: string; drifts: string; narrative: string; result: string; taskType: string; followups: string[] } {
-  // 全角冒号在 key 位置归一成 ASCII，让 grab 只处理一种冒号
-  const norm = text.replace(/\r/g, "").replace(/([A-Za-z]+)：/g, "$1:");
-  const grab = (key: string, nextKey?: string): string => {
-    // 抓 "key:" 之后到下一个 "nextKey:" 或文本结尾之间的内容
-    const startIdx = norm.indexOf(`${key}:`);
-    if (startIdx < 0) return "";
-    let endIdx = norm.length;
-    if (nextKey) {
-      const nextIdx = norm.indexOf(`${nextKey}:`, startIdx + key.length);
-      if (nextIdx > startIdx) endIdx = nextIdx;
+  const lines = text.replace(/\r/g, "").split("\n");
+  const fields = new Map<string, string[]>();
+  let current = "";
+  for (const line of lines) {
+    const match = /^([A-Za-z_]+)[:：]\s*(.*)$/.exec(line.trimStart());
+    if (match && KNOWN_KEYS.has(match[1])) {
+      current = match[1];
+      fields.set(current, [match[2]]);
+    } else if (current) {
+      fields.get(current)!.push(line);
     }
-    return norm.slice(startIdx + key.length + 1, endIdx).trim();
-  };
+  }
+  const get = (key: string) => (fields.get(key) ?? []).join("\n").trim();
   return {
-    goal: grab("goal", "drifts"),
-    drifts: grab("drifts", "narrative"),
-    narrative: grab("narrative", "result"),
-    result: grab("result", norm.includes("task_type:") ? "task_type" : "followups"),
-    taskType: grab("task_type", "followups"),
-    followups: parseFollowups(grab("followups")),
+    goal: get("goal"),
+    drifts: get("drifts"),
+    narrative: get("narrative"),
+    result: get("result"),
+    taskType: get("task_type"),
+    followups: parseFollowups(get("followups")),
   };
 }
 
@@ -131,7 +133,7 @@ export async function distillTask(
   }
   const goal = fields.goal || userMessages[userMessages.length - 1] || "完成用户任务";
   const drifts = fields.drifts
-    .split(/[,，]/)
+    .split(/[;；]/)
     .map((s) => s.trim())
     .filter((s) => s && !isNoDrift(s));
   const rawResult = fields.result.toLowerCase().trim();
