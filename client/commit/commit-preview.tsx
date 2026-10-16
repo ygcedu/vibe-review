@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useRpc, type PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import type { z } from "zod";
 import { cancelPiCommitRpc, commitPreviewSchema, confirmPiCommitRpc, getPiCommitPreviewRpc } from "../../shared/commit";
 import { parseDiffFiles } from "../diff/diff";
+import { useCardVisibility } from "../hooks/use-card-visibility";
 import { FileTree } from "../diff/file-tree";
 
 export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.infer<typeof commitPreviewSchema>>) {
@@ -49,21 +50,7 @@ export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.i
     return () => { active = false; if (timer) clearTimeout(timer); };
   }, [agentId, proposalId, previewRequest]);
 
-  const groupNode = useRef<View>(null);
-  // Skip the 3s poll while the card is off-screen (multi-card timelines);
-  // re-poll immediately once visible again.
-  const [isVisible, setIsVisible] = useState(true);
-  useEffect(() => {
-    if (Platform.OS !== "web") return;
-    const node = groupNode.current as unknown as HTMLElement | null;
-    if (!node || typeof IntersectionObserver === "undefined") return;
-    const observer = new IntersectionObserver((entries) => {
-      const entry = entries[0];
-      if (entry) setIsVisible(entry.isIntersecting);
-    }, { rootMargin: "200px" });
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
+  const { ref: groupNode, isVisible } = useCardVisibility();
   useEffect(() => {
     if (previewState !== "pending") return;
     let active = true;

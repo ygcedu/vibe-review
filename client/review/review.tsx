@@ -1,16 +1,16 @@
-import type { ComponentType } from "react";
 import { isNoDrift } from "../../shared/drift";
-import { Linking, Platform, View, Text, StyleSheet, TouchableOpacity, useColorScheme } from "react-native";
-import { buildAgentDeepLink } from "@getpaseo/protocol/agent-deep-link";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { usePaseo, useRpc, type PluginTimelineItemProps } from "@getpaseo/plugin/client";
-import { output } from "zod";
-import { cancelVerificationRpc, reconcileVerificationRpc, openVerificationRpc, reviewResultSchema } from "../../shared/review";
+import { View, Text, StyleSheet, TouchableOpacity, useColorScheme } from "react-native";
+import { useMemo, useState, type ComponentType } from "react";
+import type { PluginTimelineItemProps } from "@getpaseo/plugin/client";
+import type { output } from "zod";
+import { reviewResultSchema } from "../../shared/review";
 import { parseDiffFiles } from "../diff/diff";
 import { FileTree } from "../diff/file-tree";
 import { copyText } from "@getpaseo/plugin/client/react-native";
 import { fillVisibleComposer } from "./composer-fill";
-import { commitAvailabilityRpc, preparePiCommitRpc, piCommitStatusRpc, getPendingCommitDiffRpc, COMMIT_PREVIEW_KIND, COMMIT_RESULT_KIND } from "../../shared/commit";
+import { useCardVisibility } from "../hooks/use-card-visibility";
+import { useReviewCommit } from "./use-review-commit";
+import { useReviewVerification } from "./use-review-verification";
 
 type ReviewResultData = output<typeof reviewResultSchema>;
 
@@ -34,17 +34,6 @@ const resultLabel = {
 } as const;
 
 const verificationLabel = { passed: "通过", failed: "未通过", unavailable: "未能完成" } as const;
-
-function openVerifier(serverId: string, agentId: string, workspaceId: string): void {
-  const target = { serverId, agentId };
-  if (Platform.OS === "web" && typeof window !== "undefined") {
-    const route = `/h/${encodeURIComponent(serverId)}/workspace/${encodeURIComponent(workspaceId)}?open=${encodeURIComponent(`agent:${agentId}`)}`;
-    window.history.pushState({}, "", route);
-    window.dispatchEvent(new PopStateEvent("popstate"));
-  } else {
-    void Linking.openURL(buildAgentDeepLink(target));
-  }
-}
 
 function formatTime(iso: string): string {
   const d = new Date(iso);
@@ -79,147 +68,9 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
   const togglePanel = (panel: "details" | "files" | "suggestions") => setOpenPanel((current) => current === panel ? null : panel);
   const [showPrompt, setShowPrompt] = useState(false);
   const [followupFeedback, setFollowupFeedback] = useState("");
-  const [cancelingVerification, setCancelingVerification] = useState(false);
-  const [verificationError, setVerificationError] = useState("");
-  const [openingVerifier, setOpeningVerifier] = useState(false);
-  const [commitCwd, setCommitCwd] = useState<string | null>(null);
-  const [commitUnavailableReason, setCommitUnavailableReason] = useState<"no_changes" | null>(null);
-  const [commitTargetCwd, setCommitTargetCwd] = useState<string | null>(null);
-  const [commitRunning, setCommitRunning] = useState(false);
-  const [commitProgress, setCommitProgress] = useState<{ kind: "preparing" | "ready" | "failed"; stage: string; startedAt: number } | null>(null);
-  const [pendingDiff, setPendingDiff] = useState<string | null>(null);
-  const superseded = useRef(false);
-  const paseo = usePaseo();
-  const prepareOpenVerification = useRpc(openVerificationRpc);
-  const showVerifier = async () => {
-    if (!data.verificationAgentId || openingVerifier) return;
-    setOpeningVerifier(true);
-    setVerificationError("");
-    try {
-      const target = await prepareOpenVerification({ agentId: props.agentId, scoredAt: data.scoredAt });
-      openVerifier(props.host.id, target.verifierAgentId, target.workspaceId);
-    } catch (error) {
-      setVerificationError(error instanceof Error ? error.message : "无法打开验证 agent");
-    } finally {
-      setOpeningVerifier(false);
-    }
-  };
-  const pendingDiffRequested = useRef(false);
-  const checkCommit = useRpc(commitAvailabilityRpc);
-  const cancelVerification = useRpc(cancelVerificationRpc);
-  const reconcileVerification = useRpc(reconcileVerificationRpc);
-  const reconcileVerificationRef = useRef(reconcileVerification);
-  reconcileVerificationRef.current = reconcileVerification;
-  useEffect(() => {
-    if (data.verificationState !== "running") return;
-    const refresh = () => { void reconcileVerificationRef.current({ agentId: props.agentId, scoredAt: data.scoredAt }).catch(() => {}); };
-    refresh();
-    const timer = setInterval(refresh, 15_000);
-    return () => clearInterval(timer);
-  }, [props.agentId, data.scoredAt, data.verificationState]);
-  const checkCommitRef = useRef(checkCommit);
-  checkCommitRef.current = checkCommit;
-  const preparePiCommit = useRpc(preparePiCommitRpc);
-  const getCommitStatus = useRpc(piCommitStatusRpc);
-  const getCommitStatusRef = useRef(getCommitStatus);
-  getCommitStatusRef.current = getCommitStatus;
-  const getPendingDiff = useRpc(getPendingCommitDiffRpc);
-  const getPendingDiffRef = useRef(getPendingDiff);
-  const groupNode = useRef<View>(null);
-  // Skip the 15s availability poll while the card is off-screen (multi-card
-  // timelines); re-poll immediately once visible again.
-  const [isVisible, setIsVisible] = useState(true);
-  useEffect(() => {
-    if (Platform.OS !== "web") return;
-    const node = groupNode.current as unknown as HTMLElement | null;
-    if (!node || typeof IntersectionObserver === "undefined") return;
-    const observer = new IntersectionObserver((entries) => {
-      const entry = entries[0];
-      if (entry) setIsVisible(entry.isIntersecting);
-    }, { rootMargin: "200px" });
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
-  useEffect(() => {
-    let active = true;
-    const refresh = () => {
-      void checkCommitRef.current({ agentId: props.agentId, scoredAt: data.scoredAt }).then(
-        (result) => { if (active) { setCommitCwd(!superseded.current && result.available ? result.cwd ?? null : null); setCommitUnavailableReason(!superseded.current ? result.reason ?? null : null); } },
-        () => { if (active) { setCommitCwd(null); setCommitUnavailableReason(null); } },
-      );
-    };
-    if (isVisible) refresh();
-    if (!isVisible) return () => { active = false; };
-    const timer = setInterval(refresh, 15_000);
-    return () => { active = false; clearInterval(timer); };
-  }, [props.agentId, data.scoredAt, isVisible]);
-  useEffect(() => {
-    if (!commitCwd) return;
-    const subscription = paseo.agents.ref(props.agentId).timeline.subscribe(({ event }: { event: { type: string; item?: { type: string } } }) => {
-      if (event.type === "turn_started" || (event.type === "timeline" && event.item?.type === "user_message")) {
-        superseded.current = true;
-        setCommitCwd(null);
-        setCommitUnavailableReason(null);
-        setCommitTargetCwd(null);
-        setCommitProgress(null);
-      }
-    });
-    void subscription.ready.catch(() => {});
-    return () => { subscription(); };
-  }, [paseo, props.agentId, Boolean(commitCwd)]);
-  useEffect(() => {
-    // The start RPC installs server status before it resolves. Polling earlier
-    // can observe idle and falsely report an interrupted preview.
-    if (commitRunning || commitProgress?.kind !== "preparing") return;
-    let active = true;
-    const refresh = () => {
-      void getCommitStatusRef.current({ agentId: props.agentId }).then((status) => {
-        if (!active) return;
-        if (status.kind === "ready" || status.kind === "finished") {
-          // The timeline preview card is now the source of truth. It may be
-          // rendered on another device before this polling request resolves.
-          setCommitProgress(null);
-          setPendingDiff(null);
-        } else if (status.kind === "idle") {
-          void paseo.agents.ref(props.agentId).timeline.refetch({ limit: 50 }).then((timeline) => {
-            if (!active) return;
-            const items = timeline.entries.map((entry) => entry.item);
-            const reviewIndex = items.findLastIndex((item) => item.type === "plugin" && item.kind === "review-result" && typeof item.data === "object" && item.data !== null && !Array.isArray(item.data) && item.data.scoredAt === data.scoredAt);
-            const completed = reviewIndex >= 0 && items.slice(reviewIndex + 1).some((item) => item.type === "plugin" &&
-              (item.kind === COMMIT_PREVIEW_KIND || item.kind === COMMIT_RESULT_KIND));
-            if (completed) {
-              setCommitProgress(null);
-              setPendingDiff(null);
-            } else {
-              setCommitProgress((current) => current?.kind === "preparing" && Date.now() - current.startedAt > 10_000
-                ? { kind: "failed", stage: "预览任务已中断，请重试。", startedAt: current.startedAt }
-                : current);
-            }
-          }).catch(() => { /* Keep polling while the mobile connection recovers. */ });
-        } else {
-          const next = { kind: status.kind, stage: status.stage, startedAt: status.startedAt ?? Date.now() };
-          setCommitProgress((current) => {
-            if (current && next.startedAt < current.startedAt) return current;
-            if (current?.kind === next.kind && current.stage === next.stage && current.startedAt === next.startedAt) return current;
-            return next;
-          });
-          if (status.diffReady && !pendingDiffRequested.current) {
-            pendingDiffRequested.current = true;
-            void getPendingDiffRef.current({ agentId: props.agentId }).then(
-              (result) => { if (active) setPendingDiff(result.diff); },
-              () => { pendingDiffRequested.current = false; },
-            );
-          }
-        }
-      }, () => {
-        if (active) setCommitProgress((current) => current?.kind === "preparing"
-          ? { ...current, stage: "连接暂时中断，正在重新同步…" } : current);
-      });
-    };
-    refresh();
-    const timer = setInterval(refresh, 2_000);
-    return () => { active = false; clearInterval(timer); };
-  }, [paseo, props.agentId, data.scoredAt, commitRunning, commitProgress?.kind]);
+  const { ref: groupNode, isVisible } = useCardVisibility();
+  const { commitCwd, commitUnavailableReason, commitTargetCwd, commitRunning, commitProgress, pendingDiff, startCommit } = useReviewCommit(props.agentId, data.scoredAt, isVisible);
+  const { cancelingVerification, verificationError, openingVerifier, showVerifier, stopVerification } = useReviewVerification(props.agentId, props.host.id, data.scoredAt, verificationRunning, data.verificationAgentId);
   const diffFiles = useMemo(() => parseDiffFiles(data.diff), [data.diff]);
   const totalAdded = diffFiles.reduce((total, file) => total + file.added, 0);
   const totalRemoved = diffFiles.reduce((total, file) => total + file.removed, 0);
@@ -229,7 +80,7 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
   const pendingDiffFiles = useMemo(() => pendingDiff ? parseDiffFiles(pendingDiff) : [], [pendingDiff]);
   const hasAnalysis = Boolean(data.narrative || data.summary || data.drifts?.length || data.verification || data.detail);
 
-  const useFollowup = (suggestion: string) => {
+  const fillFollowup = (suggestion: string) => {
     if (props.layout.platform === "web") {
       setFollowupFeedback(fillVisibleComposer(suggestion) ? "已填入输入框" : "无法确定当前输入框，请先关闭其他会话分栏。" );
       return;
@@ -238,41 +89,6 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
       () => setFollowupFeedback("已复制追问，请粘贴到输入框。"),
       () => setFollowupFeedback("复制失败，请长按文字复制。"),
     );
-  };
-
-  const startCommit = () => {
-    const cwd = commitCwd ?? commitTargetCwd;
-    if (!cwd || superseded.current || commitRunning || commitProgress?.kind === "preparing") return;
-    setCommitTargetCwd(cwd);
-    setPendingDiff(null);
-    pendingDiffRequested.current = false;
-    setCommitRunning(true);
-    setCommitProgress({ kind: "preparing", stage: "正在启动 Pi…", startedAt: Date.now() });
-    void preparePiCommit({ agentId: props.agentId, cwd, scoredAt: data.scoredAt }).then(
-      () => setCommitCwd(null),
-      (error: unknown) => setCommitProgress({ kind: "failed", stage: `无法启动 Pi：${error instanceof Error ? error.message : String(error)}`, startedAt: Date.now() }),
-    ).finally(() => setCommitRunning(false));
-  };
-
-  const stopVerification = () => {
-    if (cancelingVerification || !verificationRunning) return;
-    setCancelingVerification(true);
-    setVerificationError("");
-    void (async () => {
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          await cancelVerification({ agentId: props.agentId, scoredAt: data.scoredAt });
-          return;
-        } catch (error) {
-          if (/验证已结束/.test(String(error))) return;
-          if (!/Transport (?:closed|not connected)|status: disconnected/i.test(String(error)) || attempt === 2) {
-            setVerificationError("取消请求未能送达，请稍后重试。");
-            return;
-          }
-          await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
-        }
-      }
-    })().finally(() => setCancelingVerification(false));
   };
 
   return (
@@ -376,7 +192,7 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
           </TouchableOpacity>
         ) : null}
         {showSuggestions ? visibleFollowups.map((suggestion, index) => (
-          <TouchableOpacity key={`${index}-${suggestion}`} activeOpacity={0.75} onPress={() => useFollowup(suggestion)} accessibilityRole="button" accessibilityLabel={`${props.layout.platform === "web" ? "填入" : "复制"}追问：${suggestion}`} style={styles.followupBubble}>
+          <TouchableOpacity key={`${index}-${suggestion}`} activeOpacity={0.75} onPress={() => fillFollowup(suggestion)} accessibilityRole="button" accessibilityLabel={`${props.layout.platform === "web" ? "填入" : "复制"}追问：${suggestion}`} style={styles.followupBubble}>
             <Text style={styles.followupText}>{suggestion}</Text>
             <Text style={styles.followupArrow}>↗</Text>
           </TouchableOpacity>
@@ -467,7 +283,6 @@ const styles = StyleSheet.create({
     fontFamily: "monospace",
   },
   followups: { alignItems: "flex-start", gap: 7, paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: StyleSheet.hairlineWidth },
-  followupsHeading: { color: "#6b7280", fontSize: 12, fontWeight: "600", marginBottom: 1 },
   followupBubble: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 10, maxWidth: "90%", minHeight: 38, paddingHorizontal: 13, paddingVertical: 9, borderRadius: 10, backgroundColor: "#fff", borderWidth: StyleSheet.hairlineWidth, borderColor: "#d8dee6" },
   commitBubble: { backgroundColor: "#eef2ff", borderColor: "#c7d2fe" },
   commitText: { color: "#3730a3", fontSize: 13, lineHeight: 19, fontWeight: "600" },
