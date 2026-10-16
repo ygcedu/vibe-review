@@ -1,4 +1,4 @@
-import type { PluginClientContext } from "@getpaseo/plugin/client";
+import type { PluginClientContext, PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
 import { REVIEW_KIND, REVIEW_VERSION, reviewResultSchema, reviewAgentRpc } from "./shared/review";
 import { ReviewResultItem } from "./client/review/review";
 import { LlmSettingsScreen } from "./client/settings/settings";
@@ -11,10 +11,31 @@ import { editDiffFiles } from "./client/diff/edit-diff-data";
 import { EDIT_DIFF_KIND, editDiffSchema, EditDiffItem } from "./client/edit-diff";
 import { WorkspaceCommitPanel } from "./client/workspace-commit";
 import { GitHistoryPanel } from "./client/git-history";
+import { GitDiffPanel } from "./client/git-diff";
+import { useGitDiffState } from "./client/git-diff-state";
 
 export default function contribute(client: PluginClientContext) {
-  client.addWorkspacePanel({ id: "vibe-review-commit", title: "提交更改", icon: "GitCommitHorizontal", context: "workspace", locations: ["explorer"], Component: WorkspaceCommitPanel });
-  client.addWorkspacePanel({ id: "vibe-review-git-history", title: "Git 历史", icon: "GitBranch", context: "workspace", locations: ["workspace", "explorer"], Component: GitHistoryPanel });
+  function CommitPanel(props: PluginWorkspacePanelProps) {
+    const { tabs, activeTabId, openTab } = useGitDiffState(props.workspaceId);
+    const activeTab = tabs.find((tab) => tab.id === activeTabId);
+    return <WorkspaceCommitPanel {...props} externalPreview={activeTab?.source === "working" ? activeTab : null} onFilePreview={(selection) => {
+      openTab({ id: `working:${selection.path}`, source: "working", ...selection });
+      client.openPanel("vibe-review-git-diff", { workspaceId: props.workspaceId, location: "workspace" });
+    }} />;
+  }
+  function HistoryPanel(props: PluginWorkspacePanelProps) {
+    return <GitHistoryPanel {...props} onOpenDiff={() => client.openPanel("vibe-review-git-diff", { workspaceId: props.workspaceId, location: "workspace" })} />;
+  }
+  client.addWorkspacePanel({ id: "vibe-review-commit", title: "提交更改", icon: "GitCommitHorizontal", context: "workspace", locations: ["explorer"], Component: CommitPanel });
+  client.addWorkspacePanel({ id: "vibe-review-git-diff", title: "Git Diff", icon: "FileDiff", context: "workspace", locations: ["workspace"], Component: GitDiffPanel });
+  client.addWorkspacePanel({ id: "vibe-review-git-history", title: "Git 历史", icon: "GitBranch", context: "workspace", locations: ["explorer"], Component: HistoryPanel });
+  for (const [id, title, icon] of [
+    ["vibe-review-commit", "提交更改", "GitCommitHorizontal"],
+    ["vibe-review-git-diff", "Git Diff", "FileDiff"],
+    ["vibe-review-git-history", "Git 历史", "GitBranch"],
+  ] as const) {
+    client.addCommandCenterItem({ id: `open-${id}`, title: `打开${title}`, icon, context: "workspace", onSelect: ({ openPanel }) => openPanel(id, { location: id === "vibe-review-git-diff" ? "workspace" : "explorer" }) });
+  }
   const clarify = createClarifyController(client);
   const pills = new Map<string, { workspaceId: string; remove(): void }>();
   const lifetime = new AbortController();
