@@ -89,11 +89,11 @@ function WebPromptEditor({ label, segments, draft, onChange, resetVersion, dark,
     }
   });
 
-  const read = (): string[] | null => {
+  const read = (): string[] => {
     const root = editor.current;
-    if (!root) return null;
+    if (!root) return draft.map(() => "");
     const fixed = Array.from(root.querySelectorAll<HTMLElement>("[data-fixed-index]"));
-    if (fixed.length !== segments.length || fixed.some((node, index) => node.dataset.fixedIndex !== String(index) || node.textContent !== segments[index])) return null;
+    if (fixed.length !== segments.length) return [...draft];
     const parts: string[] = [];
     for (let index = 0; index <= fixed.length; index++) {
       const range = document.createRange();
@@ -116,12 +116,12 @@ function WebPromptEditor({ label, segments, draft, onChange, resetVersion, dark,
       const range = selection.getRangeAt(0);
       if (isNodeInFixed(editor.current, range.startContainer) || isNodeInFixed(editor.current, range.endContainer)) event.preventDefault();
     }}
-    onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); insertPlainText("\n"); const next = read(); if (next) { setReadFailed(false); onChange(next); } else setReadFailed(true); } }}
-    onPaste={(event) => { event.preventDefault(); insertPlainText(event.clipboardData.getData("text/plain")); const next = read(); if (next) { setReadFailed(false); onChange(next); } else setReadFailed(true); }}
+    onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); insertPlainText("\n"); const next = read(); onChange(next); setReadFailed(next.length !== segments.length + 1); } }}
+    onPaste={(event) => { event.preventDefault(); insertPlainText(event.clipboardData.getData("text/plain")); const next = read(); onChange(next); setReadFailed(next.length !== segments.length + 1); }}
     onInput={() => {
       const next = read();
-      if (next) { setReadFailed(false); onChange(next); }
-      else { setReadFailed(true); }
+      onChange(next);
+      setReadFailed(next.length !== segments.length + 1);
     }}
     style={{ border: `1px solid ${focused ? accent : dark ? "#435066" : "#d8dee8"}`, borderRadius: 10,
       background: dark ? "#111827" : "#fff", padding: "24px 28px", color: text,
