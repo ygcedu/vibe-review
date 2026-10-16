@@ -1,20 +1,16 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import type { PluginHandlerContext, PluginServerContext } from "@getpaseo/plugin/server";
+import { git, workspaceGitDirectory } from "./git.ts";
+import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { gitCommitDetailRpc, gitCommitFileDiffRpc, gitHistoryRpc } from "../shared/git-history.ts";
 
-const runFile = promisify(execFile);
-const PAGE_SIZE = 50;
-const git = async (cwd: string, args: string[]) => (await runFile("git", args, { cwd, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 })).stdout;
-const gitConfig = async (cwd: string, key: string) => { try { return (await git(cwd, ["config", "--get", key])).trim(); } catch { return ""; } };
-
-async function directory(paseo: PluginHandlerContext["paseo"], workspaceId: string) {
-  const workspace = await paseo.workspaces.ref(workspaceId).refresh();
-  if (!workspace?.workspaceDirectory) throw new Error("工作区目录不可用");
-  await git(workspace.workspaceDirectory, ["rev-parse", "--show-toplevel"]);
-  return workspace.workspaceDirectory;
+async function gitConfig(cwd: string, key: string): Promise<string> {
+  try {
+    return (await git(cwd, ["config", "--get", key])).trim();
+  } catch {
+    return "";
+  }
 }
 
+const PAGE_SIZE = 50;
 const format = "%H%x1f%P%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%D%x1e";
 export function parseCommits(raw: string) {
   return raw.split("\x1e").map((record) => record.trimStart()).filter(Boolean).map((record) => {
@@ -48,7 +44,7 @@ async function changedFiles(cwd: string, hash: string, base: string | null) {
 
 export function registerGitHistory(server: PluginServerContext) {
   server.handle(gitHistoryRpc, async ({ workspaceId, branch, query, skip }, { paseo }) => {
-    const cwd = await directory(paseo, workspaceId);
+    const cwd = await workspaceGitDirectory(paseo, workspaceId);
     const branches = (await git(cwd, ["for-each-ref", "--format=%(refname)%09%(upstream:track)", "refs/heads", "refs/remotes", "refs/tags"])).trim().split("\n").filter(Boolean).map((line) => {
       const [ref = "", tracking = ""] = line.split("\t");
       const ahead = Number(tracking.match(/\bahead (\d+)/)?.[1]) || 0;
@@ -70,7 +66,7 @@ export function registerGitHistory(server: PluginServerContext) {
   });
   server.handle(gitCommitDetailRpc, async ({ workspaceId, hash }, { paseo }) => {
     if (!isValidHash(hash)) throw new Error("无效提交哈希");
-    const cwd = await directory(paseo, workspaceId);
+    const cwd = await workspaceGitDirectory(paseo, workspaceId);
     const base = await commitBase(cwd, hash);
     const message = (await git(cwd, ["show", "-s", "--format=%B", hash])).trim();
     const branchNames = (await git(cwd, ["for-each-ref", `--contains=${hash}`, "--format=%(refname:short)", "refs/heads", "refs/remotes"])).trim().split("\n").filter(Boolean);
@@ -79,7 +75,7 @@ export function registerGitHistory(server: PluginServerContext) {
   });
   server.handle(gitCommitFileDiffRpc, async ({ workspaceId, hash, path, fullContext }, { paseo }) => {
     if (!isValidHash(hash)) throw new Error("无效提交哈希");
-    const cwd = await directory(paseo, workspaceId);
+    const cwd = await workspaceGitDirectory(paseo, workspaceId);
     const base = await commitBase(cwd, hash);
     const files = await changedFiles(cwd, hash, base);
     if (!files.some((file) => file.path === path)) throw new Error("文件不属于该提交");

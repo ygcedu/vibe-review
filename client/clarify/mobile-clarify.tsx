@@ -8,7 +8,7 @@ import { clarifyRpc } from "../../shared/clarify";
 type Draft = { getText(): string; replaceTextIfUnchanged(expected: string, replacement: string): boolean };
 type Props = { close(): void; composerDraft?: Draft };
 export function MobileClarify({ client, agentId, composerDraft, close }: Props & { client: PluginClientContext; agentId: string }) {
-  const [original, setOriginal] = useState(() => composerDraft?.getText() ?? "");
+  const [original] = useState(() => composerDraft?.getText() ?? "");
   const [text, setText] = useState(original);
   const [suggestion, setSuggestion] = useState("");
   const [error, setError] = useState("");

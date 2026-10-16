@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { parseDiffFiles, type DiffFile } from "./diff";
 import { FileTypeIcon } from "./file-icons";
