@@ -27,3 +27,5 @@ export const workspaceGitPushRpc = defineRpc({
   input: z.object({ workspaceId: z.string() }),
   output: z.object({ summary: z.string() }),
 });
+
+export type WorkingFile = z.infer<typeof file>;

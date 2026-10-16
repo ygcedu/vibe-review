@@ -2,11 +2,10 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type ViewStyle } from "react-native";
 import { useRpc, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import { workspaceGitCommitRpc, workspaceGitPushRpc, workspaceGitTrackRpc, workspaceGitStatusRpc } from "../shared/workspace-commit";
+import { workspaceGitCommitRpc, workspaceGitPushRpc, workspaceGitTrackRpc, workspaceGitStatusRpc, type WorkingFile as File } from "../shared/workspace-commit";
 import { FileTypeIcon } from "./diff/file-icons";
 import { buildFileTree, type FileTreeNode } from "./diff/file-tree-utils";
 
-type File = { path: string; status: string; staged: boolean; unstaged: boolean; untracked: boolean };
 type Selection = { path: string; staged: boolean; status?: string };
 type TreeNode = FileTreeNode<File>;
 const checkboxState = (files: File[], selected: Set<string>) => files.length > 0 && files.every((file) => selected.has(file.path)) ? "all" : files.some((file) => selected.has(file.path)) ? "partial" : "none";

@@ -3,26 +3,14 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 
 export function WrapToggleButton({ active, onToggle }: { active: boolean; onToggle(): void }) {
-  const [hovered, setHovered] = useState(false);
-  return <View style={styles.container}>
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel="折行显示"
-      aria-pressed={active}
-      onHoverIn={() => setHovered(true)}
-      onHoverOut={() => setHovered(false)}
-      onPress={onToggle}
-      style={[styles.button, active && styles.active, hovered && styles.hover]}
-    ><Icon name="WrapText" size={13} color="#64748b" /></Pressable>
-    {hovered ? <View pointerEvents="none" style={[styles.tooltip, styles.above]}><Text style={styles.tooltipText}>折行显示</Text></View> : null}
-  </View>;
+  return <DiffOptionButton active={active} onToggle={onToggle} label="折行显示" icon="WrapText" iconSize={13} tooltipWidth={72} />;
 }
 
-export function DiffOptionButton({ active, onToggle, label, icon, disabled = false, disabledReason = "旧卡片未保存完整上下文" }: { active: boolean; onToggle(): void; label: string; icon: string; disabled?: boolean; disabledReason?: string }) {
+export function DiffOptionButton({ active, onToggle, label, icon, disabled = false, disabledReason = "旧卡片未保存完整上下文", iconSize = 14, tooltipWidth = 112 }: { active: boolean; onToggle(): void; label: string; icon: string; disabled?: boolean; disabledReason?: string; iconSize?: number; tooltipWidth?: number }) {
   const [hovered, setHovered] = useState(false);
   return <View style={styles.container}>
-    <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled }} aria-pressed={active} disabled={disabled} onHoverIn={() => setHovered(true)} onHoverOut={() => setHovered(false)} onPress={onToggle} style={[styles.button, active && styles.active, hovered && !disabled && styles.hover, disabled && styles.disabled]}><Icon name={icon} size={14} color="#64748b" /></Pressable>
-    {hovered ? <View pointerEvents="none" style={[styles.tooltip, styles.above, { width: disabled ? 150 : 112 }]}><Text style={styles.tooltipText}>{disabled ? disabledReason : label}</Text></View> : null}
+    <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled }} aria-pressed={active} disabled={disabled} onHoverIn={() => setHovered(true)} onHoverOut={() => setHovered(false)} onPress={onToggle} style={[styles.button, active && styles.active, hovered && !disabled && styles.hover, disabled && styles.disabled]}><Icon name={icon} size={iconSize} color="#64748b" /></Pressable>
+    {hovered ? <View pointerEvents="none" style={[styles.tooltip, styles.above, { width: disabled ? 150 : tooltipWidth }]}><Text style={styles.tooltipText}>{disabled ? disabledReason : label}</Text></View> : null}
   </View>;
 }
 
@@ -34,6 +22,5 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.45 },
   tooltip: { position: "absolute", right: 0, width: 72, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 5, backgroundColor: "#1e293b", zIndex: 4 },
   above: { bottom: 22 },
-  below: { top: 22 },
   tooltipText: { color: "#fff", fontSize: 11, textAlign: "center" },
 });

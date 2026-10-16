@@ -1,6 +1,6 @@
 import { git, workspaceGitDirectory } from "./git.ts";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { gitCommitDetailRpc, gitCommitFileDiffRpc, gitHistoryRpc } from "../shared/git-history.ts";
+import { gitCommitDetailRpc, gitCommitFileDiffRpc, gitHistoryRpc, type ChangedFile } from "../shared/git-history.ts";
 
 async function gitConfig(cwd: string, key: string): Promise<string> {
   try {
@@ -19,7 +19,6 @@ export function parseCommits(raw: string) {
   });
 }
 
-export type ChangedFile = { path: string; status: string };
 export function parseChangedFiles(raw: string): ChangedFile[] {
   const parts = raw.split("\0").filter(Boolean);
   const files: ChangedFile[] = [];

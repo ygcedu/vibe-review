@@ -1,21 +1,18 @@
 import { useEffect, useRef, useState } from "react";
-import { Image, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextProps } from "react-native";
 import { useRpc, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import { gitCommitDetailRpc, gitHistoryRpc } from "../shared/git-history";
+import { gitCommitDetailRpc, gitHistoryRpc, type GitCommit as Commit, type GitBranch as Branch, type ChangedFile } from "../shared/git-history";
 import { FileTypeIcon } from "./diff/file-icons";
 import { useGitDiffState, type DiffTab } from "./git-diff-state";
 import { buildFileTree, sortTreeNodes, type FileTreeNode } from "./diff/file-tree-utils";
 
-type Commit = { hash: string; parents: string[]; author: string; email: string; date: string; subject: string; refs: string[] };
-type ChangedFile = { path: string; status: string };
 type TreeNode = FileTreeNode<ChangedFile>;
-type Branch = { name: string; group: "local" | "remote" | "tag"; ahead: number; behind: number };
 type BranchNode = { kind: "folder"; name: string; path: string; children: BranchNode[] } | { kind: "branch"; name: string; fullName: string; ahead: number; behind: number };
 const SPLITTER_SIZE = 6;
 const CURRENT_BRANCH_ICON = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#f5a400" d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.828 8.828a2 2 0 0 0 2.828 0l7.172-7.172a2 2 0 0 0 0-2.828z"/><circle cx="7.5" cy="7.5" r="1.7" fill="white"/></svg>')}`;
 
-function CommitHash({ value }: { value: string }) {
+function CommitText({ children, ...props }: Pick<TextProps, "children" | "style" | "numberOfLines">) {
   const ref = useRef<Text>(null);
   useEffect(() => {
     if (Platform.OS !== "web") return;
@@ -23,32 +20,10 @@ function CommitHash({ value }: { value: string }) {
     node?.setAttribute("data-pmono", "");
     return () => { node?.removeAttribute("data-pmono"); };
   }, []);
-  return <Text ref={ref} style={styles.hash} numberOfLines={1}>{value.slice(0, 8)}</Text>;
+  return <Text ref={ref} {...props}>{children}</Text>;
 }
 
-function CommitDate({ value }: { value: string }) {
-  const ref = useRef<Text>(null);
-  useEffect(() => {
-    if (Platform.OS !== "web") return;
-    const node = ref.current as unknown as HTMLElement | null;
-    node?.setAttribute("data-pmono", "");
-    return () => { node?.removeAttribute("data-pmono"); };
-  }, []);
-  return <Text ref={ref} style={styles.date} numberOfLines={1}>{value}</Text>;
-}
-
-function CommitMessageText({ value }: { value: string }) {
-  const ref = useRef<Text>(null);
-  useEffect(() => {
-    if (Platform.OS !== "web") return;
-    const node = ref.current as unknown as HTMLElement | null;
-    node?.setAttribute("data-pmono", "");
-    return () => { node?.removeAttribute("data-pmono"); };
-  }, []);
-  return <Text ref={ref} style={styles.detailMessage}>{value}</Text>;
-}
-
-function ResizeHandle({ direction, appearance, label, onResize }: { direction: "horizontal" | "vertical"; appearance: "gutter" | "line"; label: string; onResize: (delta: number) => void }) {
+function ResizeHandle({ direction, label, onResize }: { direction: "horizontal" | "vertical"; label: string; onResize: (delta: number) => void }) {
   const ref = useRef<View>(null);
   const resizeRef = useRef(onResize);
   resizeRef.current = onResize;
@@ -57,9 +32,11 @@ function ResizeHandle({ direction, appearance, label, onResize }: { direction: "
     const node = ref.current as unknown as HTMLElement | null;
     if (!node) return;
     node.style.cursor = direction === "vertical" ? "col-resize" : "row-resize";
+    let stopDragging: (() => void) | undefined;
     const down = (event: PointerEvent) => {
       if (event.button !== 0) return;
       event.preventDefault();
+      stopDragging?.();
       let previous = direction === "vertical" ? event.clientX : event.clientY;
       const oldCursor = document.body.style.cursor;
       const oldSelection = document.body.style.userSelect;
@@ -73,16 +50,25 @@ function ResizeHandle({ direction, appearance, label, onResize }: { direction: "
       const up = () => {
         window.removeEventListener("pointermove", move);
         window.removeEventListener("pointerup", up);
+        window.removeEventListener("pointercancel", up);
+        stopDragging = undefined;
         document.body.style.cursor = oldCursor;
         document.body.style.userSelect = oldSelection;
       };
+      stopDragging = up;
       window.addEventListener("pointermove", move);
       window.addEventListener("pointerup", up, { once: true });
+      window.addEventListener("pointercancel", up, { once: true });
     };
     node.addEventListener("pointerdown", down);
-    return () => node.removeEventListener("pointerdown", down);
+    return () => {
+      node.removeEventListener("pointerdown", down);
+      stopDragging?.();
+    };
   }, [direction]);
-  return <View ref={ref} accessibilityRole="adjustable" accessibilityLabel={label} style={direction === "vertical" ? appearance === "line" ? styles.verticalLineSplitter : styles.verticalGutter : appearance === "line" ? styles.horizontalLineSplitter : styles.horizontalGutter}>{appearance === "line" ? <View style={direction === "vertical" ? styles.splitterLine : styles.splitterLineHorizontal} /> : null}</View>;
+  return <View ref={ref} accessibilityRole="adjustable" accessibilityLabel={label} style={direction === "vertical" ? styles.verticalLineSplitter : styles.horizontalLineSplitter}>
+    <View style={direction === "vertical" ? styles.splitterLine : styles.splitterLineHorizontal} />
+  </View>;
 }
 
 function branchTree(branches: Branch[], group: Branch["group"]): BranchNode[] {
@@ -302,7 +288,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
             })}
           </ScrollView>
         </View>
-        <ResizeHandle direction="vertical" appearance="line" label="调整分支列表宽度" onResize={(delta) => setBranchColumnWidth((width) => Math.max(minimumBranchWidth, Math.min(maximumBranchWidth, Math.max(minimumBranchWidth, Math.min(maximumBranchWidth, width ?? resolvedBranchColumnWidth)) + delta)))} />
+        <ResizeHandle direction="vertical" label="调整分支列表宽度" onResize={(delta) => setBranchColumnWidth((width) => Math.max(minimumBranchWidth, Math.min(maximumBranchWidth, Math.max(minimumBranchWidth, Math.min(maximumBranchWidth, width ?? resolvedBranchColumnWidth)) + delta)))} />
         <View style={[styles.logColumn, { width: resolvedLogColumnWidth }]}>
           <View style={styles.logToolbar}><TextInput value={searchText} onChangeText={setSearchText} placeholder="搜索提交说明" style={styles.search} /></View>
           <ScrollView style={styles.log}>
@@ -312,21 +298,21 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
                 <Text style={[styles.author, ownCommit && styles.currentAuthor]} numberOfLines={1}>{item.author}</Text>
                 <View style={styles.graph}><View style={styles.graphLine} /><View style={[styles.graphDot, item.parents.length > 1 && styles.mergeDot]} /></View>
                 <Text style={styles.subject} numberOfLines={1}>{item.subject}{item.refs[0] ? <Text style={styles.ref}>  {item.refs[0]}</Text> : null}</Text>
-                <CommitDate value={formatCommitTime(item.date, nowMs)} />
-                <CommitHash value={item.hash} />
+                <CommitText style={styles.date} numberOfLines={1}>{formatCommitTime(item.date, nowMs)}</CommitText>
+                <CommitText style={styles.hash} numberOfLines={1}>{item.hash.slice(0, 8)}</CommitText>
               </Pressable>;
             })}
             {hasMore ? <Pressable accessibilityRole="button" onPress={() => { if (!loading) setSkip((value) => value + 50); }} style={styles.loadMore}><Text style={styles.loadMoreText}>{loading ? "加载中…" : "加载更多提交"}</Text></Pressable> : null}
             {!loading && commits.length === 0 ? <Text style={styles.empty}>没有找到提交记录</Text> : null}
           </ScrollView>
         </View>
-        <ResizeHandle direction="vertical" appearance="line" label="调整提交列表宽度" onResize={(delta) => setLogColumnWidth((width) => Math.max(minimumLogWidth, Math.min(maximumLogWidth, Math.max(minimumLogWidth, Math.min(maximumLogWidth, width ?? resolvedLogColumnWidth)) + delta)))} />
+        <ResizeHandle direction="vertical" label="调整提交列表宽度" onResize={(delta) => setLogColumnWidth((width) => Math.max(minimumLogWidth, Math.min(maximumLogWidth, Math.max(minimumLogWidth, Math.min(maximumLogWidth, width ?? resolvedLogColumnWidth)) + delta)))} />
         <View style={styles.detail} onLayout={(event) => setDetailPanelHeight(event.nativeEvent.layout.height)}>
           {selectedCommit ? <>
             <View style={[styles.filesSection, { height: filesHeight }]}><Text style={styles.columnHeading}>变更文件 {detail?.files.length ?? ""}</Text><ScrollView style={styles.files}>{detail ? renderFiles(buildFileTree(detail.files, true), 0) : <Text style={styles.empty}>加载变更文件…</Text>}</ScrollView></View>
-            <ResizeHandle direction="horizontal" appearance="line" label="调整变更文件与提交说明的高度" onResize={(delta) => setPreferredFilesHeight((height) => Math.max(minimumFilesHeight, Math.min(maximumFilesHeight, Math.max(minimumFilesHeight, Math.min(maximumFilesHeight, height ?? filesHeight)) + delta)))} />
+            <ResizeHandle direction="horizontal" label="调整变更文件与提交说明的高度" onResize={(delta) => setPreferredFilesHeight((height) => Math.max(minimumFilesHeight, Math.min(maximumFilesHeight, Math.max(minimumFilesHeight, Math.min(maximumFilesHeight, height ?? filesHeight)) + delta)))} />
             <ScrollView key={selectedCommit.hash} style={styles.detailMessageScroll} contentContainerStyle={styles.detailMessageContent}>
-              <CommitMessageText value={detail?.message ?? selectedCommit.subject} />
+              <CommitText style={styles.detailMessage}>{detail?.message ?? selectedCommit.subject}</CommitText>
               <Text style={styles.detailMeta}>{selectedCommit.hash.slice(0, 8)}  {selectedCommit.author} &lt;{selectedCommit.email}&gt; on {new Date(selectedCommit.date).toLocaleString("zh-CN", { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}</Text>
               {detail?.containingBranches.length ? <Text style={styles.detailMeta}>In {detail.containingBranches.length} branches: {detail.containingBranches.join(", ")}</Text> : null}
             </ScrollView>
@@ -342,8 +328,6 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
 
 const styles = StyleSheet.create({
   root: { flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden", backgroundColor: "#fff" },
-  verticalGutter: { width: SPLITTER_SIZE, backgroundColor: "#eef0f3" },
-  horizontalGutter: { height: SPLITTER_SIZE, backgroundColor: "#eef0f3" },
   verticalLineSplitter: { width: SPLITTER_SIZE, alignItems: "center" },
   splitterLine: { width: 1, height: "100%", backgroundColor: "#d1d5db" },
   horizontalLineSplitter: { height: SPLITTER_SIZE, justifyContent: "center" },
