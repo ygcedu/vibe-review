@@ -21,6 +21,9 @@ export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.i
   getPreviewRef.current = getPreview;
   const confirm = useRpc(confirmPiCommitRpc);
   const cancel = useRpc(cancelPiCommitRpc);
+  const doneRef = useRef(done);
+  doneRef.current = done;
+  const pollFailures = useRef(0);
   const { proposalId, message, files, promptPreview } = item.data;
   const [editedMessage, setEditedMessage] = useState(message);
   const validMessage = editedMessage.trim().length > 0 && editedMessage.trim().length <= 80;
@@ -57,6 +60,9 @@ export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.i
     const refresh = () => {
       void getPreviewRef.current({ agentId, proposalId }).then((result) => {
         if (!active) return;
+        pollFailures.current = 0;
+        // 本地 done（取消/确认成功）是终态权威来源，轮询不得再降级卡片
+        if (doneRef.current) return;
         if (result.state === "finished") {
           setDone(result.result ?? "已结束提交预览。");
           setPreviewState("finished");
@@ -65,7 +71,14 @@ export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.i
         } else if (result.diff) {
           setDiff(result.diff);
         }
-      }, () => { /* Retain the visible preview and retry after reconnect. */ });
+      }, () => {
+        pollFailures.current += 1;
+        if (pollFailures.current >= 3 && !doneRef.current) {
+          setPreviewState("unavailable");
+          setError("预览已过期或连接中断，请重新生成预览");
+        }
+        // ponytail: 3 次（约 9 秒）仍失败且无本地终态才降级；重连成功后计数归零
+      });
     };
     if (isVisible) refresh();
     if (!isVisible) return () => { active = false; };
@@ -117,7 +130,7 @@ export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.i
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {error ? <TouchableOpacity accessibilityRole="button" onPress={() => { setError(""); setPreviewRequest((value) => value + 1); }} style={styles.retry}><Text style={styles.promptToggleText}>重新读取预览</Text></TouchableOpacity> : null}
     </>}
-    {!done || promptToggle ? <View style={styles.actions}>
+    {!done && promptToggle ? <View style={styles.actions}>
       {promptToggle}
       {!done ? <View style={styles.actionButtons}>
         <TouchableOpacity onPress={dismiss} disabled={busy} style={styles.cancel}><Text style={styles.cancelText}>取消</Text></TouchableOpacity>
