@@ -140,6 +140,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [branchCollapsed, setBranchCollapsed] = useState<Set<string>>(new Set(["remote", "tag"]));
   const branchDefaultsWorkspace = useRef<string | null>(null);
+  const requestSeq = useRef(0);
   const [branchSearch, setBranchSearch] = useState("");
   const [panelWidth, setPanelWidth] = useState(0);
   const [panelHeight, setPanelHeight] = useState(0);
@@ -158,10 +159,11 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
   }, [searchText]);
 
   useEffect(() => {
-    let active = true;
+    const seq = ++requestSeq.current;
     setLoading(true);
     void getHistory({ workspaceId, branch, query, skip }).then((value) => {
-      if (!active) return;
+      // ponytail: discard stale responses to prevent cross-branch/dimension list splicing.
+      if (seq !== requestSeq.current) return;
       setCommits((existing) => skip === 0 ? value.commits : [...existing, ...value.commits]);
       setBranches(value.branches);
       setCurrentBranch(value.currentBranch);
@@ -182,19 +184,18 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
       setHasMore(value.hasMore);
       if (skip === 0) setSelectedHash(value.commits[0]?.hash ?? null);
       setError("");
-    }, (reason: unknown) => { if (active) setError(String(reason)); }).finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+    }, (reason: unknown) => { if (seq === requestSeq.current) setError(String(reason)); }).finally(() => { if (seq === requestSeq.current) setLoading(false); });
   }, [workspaceId, branch, query, skip, revision]);
 
+  const detailSeq = useRef(0);
   useEffect(() => {
-    let active = true;
+    const seq = ++detailSeq.current;
     setDetail(null);
     if (selectedHash) void getDetail({ workspaceId, hash: selectedHash }).then((value) => {
-      if (!active) return;
+      if (seq !== detailSeq.current) return;
       setDetail(value);
       setCollapsed(new Set());
-    }, (reason: unknown) => { if (active) setError(String(reason)); });
-    return () => { active = false; };
+    }, (reason: unknown) => { if (seq === detailSeq.current) setError(String(reason)); });
   }, [workspaceId, selectedHash]);
 
   const toggleFolder = (path: string) => setCollapsed((current) => {
