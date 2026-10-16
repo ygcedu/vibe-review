@@ -82,7 +82,7 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
 
   const fillFollowup = (suggestion: string) => {
     if (props.layout.platform === "web") {
-      setFollowupFeedback(fillVisibleComposer(suggestion) ? "已填入输入框" : "无法确定当前输入框，请先关闭其他会话分栏。" );
+      setFollowupFeedback(fillVisibleComposer(suggestion) ? "已填入输入框" : "多个会话分栏无法定位输入框，请在目标会话分栏聚焦后重试。");
       return;
     }
     void copyText(suggestion).then(
