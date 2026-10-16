@@ -5,35 +5,9 @@ import { parseDiffFiles, type DiffFile } from "./diff";
 import { FileTypeIcon } from "./file-icons";
 import { SplitDiff } from "./split-diff";
 import { DiffOptionButton, WrapToggleButton } from "./wrap-toggle";
-import { sortTreeNodes } from "./file-tree-utils";
+import { buildFileTree, type FileTreeNode } from "./file-tree-utils";
 
-type FolderNode = { kind: "folder"; name: string; path: string; count: number; children: TreeNode[] };
-type FileNode = { kind: "file"; name: string; file: DiffFile; index: number };
-type TreeNode = FolderNode | FileNode;
-
-function buildFileTree(files: DiffFile[]): TreeNode[] {
-  const root: TreeNode[] = [];
-  const folders = new Map<string, FolderNode>();
-  files.forEach((file, index) => {
-    const parts = file.path.split("/").filter(Boolean);
-    let children = root;
-    let path = "";
-    for (const name of parts.slice(0, -1)) {
-      path = path ? `${path}/${name}` : name;
-      let folder = folders.get(path);
-      if (!folder) {
-        folder = { kind: "folder", name, path, count: 0, children: [] };
-        folders.set(path, folder);
-        children.push(folder);
-      }
-      folder.count++;
-      children = folder.children;
-    }
-    children.push({ kind: "file", name: parts.at(-1) ?? file.path, file, index });
-  });
-  sortTreeNodes(root);
-  return root;
-}
+type TreeNode = FileTreeNode<DiffFile>;
 
 export function FileTree({ files, fullDiff, collapseFoldersInitially = false }: { files: DiffFile[]; fullDiff?: string; collapseFoldersInitially?: boolean }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(() => {
@@ -67,14 +41,14 @@ export function FileTree({ files, fullDiff, collapseFoldersInitially = false }: 
       return <View key={`folder:${node.path}`}>
         <TouchableOpacity
           accessibilityRole="button"
-          accessibilityLabel={`${node.path}，${node.count} 个文件，${isCollapsed ? "展开" : "收起"}`}
+          accessibilityLabel={`${node.path}，${node.files.length} 个文件，${isCollapsed ? "展开" : "收起"}`}
           accessibilityState={{ expanded: !isCollapsed }}
           onPress={() => toggleFolder(node.path)}
           style={[styles.row, { paddingLeft: 12 + depth * 20 }]}
         >
           <Icon name={isCollapsed ? "ChevronRight" : "ChevronDown"} size={15} color="#6b7280" />
           <Text style={styles.folderName} numberOfLines={1}>{node.name}</Text>
-          <Text style={styles.count}>{node.count} 个文件</Text>
+          <Text style={styles.count}>{node.files.length} 个文件</Text>
         </TouchableOpacity>
         {!isCollapsed ? renderNodes(node.children, depth + 1) : null}
       </View>;

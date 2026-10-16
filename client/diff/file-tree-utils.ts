@@ -44,3 +44,34 @@ export function compactTree<T extends SortableNode<T>>(nodes: T[]): T[] {
   }
   return nodes;
 }
+
+export type FileTreeNode<T> =
+  | { kind: "folder"; name: string; path: string; files: T[]; children: FileTreeNode<T>[] }
+  | { kind: "file"; name: string; file: T; index: number };
+
+/** Keep source indices for diff selection and descendant files for folder selection. */
+export function buildFileTree<T extends { path: string }>(files: readonly T[], compact = false): FileTreeNode<T>[] {
+  const root: FileTreeNode<T>[] = [];
+  const folders = new Map<string, Extract<FileTreeNode<T>, { kind: "folder" }>>();
+
+  files.forEach((file, index) => {
+    const parts = file.path.split("/").filter(Boolean);
+    let children = root;
+    let path = "";
+    for (const name of parts.slice(0, -1)) {
+      path = path ? `${path}/${name}` : name;
+      let folder = folders.get(path);
+      if (!folder) {
+        folder = { kind: "folder", name, path, files: [], children: [] };
+        folders.set(path, folder);
+        children.push(folder);
+      }
+      folder.files.push(file);
+      children = folder.children;
+    }
+    children.push({ kind: "file", name: parts.at(-1) ?? file.path, file, index });
+  });
+
+  sortTreeNodes(root);
+  return compact ? compactTree(root) : root;
+}

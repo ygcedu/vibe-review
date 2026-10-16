@@ -1,29 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { compactTree, sortTreeNodes } from "./file-tree-utils.ts";
+import { buildFileTree, type FileTreeNode } from "./file-tree-utils.ts";
 
-type Folder = { kind: "folder"; name: string; path: string; count: number; children: Node[] };
-type Leaf = { kind: "file"; name: string; file: { path: string } };
-type Node = Folder | Leaf;
+type Folder = Extract<FileTreeNode<{ path: string }>, { kind: "folder" }>;
+type Leaf = Extract<FileTreeNode<{ path: string }>, { kind: "file" }>;
 
-function build(paths: string[]): Node[] {
-  const root: Node[] = [];
-  const folders = new Map<string, Folder>();
-  for (const path of paths) {
-    const parts = path.split("/").filter(Boolean);
-    let children: Node[] = root;
-    let p = "";
-    for (const name of parts.slice(0, -1)) {
-      p = p ? `${p}/${name}` : name;
-      let folder = folders.get(p);
-      if (!folder) { folder = { kind: "folder", name, path: p, count: 0, children: [] }; folders.set(p, folder); children.push(folder); }
-      folder.count++;
-      children = folder.children;
-    }
-    children.push({ kind: "file", name: parts.at(-1) ?? path, file: { path } });
-  }
-  sortTreeNodes(root);
-  return compactTree(root);
+function build(paths: string[]) {
+  return buildFileTree(paths.map((path) => ({ path })), true);
 }
 
 test("sorts folders before files, alphabetically within each", () => {
@@ -47,4 +30,26 @@ test("keeps sibling folders separate after compact", () => {
   const folder = tree[0] as Folder;
   assert.equal(folder.name, "a");
   assert.deepEqual(folder.children.map((node) => (node as Folder).name), ["1", "2"]);
+});
+
+test("retains original file identity and source index after sorting", () => {
+  const files = [{ path: "z.ts", status: "M" }, { path: "a.ts", status: "A" }];
+  const tree = buildFileTree(files);
+  assert.equal((tree[0] as Leaf).index, 1);
+  assert.equal((tree[0] as Leaf).file, files[1]);
+  assert.equal((tree[1] as Leaf).index, 0);
+});
+
+test("folders retain all descendant files for counts and bulk selection", () => {
+  const files = [{ path: "a/b/x.ts" }, { path: "a/c/y.ts" }];
+  const folder = buildFileTree(files, true)[0] as Folder;
+  assert.deepEqual(folder.files, files);
+  assert.deepEqual((folder.children[0] as Folder).files, [files[0]]);
+});
+
+test("keeps folder chains expanded by default and handles an empty tree", () => {
+  const folder = buildFileTree([{ path: "a/b/x.ts" }])[0] as Folder;
+  assert.equal(folder.name, "a");
+  assert.equal((folder.children[0] as Folder).name, "b");
+  assert.deepEqual(buildFileTree([]), []);
 });

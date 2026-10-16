@@ -4,11 +4,11 @@ import { useRpc, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client"
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { workspaceGitCommitRpc, workspaceGitPushRpc, workspaceGitTrackRpc, workspaceGitStatusRpc } from "../shared/workspace-commit";
 import { FileTypeIcon } from "./diff/file-icons";
-import { compactTree, sortTreeNodes } from "./diff/file-tree-utils";
+import { buildFileTree, type FileTreeNode } from "./diff/file-tree-utils";
 
 type File = { path: string; status: string; staged: boolean; unstaged: boolean; untracked: boolean };
 type Selection = { path: string; staged: boolean; status?: string };
-type TreeNode = { kind: "folder"; name: string; path: string; files: File[]; children: TreeNode[] } | { kind: "file"; name: string; file: File };
+type TreeNode = FileTreeNode<File>;
 const checkboxState = (files: File[], selected: Set<string>) => files.length > 0 && files.every((file) => selected.has(file.path)) ? "all" : files.some((file) => selected.has(file.path)) ? "partial" : "none";
 const checkboxIcon = (state: "all" | "partial" | "none") => state === "all" ? "SquareCheck" : state === "partial" ? "SquareMinus" : "Square";
 const dragType = "application/x-vibe-review-git-files";
@@ -75,30 +75,6 @@ function TrackedDropZone({ children, workspaceId, onFiles }: { children: ReactNo
     return () => { node.removeEventListener("dragover", over); node.removeEventListener("dragleave", leave); node.removeEventListener("drop", drop); };
   }, [workspaceId]);
   return <View ref={ref} style={hovered && styles.dropTarget}>{children}</View>;
-}
-
-function fileTree(files: File[]): TreeNode[] {
-  const root: TreeNode[] = [];
-  const folders = new Map<string, Extract<TreeNode, { kind: "folder" }>>();
-  for (const file of files) {
-    const parts = file.path.split("/").filter(Boolean);
-    let children = root;
-    let path = "";
-    for (const name of parts.slice(0, -1)) {
-      path = path ? `${path}/${name}` : name;
-      let folder = folders.get(path);
-      if (!folder) {
-        folder = { kind: "folder", name, path, files: [], children: [] };
-        folders.set(path, folder);
-        children.push(folder);
-      }
-      folder.files.push(file);
-      children = folder.children;
-    }
-    children.push({ kind: "file", name: parts.at(-1) ?? file.path, file });
-  }
-  sortTreeNodes(root);
-  return compactTree(root);
 }
 
 export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPreview }: PluginWorkspacePanelProps & { onFilePreview: (selection: Selection) => void; externalPreview?: Selection | null }) {
@@ -264,7 +240,7 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
           {group.title === "未跟踪" && group.files.length > 0
             ? <DraggableRow workspaceId={workspaceId} paths={group.files.map((file) => file.path)} style={styles.groupRow}>{header}</DraggableRow>
             : <View style={styles.groupRow}>{header}</View>}
-          {!isCollapsed ? renderNodes(fileTree(group.files), group, 0) : null}
+          {!isCollapsed ? renderNodes(buildFileTree(group.files, true), group, 0) : null}
         </View>;
         return group.title === "已跟踪"
           ? <TrackedDropZone key={group.title} workspaceId={workspaceId} onFiles={(paths) => void track(files.filter((file) => file.untracked && paths.includes(file.path)).map((file) => file.path))}>{content}</TrackedDropZone>

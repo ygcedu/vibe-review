@@ -5,11 +5,11 @@ import { Icon } from "@getpaseo/plugin/client/react-native";
 import { gitCommitDetailRpc, gitHistoryRpc } from "../shared/git-history";
 import { FileTypeIcon } from "./diff/file-icons";
 import { useGitDiffState, type DiffTab } from "./git-diff-state";
-import { compactTree, sortTreeNodes } from "./diff/file-tree-utils";
+import { buildFileTree, sortTreeNodes, type FileTreeNode } from "./diff/file-tree-utils";
 
 type Commit = { hash: string; parents: string[]; author: string; email: string; date: string; subject: string; refs: string[] };
 type ChangedFile = { path: string; status: string };
-type TreeNode = { kind: "folder"; name: string; path: string; count: number; children: TreeNode[] } | { kind: "file"; name: string; file: ChangedFile };
+type TreeNode = FileTreeNode<ChangedFile>;
 type Branch = { name: string; group: "local" | "remote" | "tag"; ahead: number; behind: number };
 type BranchNode = { kind: "folder"; name: string; path: string; children: BranchNode[] } | { kind: "branch"; name: string; fullName: string; ahead: number; behind: number };
 const SPLITTER_SIZE = 6;
@@ -103,26 +103,6 @@ function branchTree(branches: Branch[], group: Branch["group"]): BranchNode[] {
   }
   sortTreeNodes(root);
   return root;
-}
-
-function tree(files: ChangedFile[]): TreeNode[] {
-  const root: TreeNode[] = [];
-  const folders = new Map<string, Extract<TreeNode, { kind: "folder" }>>();
-  for (const file of files) {
-    const parts = file.path.split("/").filter(Boolean);
-    let children = root;
-    let path = "";
-    for (const name of parts.slice(0, -1)) {
-      path = path ? `${path}/${name}` : name;
-      let folder = folders.get(path);
-      if (!folder) { folder = { kind: "folder", name, path, count: 0, children: [] }; folders.set(path, folder); children.push(folder); }
-      folder.count++;
-      children = folder.children;
-    }
-    children.push({ kind: "file", name: parts.at(-1) ?? file.path, file });
-  }
-  sortTreeNodes(root);
-  return compactTree(root);
 }
 
 function fileColor(status: string) {
@@ -268,7 +248,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
         <Icon name={collapsed.has(node.path) ? "ChevronRight" : "ChevronDown"} size={14} color="#64748b" />
         <Icon name="Folder" size={16} color="#64748b" />
         <Text style={styles.folderName} numberOfLines={1}>{node.name}</Text>
-        <Text style={styles.count}>{node.count} 个文件</Text>
+        <Text style={styles.count}>{node.files.length} 个文件</Text>
       </Pressable>
       {!collapsed.has(node.path) ? renderFiles(node.children, depth + 1) : null}
     </View>;
@@ -343,7 +323,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
         <ResizeHandle direction="vertical" appearance="line" label="调整提交列表宽度" onResize={(delta) => setLogColumnWidth((width) => Math.max(minimumLogWidth, Math.min(maximumLogWidth, Math.max(minimumLogWidth, Math.min(maximumLogWidth, width ?? resolvedLogColumnWidth)) + delta)))} />
         <View style={styles.detail} onLayout={(event) => setDetailPanelHeight(event.nativeEvent.layout.height)}>
           {selectedCommit ? <>
-            <View style={[styles.filesSection, { height: filesHeight }]}><Text style={styles.columnHeading}>变更文件 {detail?.files.length ?? ""}</Text><ScrollView style={styles.files}>{detail ? renderFiles(tree(detail.files), 0) : <Text style={styles.empty}>加载变更文件…</Text>}</ScrollView></View>
+            <View style={[styles.filesSection, { height: filesHeight }]}><Text style={styles.columnHeading}>变更文件 {detail?.files.length ?? ""}</Text><ScrollView style={styles.files}>{detail ? renderFiles(buildFileTree(detail.files, true), 0) : <Text style={styles.empty}>加载变更文件…</Text>}</ScrollView></View>
             <ResizeHandle direction="horizontal" appearance="line" label="调整变更文件与提交说明的高度" onResize={(delta) => setPreferredFilesHeight((height) => Math.max(minimumFilesHeight, Math.min(maximumFilesHeight, Math.max(minimumFilesHeight, Math.min(maximumFilesHeight, height ?? filesHeight)) + delta)))} />
             <ScrollView key={selectedCommit.hash} style={styles.detailMessageScroll} contentContainerStyle={styles.detailMessageContent}>
               <CommitMessageText value={detail?.message ?? selectedCommit.subject} />
