@@ -1,6 +1,6 @@
 import type { LlmConfig } from "../../shared/settings";
 import { DEFAULT_REVIEW_PROMPT, renderPrompt } from "../../shared/prompts.ts";
-import { parseFirstJsonObject } from "../llm-response.ts";
+import { completeChat } from "../llm-client.ts";
 import { isNoDrift } from "../../shared/drift.ts";
 
 /** 解析 LLM 的固定字段，容错全角冒号与多余空行。 */
@@ -113,26 +113,10 @@ export async function distillTask(
     config.reviewPrompt,
   );
 
-  const res = await fetch(`${config.baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: config.model,
-      messages: [{ role: "user", content: prompt }],
-      max_tokens: 750,
-      temperature: 0.1,
-    }),
+  const text = await completeChat(config, prompt, {
+    maxTokens: 750,
+    httpError: (status) => `LLM distill HTTP ${status}`,
   });
-  if (!res.ok) throw new Error(`LLM distill HTTP ${res.status}`);
-  const raw = await res.text();
-  // Response body may be truncated by SSE residue; take only the first JSON object.
-  const data = parseFirstJsonObject<{
-    choices?: Array<{ message?: { content?: string } }>;
-  }>(raw);
-  const text = data.choices?.[0]?.message?.content ?? "";
   const fields = parseDistillText(text);
   if (!fields.goal && !fields.narrative) {
     return {

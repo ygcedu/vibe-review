@@ -1,7 +1,15 @@
+import { z } from "zod";
+import { completeChat } from "./llm-client.ts";
 import type { LlmConfig } from "../shared/settings";
 import { parseFirstJsonObject } from "./llm-response.ts";
 
-type Result = { status: "suggested" | "clear" | "uncertain"; suggestion: string; reason: string };
+const suggestionSchema = z.object({
+  status: z.enum(["suggested", "clear", "uncertain"]),
+  suggestion: z.string().trim().min(1),
+  reason: z.unknown().optional(),
+});
+
+type Result = { status: z.infer<typeof suggestionSchema>["status"]; suggestion: string; reason: string };
 
 export async function clarifyDraft(config: LlmConfig, text: string, context: string[]): Promise<Result> {
   const prompt = [
@@ -18,26 +26,17 @@ export async function clarifyDraft(config: LlmConfig, text: string, context: str
     text,
     "</draft>",
   ].join("\n");
-  const response = await fetch(`${config.baseUrl}/chat/completions`, {
-    method: "POST",
-    signal: AbortSignal.timeout(30_000),
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.apiKey}` },
-    body: JSON.stringify({ model: config.model, messages: [{ role: "user", content: prompt }], max_tokens: 650, temperature: 0.1 }),
+  const raw = await completeChat(config, prompt, {
+    maxTokens: 650,
+    timeoutMs: 30_000,
+    httpError: (status) => `措辞建议请求失败（HTTP ${status}）`,
   });
-  if (!response.ok) throw new Error(`措辞建议请求失败（HTTP ${response.status}）`);
-  const responseText = await response.text();
-  // Some OpenAI-compatible endpoints append SSE residue after the first JSON response.
-  const body = parseFirstJsonObject<{
-    choices?: Array<{ message?: { content?: string } }>;
-  }>(responseText);
-  const raw = body.choices?.[0]?.message?.content?.trim() ?? "";
-  const start = raw.indexOf("{");
-  const end = raw.lastIndexOf("}");
-  if (start < 0 || end <= start) throw new Error("模型没有返回有效建议");
-  const parsed = JSON.parse(raw.slice(start, end + 1)) as Partial<Result>;
-  if (!(["suggested", "clear", "uncertain"] as const).includes(parsed.status as Result["status"]) || typeof parsed.suggestion !== "string" || !parsed.suggestion.trim()) {
-    throw new Error("模型建议格式无效");
-  }
-  const suggestion = parsed.status === "clear" ? text : parsed.suggestion.trim();
-  return { status: parsed.status as Result["status"], suggestion, reason: typeof parsed.reason === "string" ? parsed.reason.trim() : "" };
+  const parsed = suggestionSchema.safeParse(parseFirstJsonObject<unknown>(raw));
+  if (!parsed.success) throw new Error("模型建议格式无效");
+  const { status, suggestion, reason } = parsed.data;
+  return {
+    status,
+    suggestion: status === "clear" ? text : suggestion,
+    reason: typeof reason === "string" ? reason.trim() : "",
+  };
 }
