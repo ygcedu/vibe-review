@@ -90,6 +90,7 @@ export default function contribute(server: PluginServerContext) {
     } else {
       console.warn("[vibe-review] turn-start snapshot missing for:", event.agent.id, event.turnId);
     }
+    // Runtime hook agents may carry labels that the SDK hook type does not expose.
     const labels = (event.agent as { labels?: Record<string, string> }).labels;
     const outcome =
       event.outcome.kind === "failed"
@@ -120,12 +121,12 @@ export default function contribute(server: PluginServerContext) {
 
   server.handle(clarifyRpc, async ({ agentId, text }, context) => {
     const payload = await context.paseo.agents.ref(agentId).timeline.refetch();
-    const items = (payload as unknown as { entries?: Array<{ item: { type?: string; text?: string } }> }).entries ?? [];
+    const items = payload.entries ?? [];
     const recent = items
       .map(({ item }) => item)
-      .filter((item) => (item.type === "user_message" || item.type === "assistant_message") && typeof item.text === "string")
+      .filter((item) => item.type === "user_message" || item.type === "assistant_message")
       .slice(-6)
-      .map((item) => `${item.type === "user_message" ? "用户" : "助手"}: ${item.text!}`);
+      .map((item) => `${item.type === "user_message" ? "用户" : "助手"}: ${item.text}`);
     return clarifyDraft(await llmConfig(), text, recent);
   });
 

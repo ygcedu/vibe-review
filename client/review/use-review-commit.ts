@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { usePaseo, useRpc } from "@getpaseo/plugin/client";
+import { pluginData } from "../../shared/timeline";
+import { REVIEW_KIND } from "../../shared/review";
 import { commitAvailabilityRpc, preparePiCommitRpc, piCommitStatusRpc, getPendingCommitDiffRpc, COMMIT_PREVIEW_KIND, COMMIT_RESULT_KIND } from "../../shared/commit";
 
 /** Commit availability and preparation belong to one review turn. */
@@ -76,7 +78,7 @@ export function useReviewCommit(agentId: string, scoredAt: string, isVisible: bo
           void paseo.agents.ref(agentId).timeline.refetch({ limit: 50 }).then((timeline) => {
             if (!active) return;
             const items = timeline.entries.map((entry) => entry.item);
-            const reviewIndex = items.findLastIndex((item) => item.type === "plugin" && item.kind === "review-result" && typeof item.data === "object" && item.data !== null && !Array.isArray(item.data) && item.data.scoredAt === scoredAt);
+            const reviewIndex = items.findLastIndex((item) => pluginData(item, REVIEW_KIND)?.scoredAt === scoredAt);
             const completed = reviewIndex >= 0 && items.slice(reviewIndex + 1).some((item) => item.type === "plugin" &&
               (item.kind === COMMIT_PREVIEW_KIND || item.kind === COMMIT_RESULT_KIND));
             if (completed) {

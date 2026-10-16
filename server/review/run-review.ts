@@ -49,9 +49,8 @@ export function queueReview(
 export async function reviewAgent(agentId: string, context: { paseo: PaseoApi }, run: RunContext): Promise<void> {
   const ref = context.paseo.agents.ref(agentId);
   const payload = await ref.timeline.refetch();
-  const items = (payload as unknown as { entries?: Array<{ item: unknown }> }).entries ?? [];
-  const timeline = items.map((entry) => entry.item) as unknown as AgentTimelineItem[];
-  const agent = ref.current() as { labels?: Record<string, string> } | null;
+  const timeline = (payload.entries ?? []).map(({ item }) => item);
+  const agent = ref.current();
   await runReview(context.paseo, agentId, timeline, null, agent?.labels, run);
 }
 

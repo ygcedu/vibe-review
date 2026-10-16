@@ -4,7 +4,7 @@ import { piCommitSettings } from "../../shared/settings.ts";
 import { preparePiCommit, confirmPiCommit, hasPendingCodeChanges } from "./pi-commit.ts";
 import { loadCommitProposal, removeCommitProposal, saveCommitProposal } from "./commit-proposals.ts";
 import { recentCommitContext } from "./commit-context.ts";
-import { isCurrentCommitPreview, isLatestReviewTurn } from "./commit-availability.ts";
+import { commitResultSummary, isCurrentCommitPreview, isLatestReviewTurn } from "./commit-availability.ts";
 
 /** Owns commit preparation, preview lifetime, and confirmation state. */
 export function registerCommit(server: PluginServerContext, getCommitPrompt: () => Promise<string>) {
@@ -20,7 +20,7 @@ export function registerCommit(server: PluginServerContext, getCommitPrompt: () 
     const agent = ref.current() ?? (await ref.refresh())?.agent;
     if (!agent || agent.cwd !== cwd) throw new Error("当前 agent 的工作目录已变化，请重试");
     const payload = await ref.timeline.refetch();
-    const entries = (payload as unknown as { entries?: Array<{ item: { type: string; kind?: string; data?: { scoredAt?: string; turnId?: string } }; turnId?: string }> }).entries ?? [];
+    const entries = payload.entries ?? [];
     const userMessageCount = entries.filter(({ item }) => item.type === "user_message").length;
     if (scoredAt && (agent.activeTurn || !isLatestReviewTurn(entries, scoredAt))) throw new Error("这张审核卡片已不是最后一轮，请使用最新轮次的提交入口。");
     if (activeCommits.has(agentId)) throw new Error("Pi 已在这个会话中执行提交");
@@ -33,12 +33,12 @@ export function registerCommit(server: PluginServerContext, getCommitPrompt: () 
     commitStatuses.set(agentId, { kind: "preparing", stage: "正在读取待提交文件…", startedAt });
     void (async () => {
       try {
-        const timeline = entries.map(({ item }) => item as import("@getpaseo/protocol/agent-types").AgentTimelineItem);
+        const timeline = entries.map(({ item }) => item);
         const proposal = await preparePiCommit(agentId, cwd, state.values, recentCommitContext(timeline), (stage) => {
           commitStatuses.set(agentId, { kind: "preparing", stage, startedAt });
         }, (diff) => pendingDiffs.set(agentId, diff), await getCommitPrompt());
         const latestTimeline = await ref.timeline.refetch();
-        const latestEntries = (latestTimeline as unknown as { entries?: Array<{ item: { type: string } }> }).entries ?? [];
+        const latestEntries = latestTimeline.entries ?? [];
         if (ref.current()?.activeTurn || latestEntries.filter(({ item }) => item.type === "user_message").length !== userMessageCount) {
           throw new Error("会话已进入新轮次，本次提交预览已取消。");
         }
@@ -88,18 +88,11 @@ export function registerCommit(server: PluginServerContext, getCommitPrompt: () 
   server.handle(getPiCommitPreviewRpc, async ({ agentId, proposalId }, context) => {
     const ref = context.paseo.agents.ref(agentId);
     const payload = await ref.timeline.refetch();
-    const items = (payload as unknown as { entries?: Array<{ item: { type?: string; kind?: string; data?: { proposalId?: string; summary?: string; ok?: boolean } } }> }).entries?.map(({ item }) => item) ?? [];
+    const items = (payload.entries ?? []).map(({ item }) => item);
     const agent = ref.current() ?? (await ref.refresh())?.agent;
     if (agent?.activeTurn || !isCurrentCommitPreview(items, proposalId)) return { state: "stale" as const };
-    const previewIndex = items.findIndex((item) => item.type === "plugin" && item.kind === COMMIT_PREVIEW_KIND && item.data?.proposalId === proposalId);
-    let result = items.findLast((item) => item.type === "plugin" && item.kind === COMMIT_RESULT_KIND && item.data?.proposalId === proposalId)?.data;
-    // Older result rows had no proposalId. Associate only the first commit row
-    // following this preview, and stop at the next preview to avoid mixing runs.
-    if (!result && previewIndex >= 0) {
-      const next = items.slice(previewIndex + 1).find((item) => item.type === "plugin" && (item.kind === COMMIT_RESULT_KIND || item.kind === COMMIT_PREVIEW_KIND));
-      if (next?.kind === COMMIT_RESULT_KIND && !next.data?.proposalId) result = next.data;
-    }
-    if (result?.summary) return { state: "finished" as const, result: result.ok ? `已提交：${result.summary}` : result.summary };
+    const result = commitResultSummary(items, proposalId);
+    if (result) return { state: "finished" as const, result };
     const proposal = await loadCommitProposal(agentId, proposalId);
     if (!proposal || proposal.agentId !== agentId) return { state: "stale" as const };
     return { state: "pending" as const, diff: proposal.diff };
@@ -124,7 +117,7 @@ export function registerCommit(server: PluginServerContext, getCommitPrompt: () 
     const agent = ref.current() ?? (await ref.refresh())?.agent;
     if (agent?.cwd !== proposal.cwd) throw new Error("工作目录已变化，请重新生成提交预览。");
     const timeline = await ref.timeline.refetch();
-    const items = (timeline as unknown as { entries?: Array<{ item: { type?: string; kind?: string; data?: { proposalId?: string } } }> }).entries?.map(({ item }) => item) ?? [];
+    const items = (timeline.entries ?? []).map(({ item }) => item);
     if (agent?.activeTurn || !isCurrentCommitPreview(items, proposalId)) {
       throw new Error("这张提交预览已不是当前轮次，请重新生成。");
     }
@@ -148,7 +141,7 @@ export function registerCommit(server: PluginServerContext, getCommitPrompt: () 
     if (!agent?.cwd || agent.activeTurn || activeCommits.has(agentId)) return { available: false };
     if (await pendingProposal(agentId)) return { available: false };
     const payload = await ref.timeline.refetch();
-    const entries = (payload as unknown as { entries?: Array<{ item: { type: string; kind?: string; data?: { scoredAt?: string; turnId?: string } }; turnId?: string }> }).entries ?? [];
+    const entries = payload.entries ?? [];
     if (!isLatestReviewTurn(entries, scoredAt)) return { available: false };
     try {
       return await hasPendingCodeChanges(agent.cwd) ? { available: true, cwd: agent.cwd } : { available: false, reason: "no_changes" as const };
@@ -156,7 +149,6 @@ export function registerCommit(server: PluginServerContext, getCommitPrompt: () 
       return { available: false };
     }
   });
-
 
   return async function resetCommitForTurn(agentId: string): Promise<void> {
     try {
