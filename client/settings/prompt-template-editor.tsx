@@ -4,6 +4,15 @@ import { composePromptTemplate, promptEditableParts, promptFixedSegments, type P
 
 const variablePattern = /(\{\{[A-Za-z][A-Za-z0-9]*\}\})/g;
 
+function isNodeInFixed(root: HTMLElement | null, node: Node): boolean {
+  let current: Node | null = node;
+  while (current && current !== root) {
+    if (current instanceof HTMLElement && current.dataset.fixedIndex !== undefined) return true;
+    current = current.parentNode;
+  }
+  return false;
+}
+
 function insertPlainText(value: string) {
   const selection = window.getSelection();
   if (!selection?.rangeCount) return;
@@ -23,6 +32,7 @@ function WebPromptEditor({ label, segments, draft, onChange, resetVersion, dark,
 }) {
   const editor = useRef<HTMLDivElement>(null);
   const [focused, setFocused] = useState(false);
+  const [readFailed, setReadFailed] = useState(false);
   const latestDraft = useRef(draft);
   const latestReset = useRef(resetVersion);
   latestDraft.current = draft;
@@ -96,25 +106,32 @@ function WebPromptEditor({ label, segments, draft, onChange, resetVersion, dark,
     return parts;
   };
 
-  return <div ref={editor} role="textbox" aria-label={`${label}提示词模板编辑器`} aria-multiline="true"
+  return <>
+  <div ref={editor} role="textbox" aria-label={`${label}提示词模板编辑器`} aria-multiline="true"
     contentEditable suppressContentEditableWarning spellCheck={false}
     onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
     onBeforeInput={(event) => {
       const selection = window.getSelection();
       if (!selection?.rangeCount) return;
       const range = selection.getRangeAt(0);
-      if (Array.from(editor.current?.querySelectorAll("[data-fixed-index]") ?? []).some((node) => range.intersectsNode(node))) event.preventDefault();
+      if (isNodeInFixed(editor.current, range.startContainer) || isNodeInFixed(editor.current, range.endContainer)) event.preventDefault();
     }}
-    onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); insertPlainText("\n"); onChange(read() ?? latestDraft.current); } }}
-    onPaste={(event) => { event.preventDefault(); insertPlainText(event.clipboardData.getData("text/plain")); onChange(read() ?? latestDraft.current); }}
-    onInput={() => { const next = read(); if (next) onChange(next); else render(latestDraft.current); }}
+    onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); insertPlainText("\n"); const next = read(); if (next) { setReadFailed(false); onChange(next); } else setReadFailed(true); } }}
+    onPaste={(event) => { event.preventDefault(); insertPlainText(event.clipboardData.getData("text/plain")); const next = read(); if (next) { setReadFailed(false); onChange(next); } else setReadFailed(true); }}
+    onInput={() => {
+      const next = read();
+      if (next) { setReadFailed(false); onChange(next); }
+      else { setReadFailed(true); }
+    }}
     style={{ border: `1px solid ${focused ? accent : dark ? "#435066" : "#d8dee8"}`, borderRadius: 10,
       background: dark ? "#111827" : "#fff", padding: "24px 28px", color: text,
       minHeight: 340,
       fontFamily: "ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
       fontSize: 14, lineHeight: "24px", whiteSpace: "pre-wrap", overflowWrap: "anywhere",
       outline: "none", boxShadow: focused ? `0 0 0 3px ${dark ? "#363666" : "#eceaff"}` : "0 1px 2px rgba(15,23,42,.04)",
-      caretColor: accent, transition: "border-color 150ms ease, box-shadow 150ms ease" }} />;
+      caretColor: accent, transition: "border-color 150ms ease, box-shadow 150ms ease" }} />
+    {readFailed ? <div style={{ marginTop: 4, fontSize: 12, color: muted }}>输入已暂存，请检查编辑内容后再保存</div> : null}
+  </>;
 }
 
 function NativeEditableSlot({ label, value, onChange, text, muted }: {
