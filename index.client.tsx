@@ -18,7 +18,7 @@ export default function contribute(client: PluginClientContext) {
   function CommitPanel(props: PluginWorkspacePanelProps) {
     const { tabs, activeTabId, openTab } = useGitDiffState(props.workspaceId);
     const activeTab = tabs.find((tab) => tab.id === activeTabId);
-    return <WorkspaceCommitPanel {...props} externalPreview={activeTab?.source === "working" ? activeTab : null} onFilePreview={(selection) => {
+    return <WorkspaceCommitPanel {...props} onOpenShelfDiff={() => client.openPanel("vibe-review-git-diff", { workspaceId: props.workspaceId, location: "workspace" })} externalPreview={activeTab?.source === "working" ? activeTab : null} onFilePreview={(selection) => {
       openTab({ id: `working:${selection.path}`, source: "working", ...selection });
       client.openPanel("vibe-review-git-diff", { workspaceId: props.workspaceId, location: "workspace" });
     }} />;

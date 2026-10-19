@@ -29,3 +29,18 @@ export const workspaceGitPushRpc = defineRpc({
 });
 
 export type WorkingFile = z.infer<typeof file>;
+
+export const workspaceGitShelfRpc = defineRpc({
+  name: "vibe-review.workspace-git-shelf",
+  input: z.object({ workspaceId: z.string() }),
+  output: z.object({ entries: z.array(z.object({
+    id: z.string(), ref: z.string(), message: z.string(), date: z.string(), files: z.array(z.string()),
+  })) }),
+});
+export type ShelfEntry = { id: string; ref: string; message: string; date: string; files: string[] };
+
+export const workspaceGitShelfDiffRpc = defineRpc({
+  name: "vibe-review.workspace-git-shelf-diff",
+  input: z.object({ workspaceId: z.string(), entryId: z.string(), path: z.string() }),
+  output: z.object({ diff: z.string() }),
+});

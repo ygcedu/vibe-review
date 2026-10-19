@@ -1,8 +1,9 @@
+import { readIdeShelf, readIdeShelfDiff } from "./workspace-shelf.ts";
 import { git, workspaceGitDirectory } from "./git.ts";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { workspaceGitCommitRpc, workspaceGitDiffRpc, workspaceGitPushRpc, workspaceGitTrackRpc, workspaceGitStatusRpc } from "../shared/workspace-commit";
+import { workspaceGitShelfDiffRpc, workspaceGitShelfRpc, workspaceGitCommitRpc, workspaceGitDiffRpc, workspaceGitPushRpc, workspaceGitTrackRpc, workspaceGitStatusRpc } from "../shared/workspace-commit";
 
 const runFile = promisify(execFile);
 
@@ -23,6 +24,29 @@ function checkedFile(files: Awaited<ReturnType<typeof status>>, path: string) {
 }
 
 export function registerWorkspaceCommit(server: PluginServerContext) {
+  server.handle(workspaceGitShelfDiffRpc, async ({ workspaceId, entryId, path }, { paseo }) => {
+    const cwd = await workspaceGitDirectory(paseo, workspaceId);
+    if (entryId.startsWith("idea:")) return { diff: await readIdeShelfDiff(cwd, entryId, path) };
+    if (!/^[a-f0-9]{40,64}$/.test(entryId)) throw new Error("无效的暂存记录");
+    const raw = await git(cwd, ["stash", "list", "--format=%H"]);
+    if (!raw.split("\n").includes(entryId)) throw new Error("暂存记录已变化，请刷新 Shelf");
+    let diff = await git(cwd, ["diff", "--no-ext-diff", "--no-renames", `${entryId}^1`, entryId, "--", path]);
+    if (!diff) {
+      const parents = (await git(cwd, ["rev-list", "--parents", "-n", "1", entryId])).trim().split(" ");
+      if (parents.length > 3) diff = await git(cwd, ["show", "--format=", "--no-ext-diff", `${entryId}^3`, "--", path]);
+    }
+    return { diff };
+  });
+  server.handle(workspaceGitShelfRpc, async ({ workspaceId }, { paseo }) => {
+    const cwd = await workspaceGitDirectory(paseo, workspaceId);
+    const raw = await git(cwd, ["stash", "list", "--format=%H%x00%gd%x00%gs%x00%cI"]);
+    const entries = await Promise.all(raw.trim().split("\n").filter(Boolean).map(async (line) => {
+      const [id, ref, message, date] = line.split("\0");
+      const names = await git(cwd, ["stash", "show", "--include-untracked", "--name-only", "-z", id]);
+      return { id, ref, message, date, files: names.split("\0").filter(Boolean) };
+    }));
+    return { entries: [...await readIdeShelf(cwd), ...entries] };
+  });
   server.handle(workspaceGitStatusRpc, async ({ workspaceId }, { paseo }) => {
     const cwd = await workspaceGitDirectory(paseo, workspaceId);
     const branch = (await git(cwd, ["branch", "--show-current"])).trim();

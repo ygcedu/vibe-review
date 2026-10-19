@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type ViewStyle } from "react-native";
 import { useRpc, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import { workspaceGitCommitRpc, workspaceGitPushRpc, workspaceGitTrackRpc, workspaceGitStatusRpc, type WorkingFile as File } from "../shared/workspace-commit";
+import { workspaceGitShelfRpc, type ShelfEntry, workspaceGitCommitRpc, workspaceGitPushRpc, workspaceGitTrackRpc, workspaceGitStatusRpc, type WorkingFile as File } from "../shared/workspace-commit";
+import { useGitDiffState } from "./git-diff-state";
 import { FileTypeIcon } from "./diff/file-icons";
 import { buildFileTree, type FileTreeNode } from "./diff/file-tree-utils";
 
@@ -76,7 +77,8 @@ function TrackedDropZone({ children, workspaceId, onFiles }: { children: ReactNo
   return <View ref={ref} style={hovered && styles.dropTarget}>{children}</View>;
 }
 
-export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPreview }: PluginWorkspacePanelProps & { onFilePreview: (selection: Selection) => void; externalPreview?: Selection | null }) {
+export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPreview, onOpenShelfDiff }: PluginWorkspacePanelProps & { onFilePreview: (selection: Selection) => void; externalPreview?: Selection | null; onOpenShelfDiff: () => void }) {
+  const [tab, setTab] = useState<"commit" | "shelf">("commit");
   const getStatus = useRpc(workspaceGitStatusRpc);
   const trackFiles = useRpc(workspaceGitTrackRpc);
   const commit = useRpc(workspaceGitCommitRpc);
@@ -217,6 +219,12 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
   });
 
   return <View style={styles.root}>
+    <View style={styles.tabs} accessibilityRole="tablist">
+      {(["commit", "shelf"] as const).map((value) => <Pressable key={value} accessibilityRole="tab" accessibilityState={{ selected: tab === value }} onPress={() => setTab(value)} style={[styles.tab, tab === value && styles.selectedTab]}>
+        <Text style={[styles.tabText, tab === value && styles.selectedTabText]}>{value === "commit" ? "Commit" : "Shelf"}</Text>
+      </Pressable>)}
+    </View>
+    {tab === "shelf" ? <Shelf workspaceId={workspaceId} onOpenDiff={onOpenShelfDiff} /> : <>
     <View style={styles.toolbar}>
       <Text style={styles.heading}>提交更改{branch ? ` · ${branch}` : ""}</Text>
       <Pressable accessibilityRole="button" accessibilityLabel="刷新 Git 状态" onPress={() => setRevision((value) => value + 1)}><Icon name="RefreshCw" size={17} color="#64748b" /></Pressable>
@@ -256,7 +264,7 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
           {counts.deleted > 0 ? <Text style={styles.removedName}>删除 {counts.deleted}</Text> : null}
         </View>
       </View> : null}
-      <TextInput value={message} onChangeText={setMessage} multiline placeholder="提交说明" style={styles.message} />
+      <TextInput value={message} onChangeText={setMessage} multiline accessibilityLabel="提交说明" placeholder="填写提交说明…" placeholderTextColor="#94a3b8" style={styles.message} />
       <View style={styles.actions}>
         <Pressable accessibilityRole="button" accessibilityLabel="推送当前分支" accessibilityState={{ disabled: busy }} disabled={busy} onPress={() => void pushBranch()} style={[styles.push, busy && styles.disabled]}><Text style={styles.pushText}>{pushing ? "推送中…" : "推送"}</Text></Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel="提交勾选的文件" accessibilityState={{ disabled: busy }} disabled={busy} onPress={() => void submit()} style={[styles.commit, busy && styles.disabled]}><Text style={styles.commitText}>{busy && !pushing ? "提交中…" : "提交"}</Text></Pressable>
@@ -264,11 +272,88 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {result ? <Text style={styles.result}>{result}</Text> : null}
     </View>
+    </>}
   </View>;
+}
+
+function Shelf({ workspaceId, onOpenDiff }: { workspaceId: string; onOpenDiff: () => void }) {
+  const { openTab, tabs, activeTabId } = useGitDiffState(workspaceId);
+  const activeTab = tabs.find((tab) => tab.id === activeTabId);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const renderTree = (entry: ShelfEntry, nodes: FileTreeNode<{ path: string }>[], depth = 0): ReactNode[] => nodes.map((node) => {
+    if (node.kind === "folder") {
+      const key = `${entry.id}:${node.path}`;
+      const closed = collapsed.has(key);
+      return <View key={key}>
+        <Pressable accessibilityRole="button" accessibilityLabel={`${closed ? "展开" : "折叠"} ${node.path}`} accessibilityState={{ expanded: !closed }} onPress={() => setCollapsed((current) => {
+          const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next;
+        })} style={[styles.fileRow, { paddingLeft: 29 + depth * 20 }]}>
+          <View style={styles.chevron}><Icon name={closed ? "ChevronRight" : "ChevronDown"} size={15} color="#64748b" /></View>
+          <View style={styles.fileButton}><Icon name="Folder" size={16} color="#6b7280" /><Text style={styles.folderName} numberOfLines={1}>{node.name}</Text><Text style={styles.count}>{node.files.length} 个文件</Text></View>
+        </Pressable>
+        {!closed ? renderTree(entry, node.children, depth + 1) : null}
+      </View>;
+    }
+    const path = node.file.path;
+    return <View key={path} style={[styles.fileRow, { paddingLeft: 29 + depth * 20 }, activeTab?.source === "shelf" && activeTab.entryId === entry.id && activeTab.path === path && styles.active]}>
+      <View style={styles.chevron} />
+      <Pressable accessibilityRole="button" accessibilityLabel={`查看暂存 ${path} 的差异`} style={styles.fileButton} onPress={() => {
+        openTab({ id: `shelf:${entry.id}:${path}`, source: "shelf", entryId: entry.id, label: entry.message, path });
+        onOpenDiff();
+      }}><FileTypeIcon fileName={node.name} /><Text style={styles.path} numberOfLines={1}>{node.name}</Text></Pressable>
+    </View>;
+  });
+  const getShelf = useRpc(workspaceGitShelfRpc);
+  const [entries, setEntries] = useState<ShelfEntry[]>([]);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [revision, setRevision] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError("");
+    void getShelf({ workspaceId }).then((value) => {
+      if (active) setEntries(value.entries);
+    }, (reason: unknown) => { if (active) setError(String(reason)); }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [workspaceId, revision]);
+  return <>
+    <View style={styles.toolbar}>
+      <Text style={styles.heading}>暂存的更改</Text>
+      <Pressable accessibilityRole="button" accessibilityLabel="刷新 Shelf" onPress={() => setRevision((value) => value + 1)}><Icon name="RefreshCw" size={17} color="#64748b" /></Pressable>
+    </View>
+    <ScrollView style={styles.listExpanded}>
+      {loading ? <Text style={styles.empty}>加载暂存内容…</Text> : error ? <Text style={[styles.empty, styles.error]}>{error}</Text> : entries.length === 0 ? <Text style={styles.empty}>没有暂存的更改（Shelf / Git stash）</Text> : entries.map((entry) => <View key={entry.id} style={styles.shelfEntry}>
+        <Pressable accessibilityRole="button" accessibilityLabel={`${expanded.has(entry.id) ? "折叠" : "展开"} ${entry.message}`} accessibilityState={{ expanded: expanded.has(entry.id) }} style={styles.shelfRow} onPress={() => setExpanded((current) => {
+          const next = new Set(current);
+          if (next.has(entry.id)) next.delete(entry.id); else next.add(entry.id);
+          return next;
+        })}>
+          <Icon name={expanded.has(entry.id) ? "ChevronDown" : "ChevronRight"} size={15} color="#64748b" />
+          <View style={styles.shelfInfo}>
+            <Text style={styles.shelfMessage} numberOfLines={2}>{entry.message}</Text>
+            <Text style={styles.shelfMeta}>{entry.ref} · {entry.files.length} 个文件 · {entry.date ? new Date(entry.date).toLocaleString() : "时间未知"}</Text>
+          </View>
+        </Pressable>
+        {expanded.has(entry.id) ? renderTree(entry, buildFileTree(entry.files.map((path) => ({ path })), true)) : null}
+      </View>)}
+    </ScrollView>
+  </>;
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden", backgroundColor: "#fff" },
+  tabs: { flexDirection: "row", gap: 4, padding: 8, borderBottomWidth: 1, borderColor: "#e5e7eb" },
+  tab: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 6 },
+  selectedTab: { backgroundColor: "#e9f0ff" },
+  tabText: { fontSize: 14, color: "#64748b" },
+  selectedTabText: { color: "#1641ad", fontWeight: "600" },
+  shelfEntry: { borderBottomWidth: 1, borderColor: "#f1f5f9" },
+  shelfRow: { flexDirection: "row", alignItems: "center", padding: 12, gap: 8 },
+  shelfInfo: { flex: 1, minWidth: 0, gap: 4 },
+  shelfMessage: { fontSize: 13, color: "#111827" },
+  shelfMeta: { fontSize: 11, color: "#64748b" },
   toolbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 12, borderBottomWidth: 1, borderColor: "#e5e7eb" },
   heading: { fontSize: 15, fontWeight: "600", color: "#111827" },
   listExpanded: { flex: 1, minHeight: 0 },
@@ -293,7 +378,7 @@ const styles = StyleSheet.create({
   summaryCount: { color: "#6b7280", fontSize: 12 },
   summaryDetails: { flexDirection: "row", alignItems: "center", gap: 12 },
   summaryModified: { color: "#1641ad" },
-  message: { minHeight: 58, padding: 8, borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 5, textAlignVertical: "top", fontSize: 13 },
+  message: { minHeight: 58, padding: 8, borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 5, textAlignVertical: "top", fontSize: 13, color: "#111827" },
   actions: { flexDirection: "row", justifyContent: "flex-end", gap: 8 },
   push: { backgroundColor: "#fff", borderWidth: 1, borderColor: "#1664d9", paddingHorizontal: 18, paddingVertical: 7, borderRadius: 5 },
   pushText: { color: "#1664d9", fontWeight: "600" },
