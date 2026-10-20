@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRpc, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
+import { ContextMenu } from "./components/context-menu";
+import { copyText } from "@getpaseo/plugin/client/react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { gitCommitFileDiffRpc } from "../shared/git-history";
 import { workspaceGitShelfDiffRpc, workspaceGitDiffRpc } from "../shared/workspace-commit";
@@ -10,7 +12,8 @@ import { SplitDiff } from "./diff/split-diff";
 import { DiffOptionButton, WrapToggleButton } from "./diff/wrap-toggle";
 import { useGitDiffState, type DiffTab } from "./git-diff-state";
 const TAB_DRAG_TYPE = "application/x-vibe-review-diff-tab";
-function ReorderableTab({ tab, active, onActivate, onClose, onReorder, onNode }: {
+function ReorderableTab({ tab, active, onActivate, onClose, onReorder, onNode, theme, compact, onCloseOthers, onCloseAll }: {
+  theme: PluginWorkspacePanelProps["theme"]; compact: boolean; onCloseOthers(): void; onCloseAll(): void;
   tab: DiffTab; active: boolean; onActivate: () => void; onClose: () => void;
   onReorder: (source: string, target: string, after: boolean) => void;
   onNode: (id: string, node: HTMLElement | null) => void;
@@ -59,14 +62,20 @@ function ReorderableTab({ tab, active, onActivate, onClose, onReorder, onNode }:
       onNode(tab.id, null);
     };
   }, [tab.id, tab.path, onNode]);
-  return <View ref={ref} style={[styles.tab, hovered && !active && styles.hoveredTab, active && styles.activeTab]}>
+  return <ContextMenu label={tab.path.split("/").at(-1) ?? tab.path} theme={theme} compact={compact} items={[
+    { id: "copy-path", label: "复制文件路径", icon: "Copy", onSelect: () => copyText(tab.path) },
+    { id: "tab-actions", separator: true },
+    { id: "close", label: "关闭标签页", icon: "X", onSelect: onClose },
+    { id: "close-others", label: "关闭其他标签页", onSelect: onCloseOthers },
+    { id: "close-all", label: "关闭所有标签页", onSelect: onCloseAll },
+  ]}><View ref={ref} style={[styles.tab, hovered && !active && styles.hoveredTab, active && styles.activeTab]}>
     <Pressable accessibilityRole="tab" accessibilityLabel={`${tab.source === "working" ? "工作区" : tab.source === "shelf" ? "Shelf" : "历史提交"} ${tab.path}`} accessibilityState={{ selected: active }} onPress={onActivate} style={styles.tabSelect}>
       <FileTypeIcon fileName={tab.path} />
       <Text style={[styles.tabTitle, fileColor(tab.status ?? "M")]} numberOfLines={1}>{tab.path.split("/").at(-1)}</Text>
       <Text style={styles.tabSource} numberOfLines={1}>{tab.source === "working" ? "工作区" : tab.source === "shelf" ? tab.label : tab.hash.slice(0, 7)}</Text>
     </Pressable>
     <Pressable accessibilityRole="button" accessibilityLabel={`关闭 ${tab.path} 标签`} onPress={onClose} onHoverIn={() => setCloseHovered(true)} onHoverOut={() => setCloseHovered(false)} style={[styles.tabClose, closeHovered && styles.tabCloseHovered]}><Icon name="X" size={13} color="#94a3b8" /></Pressable>
-  </View>;
+  </View></ContextMenu>;
 }
 
 function fileColor(status: string) {
@@ -76,7 +85,7 @@ function fileColor(status: string) {
 }
 
 
-export function GitDiffPanel({ workspaceId }: PluginWorkspacePanelProps) {
+export function GitDiffPanel({ workspaceId, theme, layout }: PluginWorkspacePanelProps) {
   const getFileDiff = useRpc(gitCommitFileDiffRpc);
   const getShelfDiff = useRpc(workspaceGitShelfDiffRpc);
   const getWorkingDiff = useRpc(workspaceGitDiffRpc);
@@ -158,7 +167,7 @@ export function GitDiffPanel({ workspaceId }: PluginWorkspacePanelProps) {
         <View style={styles.topDiff} onLayout={(event) => setDiffHeight(event.nativeEvent.layout.height)}>
           <View style={styles.tabStrip}>
             <ScrollView ref={tabBarRef} horizontal style={styles.tabBar} contentContainerStyle={styles.tabBarContent} showsHorizontalScrollIndicator={false} onLayout={(event) => setTabViewportWidth(event.nativeEvent.layout.width)} onContentSizeChange={(width) => setTabContentWidth(width)}>
-              {tabs.length ? tabs.map((tab) => <ReorderableTab key={tab.id} tab={tab} active={activeTabId === tab.id} onActivate={() => setActiveTabId(tab.id)} onClose={() => closeTab(tab.id)} onReorder={reorderTab} onNode={registerTabNode} />) : <Text style={styles.emptyTab}>Diff 预览</Text>}
+              {tabs.length ? tabs.map((tab) => <ReorderableTab key={tab.id} theme={theme} compact={layout.compact} onCloseOthers={() => { setTabs((current) => current.filter((item) => item.id === tab.id)); setActiveTabId(tab.id); }} onCloseAll={() => { setTabs(() => []); setActiveTabId(null); }} tab={tab} active={activeTabId === tab.id} onActivate={() => setActiveTabId(tab.id)} onClose={() => closeTab(tab.id)} onReorder={reorderTab} onNode={registerTabNode} />) : <Text style={styles.emptyTab}>Diff 预览</Text>}
             </ScrollView>
             {tabOverflow && tabs.length ? <Pressable accessibilityRole="button" accessibilityLabel="显示所有打开的文件" accessibilityState={{ expanded: tabMenuOpen }} onPress={() => setTabMenuOpen((value) => !value)} style={[styles.tabMenuButton, tabMenuOpen && styles.tabMenuButtonActive]}><Icon name="ChevronDown" size={16} color="#64748b" /></Pressable> : null}
             {tabMenuOpen && tabOverflow ? <ScrollView style={[styles.tabMenu, { maxHeight: Math.min(360, Math.max(100, diffHeight - 45)) }]} nestedScrollEnabled>

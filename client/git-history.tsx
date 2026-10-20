@@ -1,3 +1,5 @@
+import { ContextMenu } from "./components/context-menu";
+import { copyText } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useRef, useState } from "react";
 import { Image, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextProps } from "react-native";
 import { useRpc, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
@@ -222,12 +224,15 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
     </View>;
     const isCurrent = group === "local" && node.fullName === currentBranch;
     const isMain = (group === "local" && (node.fullName === "main" || node.fullName === "master")) || (group === "remote" && (node.fullName === "origin/main" || node.fullName === "origin/master"));
-    return <Pressable key={`${group}/${node.fullName}`} accessibilityRole="button" accessibilityLabel={`查看${group === "tag" ? "标签" : "分支"} ${node.fullName}`} accessibilityState={{ selected: branch === node.fullName }} onPress={() => chooseBranch(node.fullName)} style={[styles.branchRow, branch === node.fullName && styles.branchSelected]}>
+    return <ContextMenu key={`${group}/${node.fullName}`} theme={props.theme} compact={props.layout.compact} label={node.fullName} items={[
+      { id: "history", label: "查看历史", icon: "GitBranch", onSelect: () => chooseBranch(node.fullName) },
+      { id: "copy", label: group === "tag" ? "复制标签名称" : "复制分支名称", icon: "Copy", onSelect: () => copyText(node.fullName) },
+    ]}><Pressable key={`${group}/${node.fullName}`} accessibilityRole="button" accessibilityLabel={`查看${group === "tag" ? "标签" : "分支"} ${node.fullName}`} accessibilityState={{ selected: branch === node.fullName }} onPress={() => chooseBranch(node.fullName)} style={[{ flex: 1 }, styles.branchRow, branch === node.fullName && styles.branchSelected]}>
       <View style={styles.branchIndent} />
       <View style={styles.branchIcon}>{isCurrent && isMain ? <Image source={{ uri: CURRENT_BRANCH_ICON }} style={styles.currentBranchIcon} /> : isMain ? <Text style={styles.mainBranchIcon}>★</Text> : <Icon name={group === "tag" || isCurrent ? "Tag" : "GitBranch"} size={16} color={isCurrent ? "#f5a400" : "#64748b"} />}</View>
       <Text style={[styles.branchLeafName, branch === node.fullName && styles.activeBranch]} numberOfLines={1}>{node.name}</Text>
       {group === "local" && (node.ahead > 0 || node.behind > 0) ? <View style={styles.branchTracking}>{node.behind > 0 ? <><Icon name="ArrowDownLeft" size={14} color="#3478f6" /><Text style={styles.behindCount}>{node.behind}</Text></> : null}{node.ahead > 0 ? <><Icon name="ArrowUpRight" size={14} color="#30a653" /><Text style={styles.aheadCount}>{node.ahead}</Text></> : null}</View> : null}
-    </Pressable>;
+    </Pressable></ContextMenu>;
   });
   const renderFiles = (nodes: TreeNode[], depth: number): React.ReactNode[] => nodes.map((node) => {
     if (node.kind === "folder") return <View key={node.path}>
@@ -240,11 +245,14 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
       {!collapsed.has(node.path) ? renderFiles(node.children, depth + 1) : null}
     </View>;
     const tabId = `history:${selectedHash}:${node.file.path}`;
-    return <Pressable key={node.file.path} accessibilityRole="button" accessibilityLabel={`查看 ${node.file.path} 的提交差异`} onPress={() => { if (selectedHash) openTab({ id: tabId, source: "history", hash: selectedHash, path: node.file.path, status: node.file.status }); }} style={[styles.fileRow, { paddingLeft: 8 + depth * 18 }, activeTabId === tabId && styles.selected]}>
+    return <ContextMenu key={node.file.path} theme={props.theme} compact={props.layout.compact} label={node.file.path} items={[
+      { id: "diff", label: "查看提交差异", icon: "FileDiff", disabled: !selectedHash, onSelect: () => { if (selectedHash) openTab({ id: tabId, source: "history", hash: selectedHash, path: node.file.path, status: node.file.status }); } },
+      { id: "copy", label: "复制文件路径", icon: "Copy", onSelect: () => copyText(node.file.path) },
+    ]}><Pressable key={node.file.path} accessibilityRole="button" accessibilityLabel={`查看 ${node.file.path} 的提交差异`} onPress={() => { if (selectedHash) openTab({ id: tabId, source: "history", hash: selectedHash, path: node.file.path, status: node.file.status }); }} style={[{ flex: 1 }, styles.fileRow, { paddingLeft: 8 + depth * 18 }, activeTabId === tabId && styles.selected]}>
       <View style={styles.fileIndent} />
       <FileTypeIcon fileName={node.name} />
       <Text style={[styles.fileName, fileColor(node.file.status)]} numberOfLines={1}>{node.name}</Text>
-    </Pressable>;
+    </Pressable></ContextMenu>;
   });
   const selectedCommit = commits.find((item) => item.hash === selectedHash);
   const contentWidth = Math.max(0, panelWidth);
@@ -295,13 +303,17 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
           <ScrollView style={styles.log}>
             {commits.map((item) => {
               const ownCommit = Boolean((currentGitUser.email && item.email.toLowerCase() === currentGitUser.email.toLowerCase()) || (!currentGitUser.email && currentGitUser.name && item.author === currentGitUser.name));
-              return <Pressable key={item.hash} accessibilityRole="button" accessibilityLabel={`查看提交 ${item.subject}`} accessibilityState={{ selected: selectedHash === item.hash }} onPress={() => setSelectedHash(item.hash)} style={[styles.commitRow, selectedHash === item.hash && styles.selected]}>
+              return <ContextMenu key={item.hash} theme={props.theme} compact={props.layout.compact} label={item.subject} items={[
+                { id: "detail", label: "查看提交详情", icon: "GitCommitHorizontal", onSelect: () => setSelectedHash(item.hash) },
+                { id: "hash", label: "复制提交 Hash", icon: "Copy", onSelect: () => copyText(item.hash) },
+                { id: "message", label: "复制提交说明", onSelect: async () => { const value = await getDetail({ workspaceId, hash: item.hash }); await copyText(value.message); } },
+              ]}><Pressable key={item.hash} accessibilityRole="button" accessibilityLabel={`查看提交 ${item.subject}`} accessibilityState={{ selected: selectedHash === item.hash }} onPress={() => setSelectedHash(item.hash)} style={[{ flex: 1 }, styles.commitRow, selectedHash === item.hash && styles.selected]}>
                 <Text style={[styles.author, ownCommit && styles.currentAuthor]} numberOfLines={1}>{item.author}</Text>
                 <View style={styles.graph}><View style={styles.graphLine} /><View style={[styles.graphDot, item.parents.length > 1 && styles.mergeDot]} /></View>
                 <Text style={styles.subject} numberOfLines={1}>{item.subject}{item.refs[0] ? <Text style={styles.ref}>  {item.refs[0]}</Text> : null}</Text>
                 <CommitText style={styles.date} numberOfLines={1}>{formatCommitTime(item.date, nowMs)}</CommitText>
                 <CommitText style={styles.hash} numberOfLines={1}>{item.hash.slice(0, 8)}</CommitText>
-              </Pressable>;
+              </Pressable></ContextMenu>;
             })}
             {hasMore ? <Pressable accessibilityRole="button" onPress={() => { if (!loading) setSkip((value) => value + 50); }} style={styles.loadMore}><Text style={styles.loadMoreText}>{loading ? "加载中…" : "加载更多提交"}</Text></Pressable> : null}
             {!loading && commits.length === 0 ? <Text style={styles.empty}>没有找到提交记录</Text> : null}

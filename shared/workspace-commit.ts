@@ -44,3 +44,31 @@ export const workspaceGitShelfDiffRpc = defineRpc({
   input: z.object({ workspaceId: z.string(), entryId: z.string(), path: z.string() }),
   output: z.object({ diff: z.string() }),
 });
+
+export const workspaceChangeAction = z.enum(["rollback", "delete", "shelve"]);
+export type ChangeAction = z.infer<typeof workspaceChangeAction>;
+export const workspaceChangePreviewRpc = defineRpc({
+  name: "vibe-review.workspace-change-preview",
+  input: z.object({ workspaceId: z.string(), paths: z.array(z.string()).min(1), action: workspaceChangeAction }),
+  output: z.object({ token: z.string(), paths: z.array(z.string()) }),
+});
+export const workspaceChangeApplyRpc = defineRpc({
+  name: "vibe-review.workspace-change-apply",
+  input: z.object({ workspaceId: z.string(), token: z.string(), message: z.string().optional() }),
+  output: z.object({ summary: z.string(), undoId: z.string(), warning: z.string().optional() }),
+});
+export const workspaceChangeUndoRpc = defineRpc({
+  name: "vibe-review.workspace-change-undo",
+  input: z.object({ workspaceId: z.string(), undoId: z.string() }),
+  output: z.object({ summary: z.string() }),
+});
+export const workspaceSourceRpc = defineRpc({
+  name: "vibe-review.workspace-source",
+  input: z.object({ workspaceId: z.string(), path: z.string() }),
+  output: z.object({ content: z.string(), version: z.string() }),
+});
+export const workspaceSourceSaveRpc = defineRpc({
+  name: "vibe-review.workspace-source-save",
+  input: z.object({ workspaceId: z.string(), path: z.string(), content: z.string(), version: z.string() }),
+  output: z.object({ version: z.string() }),
+});

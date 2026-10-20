@@ -1,3 +1,5 @@
+import { prepareChange, applyChange, undoChange, readSource, saveSource } from "./workspace-actions.ts";
+import { workspaceChangePreviewRpc, workspaceChangeApplyRpc, workspaceChangeUndoRpc, workspaceSourceRpc, workspaceSourceSaveRpc } from "../shared/workspace-commit";
 import { readIdeShelf, readIdeShelfDiff } from "./workspace-shelf.ts";
 import { git, workspaceGitDirectory } from "./git.ts";
 import { execFile } from "node:child_process";
@@ -24,6 +26,11 @@ function checkedFile(files: Awaited<ReturnType<typeof status>>, path: string) {
 }
 
 export function registerWorkspaceCommit(server: PluginServerContext) {
+  server.handle(workspaceChangePreviewRpc, async ({ workspaceId, action, paths }, { paseo }) => prepareChange(await workspaceGitDirectory(paseo, workspaceId), action, paths));
+  server.handle(workspaceChangeApplyRpc, async ({ workspaceId, token, message }, { paseo }) => applyChange(await workspaceGitDirectory(paseo, workspaceId), token, message));
+  server.handle(workspaceChangeUndoRpc, async ({ workspaceId, undoId }, { paseo }) => undoChange(await workspaceGitDirectory(paseo, workspaceId), undoId));
+  server.handle(workspaceSourceRpc, async ({ workspaceId, path }, { paseo }) => readSource(await workspaceGitDirectory(paseo, workspaceId), path));
+  server.handle(workspaceSourceSaveRpc, async ({ workspaceId, path, content, version }, { paseo }) => saveSource(await workspaceGitDirectory(paseo, workspaceId), path, content, version));
   server.handle(workspaceGitShelfDiffRpc, async ({ workspaceId, entryId, path }, { paseo }) => {
     const cwd = await workspaceGitDirectory(paseo, workspaceId);
     if (entryId.startsWith("idea:")) return { diff: await readIdeShelfDiff(cwd, entryId, path) };

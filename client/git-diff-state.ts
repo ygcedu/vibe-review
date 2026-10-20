@@ -48,6 +48,7 @@ export function useGitDiffState(workspaceId: string) {
     ...state,
     openTab,
     closeTab,
+    refresh: () => update((current) => ({ ...current, revision: current.revision + 1 })),
     setTabs: (change: (tabs: DiffTab[]) => DiffTab[]) => update((current) => ({ ...current, tabs: change(current.tabs) })),
     setActiveTabId: (activeTabId: string | null) => update((current) => ({ ...current, activeTabId })),
   };
