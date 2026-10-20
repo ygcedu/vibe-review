@@ -1,3 +1,4 @@
+import { registerSessionHistory } from "./server/session-history";
 import type { PluginHandlerContext, PluginServerContext } from "@getpaseo/plugin/server";
 import { cancelVerificationRpc, reconcileVerificationRpc, openVerificationRpc, reviewAgentRpc } from "./shared/review";
 import { llmSettings, verificationSettings, type LlmConfig } from "./shared/settings";
@@ -17,6 +18,7 @@ import { registerEditDiff } from "./server/edit-diff";
 
 export default function contribute(server: PluginServerContext) {
   registerWorkspaceCommit(server);
+  registerSessionHistory(server);
   registerGitHistory(server);
   registerEditDiff(server);
   const settings = server.registerSettings(llmSettings);

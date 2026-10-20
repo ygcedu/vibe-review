@@ -75,3 +75,12 @@ export function bindToolbarTooltip(target: unknown, show: () => void, hide: () =
     node.removeEventListener("keydown", key);
   };
 }
+
+/** Same browser-owned 900ms clock as Paseo's status-ring/clock.web.ts. */
+export function animateSessionStatusRing(target: unknown): () => void {
+  if (Platform.OS !== "web" || !target) return () => {};
+  const element = target as HTMLElement;
+  const animation = element.animate({ transform: ["rotate(0deg)", "rotate(360deg)"] }, { duration: 900, easing: "linear", iterations: Infinity });
+  animation.startTime = 0;
+  return () => animation.cancel();
+}

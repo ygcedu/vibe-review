@@ -1,3 +1,4 @@
+import { SessionHistoryPanel } from "./client/session-history";
 import type { PluginClientContext, PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
 import { REVIEW_KIND, REVIEW_VERSION, reviewResultSchema, reviewAgentRpc } from "./shared/review";
 import { ReviewResultItem } from "./client/review/review";
@@ -29,10 +30,12 @@ export default function contribute(client: PluginClientContext) {
   client.addWorkspacePanel({ id: "vibe-review-commit", title: "提交更改", icon: "GitCommitHorizontal", context: "workspace", locations: ["explorer"], Component: CommitPanel });
   client.addWorkspacePanel({ id: "vibe-review-git-diff", title: "Git Diff", icon: "FileDiff", context: "workspace", locations: ["workspace"], Component: GitDiffPanel });
   client.addWorkspacePanel({ id: "vibe-review-git-history", title: "Git 历史", icon: "GitBranch", context: "workspace", locations: ["explorer"], Component: HistoryPanel });
+  client.addWorkspacePanel({ id: "vibe-review-session-history", title: "会话历史", icon: "MessagesSquare", context: "workspace", locations: ["explorer"], Component: SessionHistoryPanel });
   for (const [id, title, icon] of [
     ["vibe-review-commit", "提交更改", "GitCommitHorizontal"],
     ["vibe-review-git-diff", "Git Diff", "FileDiff"],
     ["vibe-review-git-history", "Git 历史", "GitBranch"],
+    ["vibe-review-session-history", "会话历史", "MessagesSquare"],
   ] as const) {
     client.addCommandCenterItem({ id: `open-${id}`, title: `打开${title}`, icon, context: "workspace", onSelect: ({ openPanel }) => openPanel(id, { location: id === "vibe-review-git-diff" ? "workspace" : "explorer" }) });
   }

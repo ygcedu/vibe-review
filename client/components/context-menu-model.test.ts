@@ -13,3 +13,10 @@ test("keyboard navigation wraps and skips disabled items", () => {
   assert.equal(nextMenuIndex([false, false], 0, 1), -1);
   assert.equal(nextMenuIndex([], -1, 1), -1);
 });
+
+test("more menu aligns to button right edge and flips above near bottom", () => {
+  const viewport = { width: 1000, height: 800 };
+  const size = { width: 220, height: 160 };
+  assert.deepEqual(menuPosition({ x: 900, y: 204, align: "end", aboveY: 168 }, viewport, size), { left: 680, top: 204 });
+  assert.deepEqual(menuPosition({ x: 900, y: 754, align: "end", aboveY: 718 }, viewport, size), { left: 680, top: 558 });
+});

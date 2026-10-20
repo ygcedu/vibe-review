@@ -24,14 +24,16 @@ type Props = {
   showMore?: boolean;
   disabled?: boolean;
   style?: StyleProp<ViewStyle>;
+  moreStyle?: StyleProp<ViewStyle>;
   /** FileActionsContextMenuContent uses 220; callers may widen long labels. */
   width?: number;
   onError?(error: unknown): void;
 };
 
 /** UI only: callers own target selection, mutations, confirmation and cache refresh. */
-export function ContextMenu({ children, items, theme, label, compact = false, showMore = compact, disabled = false, style, width = 220, onError }: Props) {
+export function ContextMenu({ children, items, theme, label, compact = false, showMore = compact, disabled = false, style, moreStyle, width = 220, onError }: Props) {
   const trigger = useRef<View>(null);
+  const moreTrigger = useRef<View>(null);
   const [point, setPoint] = useState<MenuPoint | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
@@ -55,6 +57,7 @@ export function ContextMenu({ children, items, theme, label, compact = false, sh
   }, [close]);
   useEffect(() => () => cleanupKeyboard.current(), []);
   const openAtTrigger = () => trigger.current?.measureInWindow((x, y, _width, height) => open({ x, y: y + height }));
+  const openAtMore = () => moreTrigger.current?.measureInWindow((x, y, buttonWidth, height) => open({ x: x + buttonWidth, y: y + height + 4, align: "end", aboveY: y - 4 }));
   const select = async (item: Extract<ContextMenuItem, { label: string }>) => {
     if (item.disabled || state.current.pending) return;
     state.current.pending = true;
@@ -69,7 +72,7 @@ export function ContextMenu({ children, items, theme, label, compact = false, sh
   return <View ref={trigger} style={style}>
     <Pressable onLongPress={Platform.OS === "web" ? undefined : openAtTrigger} accessible={false} style={styles.trigger}>
       {children}
-      {showMore ? <Pressable accessibilityRole="button" accessibilityLabel={`${label}更多操作`} accessibilityState={{ expanded: Boolean(point), disabled: disabled || pending }} disabled={disabled || pending} onPress={openAtTrigger} style={styles.more}><Icon name="Ellipsis" size={16} color={colors.foregroundMuted} /></Pressable> : null}
+      {showMore ? <Pressable ref={moreTrigger} accessibilityRole="button" accessibilityLabel={`${label}更多操作`} accessibilityState={{ expanded: Boolean(point), disabled: disabled || pending }} disabled={disabled || pending} onPress={openAtMore} style={[styles.more, moreStyle]}><Icon name="Ellipsis" size={16} color={colors.foregroundMuted} /></Pressable> : null}
     </Pressable>
     <Modal visible={Boolean(point)} transparent animationType="none" onRequestClose={close}>
       <View style={styles.overlay}>
