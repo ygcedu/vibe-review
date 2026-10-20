@@ -55,3 +55,23 @@ export function bindMenuKeyboard(target: unknown, close: () => void): () => void
     if (previous?.isConnected) previous.focus();
   };
 }
+
+/** Listen on the whole button boundary, including enabled/disabled descendants. */
+export function bindToolbarTooltip(target: unknown, show: () => void, hide: () => void): () => void {
+  if (Platform.OS !== "web" || !target) return () => {};
+  const node = target as HTMLElement;
+  const blur = (event: FocusEvent) => { if (!node.contains(event.relatedTarget as Node | null)) hide(); };
+  const key = (event: KeyboardEvent) => { if (event.key === "Escape") hide(); };
+  node.addEventListener("mouseenter", show);
+  node.addEventListener("mouseleave", hide);
+  node.addEventListener("focusin", show);
+  node.addEventListener("focusout", blur);
+  node.addEventListener("keydown", key);
+  return () => {
+    node.removeEventListener("mouseenter", show);
+    node.removeEventListener("mouseleave", hide);
+    node.removeEventListener("focusin", show);
+    node.removeEventListener("focusout", blur);
+    node.removeEventListener("keydown", key);
+  };
+}

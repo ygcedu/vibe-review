@@ -1,3 +1,4 @@
+import { ToolbarButton } from "./components/toolbar-button";
 import { SourceEditor } from "./components/source-editor";
 import { Modal } from "@getpaseo/plugin/client/react-native";
 import { workspaceChangePreviewRpc, workspaceChangeApplyRpc, workspaceChangeUndoRpc, type ChangeAction } from "../shared/workspace-commit";
@@ -83,7 +84,7 @@ function TrackedDropZone({ children, workspaceId, onFiles }: { children: ReactNo
 }
 
 export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPreview, onOpenShelfDiff, theme, layout }: PluginWorkspacePanelProps & { onFilePreview: (selection: Selection) => void; externalPreview?: Selection | null; onOpenShelfDiff: () => void }) {
-  const [toolHint, setToolHint] = useState("");
+  const [toolbarWidth, setToolbarWidth] = useState(0);
   const [tab, setTab] = useState<"commit" | "shelf">("commit");
   const prepareAction = useRpc(workspaceChangePreviewRpc);
   const applyAction = useRpc(workspaceChangeApplyRpc);
@@ -99,7 +100,6 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
   const commit = useRpc(workspaceGitCommitRpc);
   const push = useRpc(workspaceGitPushRpc);
   const [files, setFiles] = useState<File[]>([]);
-  const [branch, setBranch] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [pushing, setPushing] = useState(false);
@@ -121,7 +121,6 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
       if (active) {
         setFiles(value.files);
         setSelectedPaths((current) => new Set([...current].filter((path) => value.files.some((file) => file.path === path))));
-        setBranch(value.branch);
         setError("");
       }
     }, (reason: unknown) => { if (active) setError(String(reason)); });
@@ -276,6 +275,7 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
   });
 
   const actionFiles = selectedFiles.length ? selectedFiles : files.filter((file) => file.path === (activePath ?? externalPreview?.path));
+  const allCollapsed = groups.every((group) => collapsedGroups.has(group.title));
   const collapseAll = () => {
     const keys = new Set<string>();
     const visit = (nodes: TreeNode[], group: string) => { for (const node of nodes) if (node.kind === "folder") { keys.add(`${group}:${node.path}`); visit(node.children, group); } };
@@ -289,18 +289,16 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
       </Pressable>)}
     </View>
     {tab === "shelf" ? <Shelf workspaceId={workspaceId} theme={theme} compact={layout.compact} onOpenDiff={onOpenShelfDiff} /> : <>
-    <View style={styles.toolbar}>
-      <Text style={styles.heading}>提交更改{branch ? ` · ${branch}` : ""}</Text>
-    </View>
-    <View style={[styles.operationBar, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface0 }]}>
+    <View onLayout={(event) => setToolbarWidth(event.nativeEvent.layout.width)} style={[styles.operationBar, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface0 }]}>
       {([
         ["刷新 Git 状态", "RefreshCw", () => { setRevision((value) => value + 1); refreshDiff(); }, busy],
         ["回滚所选更改", "Undo2", () => void requestAction("rollback", actionFiles), busy || !actionFiles.length],
         ["搁置所选更改", "Download", () => void requestAction("shelve", actionFiles), busy || !actionFiles.length],
-        ["全部展开", "ChevronsUpDown", () => { setCollapsed(new Set()); setCollapsedGroups(new Set()); }, false],
-        ["全部折叠", "ChevronsDownUp", collapseAll, false],
-      ] as const).map(([label, icon, onPress, disabled]) => <Pressable key={label} accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} onHoverIn={() => setToolHint(label)} onHoverOut={() => setToolHint("")} style={({ pressed }) => [styles.toolButton, { opacity: disabled ? 0.35 : 1, backgroundColor: pressed ? theme.colors.surface2 : "transparent" }]}><Icon name={icon} size={18} color={theme.colors.foregroundMuted} /></Pressable>)}
-      <Text style={{ flex: 1, fontSize: 11, color: theme.colors.foregroundMuted }} numberOfLines={1}>{toolHint}</Text>
+        [allCollapsed ? "全部展开" : "全部折叠", allCollapsed ? "ChevronsUpDown" : "ChevronsDownUp", () => {
+          if (allCollapsed) { setCollapsed(new Set()); setCollapsedGroups(new Set()); }
+          else collapseAll();
+        }, false],
+      ] as const).map(([label, icon, onPress, disabled], index) => <ToolbarButton key={index} label={label} icon={icon} onPress={onPress} disabled={disabled} theme={theme} boundary={{ width: toolbarWidth }} />)}
     </View>
     <ScrollView style={styles.listExpanded}>
       {groups.map((group) => {
@@ -316,10 +314,19 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
             <Text style={styles.group}>{group.title}  {group.files.length} 个文件</Text>
           </Pressable>
         </>;
+        const hasFiles = group.files.length > 0;
         const content = <View>
-          {group.title === "未跟踪" && group.files.length > 0
-            ? <DraggableRow workspaceId={workspaceId} paths={group.files.map((file) => file.path)} style={styles.groupRow}>{header}</DraggableRow>
-            : <View style={styles.groupRow}>{header}</View>}
+          <ContextMenu theme={theme} compact={layout.compact} label={`${group.title}文件`} items={[
+            ...(group.title === "未跟踪" ? [{ id: "track", label: "全部加入 Git", icon: "Plus", disabled: busy || !hasFiles, onSelect: () => track(group.files.map((file) => file.path)) }] : []),
+            { id: "rollback", label: "回滚分组内的更改…", icon: "Undo2", disabled: busy || !hasFiles, onSelect: () => requestAction("rollback", group.files) },
+            { id: "shelve", label: "搁置分组内的更改…", icon: "Download", disabled: busy || !hasFiles, onSelect: () => requestAction("shelve", group.files) },
+            { id: "destructive", separator: true },
+            { id: "delete", label: "删除分组内的文件…", icon: "Trash2", destructive: true, disabled: busy || !hasFiles || group.files.some((file) => file.status.includes("D")), onSelect: () => requestAction("delete", group.files) },
+          ]}>
+            {group.title === "未跟踪" && hasFiles
+              ? <DraggableRow workspaceId={workspaceId} paths={group.files.map((file) => file.path)} style={[styles.groupRow, { flex: 1 }]}>{header}</DraggableRow>
+              : <View style={[styles.groupRow, { flex: 1 }]}>{header}</View>}
+          </ContextMenu>
           {!isCollapsed ? renderNodes(buildFileTree(group.files, true), group, 0) : null}
         </View>;
         return group.title === "已跟踪"
@@ -366,6 +373,7 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
 }
 
 function Shelf({ workspaceId, onOpenDiff, theme, compact }: { workspaceId: string; onOpenDiff: () => void; theme: PluginWorkspacePanelProps["theme"]; compact: boolean }) {
+  const [toolbarWidth, setToolbarWidth] = useState(0);
   const { openTab, tabs, activeTabId } = useGitDiffState(workspaceId);
   const activeTab = tabs.find((tab) => tab.id === activeTabId);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -412,9 +420,8 @@ function Shelf({ workspaceId, onOpenDiff, theme, compact }: { workspaceId: strin
     return () => { active = false; };
   }, [workspaceId, revision]);
   return <>
-    <View style={styles.toolbar}>
-      <Text style={styles.heading}>暂存的更改</Text>
-      <Pressable accessibilityRole="button" accessibilityLabel="刷新 Shelf" onPress={() => setRevision((value) => value + 1)}><Icon name="RefreshCw" size={17} color="#64748b" /></Pressable>
+    <View onLayout={(event) => setToolbarWidth(event.nativeEvent.layout.width)} style={[styles.operationBar, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface0 }]}>
+      <ToolbarButton label="刷新 Shelf" icon="RefreshCw" onPress={() => setRevision((value) => value + 1)} disabled={loading} theme={theme} boundary={{ width: toolbarWidth }} />
     </View>
     <ScrollView style={styles.listExpanded}>
       {loading ? <Text style={styles.empty}>加载暂存内容…</Text> : error ? <Text style={[styles.empty, styles.error]}>{error}</Text> : entries.length === 0 ? <Text style={styles.empty}>没有暂存的更改（Shelf / Git stash）</Text> : entries.map((entry) => <View key={entry.id} style={styles.shelfEntry}>
@@ -445,17 +452,14 @@ const styles = StyleSheet.create({
   tabs: { flexDirection: "row", gap: 4, padding: 8, borderBottomWidth: 1, borderColor: "#e5e7eb" },
   tab: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 6 },
   selectedTab: { backgroundColor: "#e9f0ff" },
-  tabText: { fontSize: 14, color: "#64748b" },
-  selectedTabText: { color: "#1641ad", fontWeight: "600" },
+  tabText: { fontSize: 14, fontWeight: "400", color: "#64748b" },
+  selectedTabText: { color: "#1641ad" },
   shelfEntry: { borderBottomWidth: 1, borderColor: "#f1f5f9" },
   shelfRow: { flexDirection: "row", alignItems: "center", padding: 12, gap: 8 },
   shelfInfo: { flex: 1, minWidth: 0, gap: 4 },
   shelfMessage: { fontSize: 13, color: "#111827" },
   shelfMeta: { fontSize: 11, color: "#64748b" },
-  operationBar: { flexDirection: "row", alignItems: "center", paddingHorizontal: 6, paddingVertical: 4, borderBottomWidth: 1, gap: 2 },
-  toolButton: { width: 32, height: 32, justifyContent: "center", alignItems: "center", borderRadius: 4 },
-  toolbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 12, borderBottomWidth: 1, borderColor: "#e5e7eb" },
-  heading: { fontSize: 15, fontWeight: "600", color: "#111827" },
+  operationBar: { flexDirection: "row", alignItems: "center", paddingHorizontal: 6, paddingVertical: 4, borderBottomWidth: 1, gap: 2, zIndex: 20 },
   listExpanded: { flex: 1, minHeight: 0 },
   groupRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 9, paddingTop: 10, paddingBottom: 4 },
   group: { fontSize: 12, fontWeight: "600", color: "#6b7280" },
