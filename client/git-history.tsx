@@ -432,7 +432,7 @@ function historyStyles(colors: PluginWorkspacePanelProps["theme"]["colors"]) {
     count: { ...baseStyles.count, flexShrink: 0, color: colors.foregroundMuted },
     fileName: { ...baseStyles.fileName, minWidth: 0 },
     added: { color: colors.statusSuccess },
-    modified: { color: colors.foreground },
+    modified: { color: "#1641ad" },
     deleted: { color: colors.statusDanger },
     empty: { ...baseStyles.empty, color: colors.foregroundMuted },
     loadMoreText: { ...baseStyles.loadMoreText, color: colors.accent },
