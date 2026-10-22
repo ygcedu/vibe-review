@@ -9,6 +9,7 @@ import type { GitCommit } from "../shared/git-history";
 import type { ContextMenuItem } from "./components/context-menu";
 
 const actions: Record<HistoryAction, { title: string; icon: string; description: string; field?: "name" | "message"; destructive?: boolean }> = {
+  "reword": { title: "编辑提交说明", icon: "Pencil", description: "修改所选提交说明，后续提交的 Hash 会变化。仅支持当前分支的线性历史；自动保留恢复分支，不会推送远端。", field: "message", destructive: true },
   "reset": { title: "重置当前分支", icon: "Undo2", description: "将当前分支指向所选提交。操作前自动创建 vibe-review-backup/ 恢复分支。不会推送远端。", destructive: true },
   "cherry-pick": { title: "拣选提交", icon: "GitCommitHorizontal", description: "将此提交的改动应用到当前 HEAD，创建一条新提交。如有冲突或提交为空，会自动中止并恢复。" },
   "checkout": { title: "检出此版本", icon: "GitCommitHorizontal", description: "以分离 HEAD 模式检出所选提交，不移动当前分支。工作区需无未提交改动。" },
@@ -88,6 +89,7 @@ export function useHistoryActions({ workspaceId, theme, onChanged, onCompare }: 
       { id: "cherry-pick", label: "拣选提交（Cherry-Pick）…", icon: "GitCommitHorizontal", disabled: busy, onSelect: () => open(commit, "cherry-pick") },
       { id: "compare", label: "与本地比较…", icon: "FileDiff", onSelect: () => setCompareCommit(commit) },
       { id: "checkout", label: "检出此版本…", icon: "GitCommitHorizontal", disabled: busy, onSelect: () => open(commit, "checkout") },
+      { id: "reword", label: "编辑提交说明…", icon: "Pencil", disabled: busy, onSelect: () => open(commit, "reword") },
       { id: "reset", label: "重置当前分支到此处…", icon: "Undo2", destructive: true, disabled: busy, onSelect: () => open(commit, "reset") },
       { id: "ref-separator", separator: true },
       { id: "new-tag", label: "新建标签…", icon: "Tag", disabled: busy, onSelect: () => open(commit, "new-tag") },

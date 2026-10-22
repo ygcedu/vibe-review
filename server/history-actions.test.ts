@@ -136,3 +136,26 @@ test("reset refuses detached HEAD and dirty worktree", async (t) => {
   await git(cwd, ["checkout", "--detach"]);
   await assert.rejects(prepareHistoryAction(cwd, first, "reset"), /分离 HEAD/);
 });
+
+test("edit an older commit message rewrites descendants, preserves files and creates recovery branch", async (t) => {
+  const { cwd, first, head } = await repository(t);
+  const originalTree = await git(cwd, ["rev-parse", "HEAD^{tree}"]);
+  const preview = await prepareHistoryAction(cwd, first, "reword");
+  const result = await applyHistoryAction(cwd, preview.token, { message: "Edited initial\n\nFull body" });
+  assert.ok(result.backupRef);
+  assert.equal((await git(cwd, ["rev-parse", result.backupRef])).trim(), head);
+  assert.equal(await git(cwd, ["rev-parse", "HEAD^{tree}"]), originalTree);
+  assert.equal((await git(cwd, ["show", "-s", "--format=%B", "HEAD^"])).trim(), "Edited initial\n\nFull body");
+  assert.equal((await git(cwd, ["show", "-s", "--format=%s", "HEAD"])).trim(), "Second");
+  assert.equal((await git(cwd, ["rev-list", "--count", "HEAD"])).trim(), "2");
+  assert.equal((await git(cwd, ["status", "--porcelain"])).trim(), "");
+  assert.equal((await git(cwd, ["worktree", "list", "--porcelain"])).match(/^worktree /gm)?.length, 1);
+});
+
+test("message editing rejects targets on another branch and dirty worktrees", async (t) => {
+  const { cwd, first, head } = await repository(t);
+  await git(cwd, ["checkout", "-b", "other", first]);
+  await assert.rejects(prepareHistoryAction(cwd, head, "reword"), /不在当前分支/);
+  await writeFile(join(cwd, "file.txt"), "dirty\n");
+  await assert.rejects(prepareHistoryAction(cwd, first, "reword"), /未提交改动/);
+});
