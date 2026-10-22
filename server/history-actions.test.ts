@@ -113,3 +113,26 @@ test("conflicting cherry-pick aborts and restores original HEAD and files", asyn
   assert.equal((await git(cwd, ["status", "--porcelain"])).trim(), "");
   assert.equal(await git(cwd, ["show", "HEAD:file.txt"]), "destination\n");
 });
+
+test("reset modes move the branch and preserve a recovery branch", async (t) => {
+  for (const mode of ["soft", "mixed", "hard"] as const) {
+    const { cwd, first, head } = await repository(t);
+    const preview = await prepareHistoryAction(cwd, first, "reset");
+    const result = await applyHistoryAction(cwd, preview.token, { mode });
+    assert.ok(result.backupRef);
+    assert.equal((await git(cwd, ["rev-parse", result.backupRef])).trim(), head);
+    assert.equal((await git(cwd, ["rev-parse", "HEAD"])).trim(), first);
+    const staged = (await git(cwd, ["diff", "--cached", "--name-only"])).trim();
+    assert.equal(staged, mode === "soft" ? "second.txt" : "");
+    assert.equal((await git(cwd, ["status", "--porcelain"])).trim(), mode === "soft" ? "A  second.txt" : mode === "mixed" ? "?? second.txt" : "");
+  }
+});
+
+test("reset refuses detached HEAD and dirty worktree", async (t) => {
+  const { cwd, first } = await repository(t);
+  await writeFile(join(cwd, "untracked"), "keep");
+  await assert.rejects(prepareHistoryAction(cwd, first, "reset"), /未提交改动/);
+  await rm(join(cwd, "untracked"));
+  await git(cwd, ["checkout", "--detach"]);
+  await assert.rejects(prepareHistoryAction(cwd, first, "reset"), /分离 HEAD/);
+});

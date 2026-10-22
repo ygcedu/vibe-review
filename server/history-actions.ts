@@ -16,7 +16,8 @@ export async function prepareHistoryAction(cwd: string, hash: string, action: Hi
   if (!/^[a-f0-9]{40,64}$/.test(hash)) throw new Error("无效提交 Hash");
   if ((await git(cwd, ["rev-parse", "--verify", `${hash}^{commit}`])).trim() !== hash) throw new Error("提交不存在");
   const { head, branch } = await historyHead(cwd);
-  if (action === "checkout" || action === "cherry-pick") await requireCleanHistoryWorktree(cwd);
+  if (action === "checkout" || action === "cherry-pick" || action === "reset") await requireCleanHistoryWorktree(cwd);
+  if (action === "reset" && !branch) throw new Error("当前处于分离 HEAD，无法重置当前分支");
   const message = (await git(cwd, ["show", "-s", "--format=%B", hash])).trimEnd();
   for (const [token, preview] of previews) if (preview.expires < Date.now()) previews.delete(token);
   const token = randomUUID();
@@ -37,7 +38,13 @@ export async function checkedRefName(cwd: string, name: string | undefined, name
   await git(cwd, ["check-ref-format", `refs/${namespace}/${name}`]).catch(() => { throw new Error("名称包含 Git 不允许的字符"); });
   return name;
 }
-export async function applyHistoryAction(cwd: string, token: string, input: { name?: string; message?: string; mainline?: number }) {
+export async function createHistoryBackup(cwd: string, head: string) {
+  const name = `vibe-review-backup/${new Date().toISOString().replace(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}`;
+  await git(cwd, ["branch", "--", name, head]);
+  return name;
+}
+
+export async function applyHistoryAction(cwd: string, token: string, input: { name?: string; message?: string; mainline?: number; mode?: "soft" | "mixed" | "hard" }) {
   const preview = previews.get(token);
   if (!preview || preview.cwd !== cwd || preview.expires < Date.now()) throw new Error("操作预览已过期，请重新打开菜单");
   if (running.has(cwd)) throw new Error("当前工作区已有 Git 操作正在执行");
@@ -46,7 +53,18 @@ export async function applyHistoryAction(cwd: string, token: string, input: { na
     const current = await historyHead(cwd);
     if (current.head !== preview.head || current.branch !== preview.branch) throw new Error("当前分支或 HEAD 已变化，请重新打开操作");
     let summary: string;
+    let backupRef: string | undefined;
     switch (preview.action) {
+      case "reset": {
+        if (!preview.branch) throw new Error("当前处于分离 HEAD，无法重置当前分支");
+        await requireCleanHistoryWorktree(cwd);
+        const mode = input.mode ?? "mixed";
+        if (!["soft", "mixed", "hard"].includes(mode)) throw new Error("无效重置模式");
+        backupRef = await createHistoryBackup(cwd, preview.head);
+        await git(cwd, ["reset", `--${mode}`, preview.hash]);
+        summary = `已重置到 ${preview.hash.slice(0, 8)}（${mode}），恢复分支：${backupRef}`;
+        break;
+      }
       case "cherry-pick": {
         await requireCleanHistoryWorktree(cwd);
         const parents = (await git(cwd, ["show", "-s", "--format=%P", preview.hash])).trim().split(" ").filter(Boolean);
@@ -83,7 +101,7 @@ export async function applyHistoryAction(cwd: string, token: string, input: { na
       }
     }
     previews.delete(token);
-    return { summary };
+    return { summary, backupRef };
   } finally { running.delete(cwd); }
 }
 export function registerHistoryActions(server: PluginServerContext) {

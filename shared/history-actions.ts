@@ -1,7 +1,7 @@
 import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
 
-export const historyAction = z.enum(["new-branch", "new-tag", "checkout", "cherry-pick"]);
+export const historyAction = z.enum(["new-branch", "new-tag", "checkout", "cherry-pick", "reset"]);
 export type HistoryAction = z.infer<typeof historyAction>;
 export const historyActionPreviewRpc = defineRpc({
   name: "vibe-review.history-action-preview",
@@ -10,6 +10,6 @@ export const historyActionPreviewRpc = defineRpc({
 });
 export const historyActionApplyRpc = defineRpc({
   name: "vibe-review.history-action-apply",
-  input: z.object({ workspaceId: z.string(), token: z.string(), name: z.string().optional(), message: z.string().optional(), mainline: z.number().int().positive().optional() }),
+  input: z.object({ workspaceId: z.string(), token: z.string(), name: z.string().optional(), message: z.string().optional(), mainline: z.number().int().positive().optional(), mode: z.enum(["soft", "mixed", "hard"]).optional() }),
   output: z.object({ summary: z.string(), backupRef: z.string().optional() }),
 });
