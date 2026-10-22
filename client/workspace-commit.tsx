@@ -365,6 +365,24 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
       })}
       {files.length === 0 && !error ? <Text style={styles.empty}>工作区没有待提交的改动</Text> : null}
     </ScrollView>
+    {error || result || undoId ? <View style={styles.feedbackArea}>
+      {error ? <View accessibilityRole="alert" accessibilityLiveRegion="polite" style={[styles.feedback, { backgroundColor: theme.colors.surface1, borderColor: theme.colors.border }]}>
+        <Icon name="CircleAlert" size={15} color={theme.colors.statusDanger} />
+        <Text selectable style={[styles.feedbackText, { color: theme.colors.statusDanger }]}>{error}</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel="关闭错误提示" hitSlop={4} onPress={() => setError("")} style={styles.dismissFeedback}><Icon name="X" size={14} color={theme.colors.foregroundMuted} /></Pressable>
+      </View> : null}
+      {result || undoId ? <View accessibilityLiveRegion="polite" style={styles.resultFeedback}>
+        <Icon name="CircleCheck" size={15} color={theme.colors.statusSuccess} />
+        <Text selectable style={[styles.feedbackText, { color: theme.colors.foreground }]}>{result || "文件操作已完成"}</Text>
+        <View style={styles.feedbackActions}>
+        {undoId ? <CommitActionButton label="撤销" icon="Undo2" compact theme={theme} disabled={busy} onPress={() => {
+          setBusy(true); setError("");
+          void undoAction({ workspaceId, undoId }).then(() => { setResult(""); setUndoId(null); refreshDiff(); setRevision((value) => value + 1); }, (reason) => setError(String(reason))).finally(() => setBusy(false));
+        }} /> : null}
+        <Pressable accessibilityRole="button" accessibilityLabel="关闭操作提示" hitSlop={4} onPress={() => { setResult(""); setUndoId(null); }} style={styles.dismissFeedback}><Icon name="X" size={14} color={theme.colors.foregroundMuted} /></Pressable>
+        </View>
+      </View> : null}
+    </View> : null}
     <View style={[styles.footer, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface0 }]}>
       {selectedFiles.length > 0 ? <View style={styles.summaryRow}>
         <Text style={styles.summaryCount}>已选 {selectedFiles.length} 个文件</Text>
@@ -379,18 +397,7 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
         <CommitActionButton label={pushing ? "推送中…" : "推送"} icon="ArrowUp" theme={theme} disabled={busy} loading={pushing} onPress={() => void pushBranch()} />
         <CommitActionButton label={submitting ? "提交中…" : "提交"} icon="GitCommitHorizontal" theme={theme} primary loading={submitting} disabled={busy || !selectedPaths.size || !message.trim()} onPress={() => void submit()} />
       </View>
-      {error ? <View accessibilityRole="alert" accessibilityLiveRegion="polite" style={[styles.feedback, { backgroundColor: theme.colors.surface1, borderColor: theme.colors.border }]}>
-        <Icon name="CircleAlert" size={15} color={theme.colors.statusDanger} />
-        <Text selectable style={[styles.feedbackText, { color: theme.colors.statusDanger }]}>{error}</Text>
-      </View> : null}
-      {result || undoId ? <View accessibilityLiveRegion="polite" style={styles.resultFeedback}>
-        <Icon name="CircleCheck" size={15} color={theme.colors.statusSuccess} />
-        <Text selectable style={[styles.feedbackText, { color: theme.colors.foreground }]}>{result || "文件操作已完成"}</Text>
-        {undoId ? <CommitActionButton label="撤销" icon="Undo2" compact theme={theme} disabled={busy} onPress={() => {
-          setBusy(true); setError("");
-          void undoAction({ workspaceId, undoId }).then(() => { setResult(""); setUndoId(null); refreshDiff(); setRevision((value) => value + 1); }, (reason) => setError(String(reason))).finally(() => setBusy(false));
-        }} /> : <Pressable accessibilityRole="button" accessibilityLabel="关闭操作提示" hitSlop={4} onPress={() => setResult("")} style={styles.dismissFeedback}><Icon name="X" size={14} color={theme.colors.foregroundMuted} /></Pressable>}
-      </View> : null}
+
     </View>
     </>}
     {confirmation ? <Modal title={confirmation.action === "rollback" ? "回滚更改" : confirmation.action === "delete" ? "删除文件" : "搁置更改"} open onOpenChange={(open) => { if (!open && !busy) { setConfirmation(null); setError(""); } }}><Modal.Content contentContainerStyle={styles.confirmContent}>
@@ -537,6 +544,7 @@ const styles = StyleSheet.create({
   compactButton: { minHeight: 28, paddingHorizontal: 4, gap: 3, borderWidth: 0 },
   actionLabel: { fontSize: 12, lineHeight: 18, fontWeight: "500" },
   feedback: { flexDirection: "row", alignItems: "center", gap: 8, padding: 8, borderWidth: 1, borderRadius: 8 },
+  feedbackArea: { paddingHorizontal: 12, paddingVertical: 8, gap: 8 },
   resultFeedback: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 2 },
   confirmContent: { padding: 20, gap: 12 },
   confirmDescription: { fontSize: 13, lineHeight: 21 },
@@ -548,7 +556,8 @@ const styles = StyleSheet.create({
   confirmNote: { flexDirection: "row", alignItems: "center", gap: 6 },
   confirmActions: { flexDirection: "row", justifyContent: "flex-end", gap: 8, borderTopWidth: 1, paddingTop: 16, marginTop: 4 },
   feedbackText: { flex: 1, minWidth: 0, fontSize: 12, lineHeight: 18 },
-  dismissFeedback: { width: 24, height: 24, alignItems: "center", justifyContent: "center" },
+  feedbackActions: { flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 0 },
+  dismissFeedback: { width: 14, height: 28, flexShrink: 0, alignItems: "flex-end", justifyContent: "center" },
   disabled: { opacity: 0.45 },
   error: { color: "#b91c1c", fontSize: 12 },
   result: { color: "#15803d", fontSize: 12 },
