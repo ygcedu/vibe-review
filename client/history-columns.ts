@@ -7,11 +7,10 @@ export function fitHistoryColumns(available: number, preferred?: HistoryColumnWi
   const total = Math.max(minimum, available);
   const widths: HistoryColumnWidths = preferred ? [...preferred] : [80, total - 249, 105, 64];
   for (let index = 0; index < widths.length; index++) widths[index] = Math.max(HISTORY_COLUMN_MINIMUMS[index], widths[index]);
-  // Once adjusted, retain the user's widths; narrower panels scroll horizontally.
-  if (!preferred) {
-    let difference = total - widths.reduce((sum, width) => sum + width, 0);
+  let difference = total - widths.reduce((sum, width) => sum + width, 0);
+  if (difference >= 0) widths[1] += difference;
+  else {
     for (const index of [1, 0, 2, 3]) {
-      if (difference >= 0) { widths[1] += difference; break; }
       const shrink = Math.min(-difference, widths[index] - HISTORY_COLUMN_MINIMUMS[index]);
       widths[index] -= shrink;
       difference += shrink;
@@ -22,6 +21,9 @@ export function fitHistoryColumns(available: number, preferred?: HistoryColumnWi
 
 export function resizeHistoryColumns(widths: HistoryColumnWidths, boundary: number, delta: number): HistoryColumnWidths {
   const next: HistoryColumnWidths = [...widths];
-  next[boundary] = Math.max(HISTORY_COLUMN_MINIMUMS[boundary], widths[boundary] + delta);
+  if (boundary < 0 || boundary >= widths.length - 1) return next;
+  const movement = Math.max(HISTORY_COLUMN_MINIMUMS[boundary] - widths[boundary], Math.min(delta, widths[boundary + 1] - HISTORY_COLUMN_MINIMUMS[boundary + 1]));
+  next[boundary] += movement;
+  next[boundary + 1] -= movement;
   return next;
 }
