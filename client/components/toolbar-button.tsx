@@ -6,6 +6,7 @@ import { Icon } from "@getpaseo/plugin/client/react-native";
 
 type Props = {
   label: string;
+  size?: number;
   icon: string;
   disabled?: boolean;
   onPress(): void;
@@ -13,7 +14,7 @@ type Props = {
   boundary?: { width: number };
 };
 
-export function ToolbarButton({ label, icon, disabled = false, onPress, theme, boundary }: Props) {
+export function ToolbarButton({ label, icon, disabled = false, onPress, theme, boundary, size = 32 }: Props) {
   const anchor = useRef<View>(null);
   const [anchorLayout, setAnchorLayout] = useState({ x: 0, width: 32 });
   const [visible, setVisible] = useState(false);
@@ -30,7 +31,7 @@ export function ToolbarButton({ label, icon, disabled = false, onPress, theme, b
     ? Math.max(4 - anchorLayout.x, Math.min(centeredLeft, boundary.width - anchorLayout.x - tooltipWidth - 4))
     : centeredLeft;
   return <View ref={anchor} onLayout={(event) => { const { x, width } = event.nativeEvent.layout; setAnchorLayout({ x, width }); }} style={[styles.anchor, visible && styles.raised]}>
-    <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled }} disabled={disabled} onHoverIn={show} onHoverOut={hide} onFocus={show} onBlur={hide} onPress={onPress} style={({ pressed }) => [styles.button, { opacity: disabled ? 0.35 : 1, backgroundColor: pressed ? colors.surface2 : "transparent" }]}>
+    <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled }} disabled={disabled} onHoverIn={show} onHoverOut={hide} onFocus={show} onBlur={hide} onPress={onPress} style={({ pressed }) => [styles.button, { width: size, height: size, opacity: disabled ? 0.35 : 1, backgroundColor: pressed ? colors.surface2 : "transparent" }]}>
       <Icon name={icon} size={18} color={colors.foregroundMuted} />
     </Pressable>
     {visible ? <View pointerEvents="none" role="tooltip" style={[styles.tooltip, { backgroundColor: colors.foreground, left: tooltipLeft, width: tooltipWidth }]}><Text style={[styles.text, { color: colors.surface0 }]}>{label}</Text></View> : null}

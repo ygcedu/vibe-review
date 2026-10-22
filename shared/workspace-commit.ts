@@ -19,7 +19,7 @@ export const workspaceGitTrackRpc = defineRpc({
 });
 export const workspaceGitCommitRpc = defineRpc({
   name: "vibe-review.workspace-git-commit",
-  input: z.object({ workspaceId: z.string(), message: z.string().trim().min(1), paths: z.array(z.string()).min(1) }),
+  input: z.object({ workspaceId: z.string(), message: z.string().trim().min(1), paths: z.array(z.string()), amend: z.boolean().optional(), expectedHead: z.string().regex(/^[a-f0-9]{40,64}$/).optional() }).refine((value) => value.amend ? Boolean(value.expectedHead) : value.paths.length > 0, "请选择文件，追加时必须指定最近提交"),
   output: z.object({ summary: z.string() }),
 });
 export const workspaceGitPushRpc = defineRpc({
@@ -71,4 +71,10 @@ export const workspaceSourceSaveRpc = defineRpc({
   name: "vibe-review.workspace-source-save",
   input: z.object({ workspaceId: z.string(), path: z.string(), content: z.string(), version: z.string() }),
   output: z.object({ version: z.string() }),
+});
+
+export const workspaceCommitMessagesRpc = defineRpc({
+  name: "vibe-review.workspace-commit-messages",
+  input: z.object({ workspaceId: z.string() }),
+  output: z.object({ entries: z.array(z.object({ hash: z.string(), message: z.string() })) }),
 });

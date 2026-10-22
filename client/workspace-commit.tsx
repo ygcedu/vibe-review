@@ -8,7 +8,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type ViewStyle } from "react-native";
 import { useRpc, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import { workspaceGitShelfRpc, type ShelfEntry, workspaceGitCommitRpc, workspaceGitPushRpc, workspaceGitTrackRpc, workspaceGitStatusRpc, type WorkingFile as File } from "../shared/workspace-commit";
+import { workspaceCommitMessagesRpc, workspaceGitShelfRpc, type ShelfEntry, workspaceGitCommitRpc, workspaceGitPushRpc, workspaceGitTrackRpc, workspaceGitStatusRpc, type WorkingFile as File } from "../shared/workspace-commit";
 import { useGitDiffState } from "./git-diff-state";
 import { FileTypeIcon } from "./diff/file-icons";
 import { buildFileTree, type FileTreeNode } from "./diff/file-tree-utils";
@@ -127,9 +127,17 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
   const trackFiles = useRpc(workspaceGitTrackRpc);
   const commit = useRpc(workspaceGitCommitRpc);
   const push = useRpc(workspaceGitPushRpc);
+  const getCommitMessages = useRpc(workspaceCommitMessagesRpc);
   const [files, setFiles] = useState<File[]>([]);
   const [message, setMessage] = useState("");
   const [messageFocused, setMessageFocused] = useState(false);
+  const [amend, setAmend] = useState(false);
+  const [amendHead, setAmendHead] = useState<string | null>(null);
+  const [messageHistoryOpen, setMessageHistoryOpen] = useState(false);
+  const [messageHistory, setMessageHistory] = useState<Array<{ hash: string; message: string }>>([]);
+  const [messageHistoryLoading, setMessageHistoryLoading] = useState(false);
+  const [messageHistoryError, setMessageHistoryError] = useState("");
+
   const [busy, setBusy] = useState(false);
   const [pushing, setPushing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -141,6 +149,7 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
 
   useEffect(() => {
+    setAmend(false); setAmendHead(null); setMessageHistoryOpen(false); setMessageHistory([]); setMessage("");
     setConfirmation(null); setSourcePath(null); setUndoId(null); setActivePath(null);
     setSelectedPaths(new Set()); setError(""); setResult("");
   }, [workspaceId]);
@@ -156,6 +165,23 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
     }, (reason: unknown) => { if (active) setError(String(reason)); });
     return () => { active = false; };
   }, [workspaceId, revision]);
+
+  useEffect(() => {
+    if (!messageHistoryOpen && !amend) return;
+    let active = true;
+    setMessageHistoryLoading(true); setMessageHistoryError("");
+    void getCommitMessages({ workspaceId }).then(({ entries }) => {
+      if (!active) return;
+      setMessageHistory(entries);
+      if (amend && !amendHead) {
+        if (!entries.length) { setMessageHistoryError("当前分支还没有可追加的提交"); return; }
+        setAmendHead(entries[0].hash);
+        setMessage((current) => current.trim() ? current : entries[0].message);
+      }
+    }, (reason: unknown) => { if (active) setMessageHistoryError(String(reason)); })
+      .finally(() => { if (active) setMessageHistoryLoading(false); });
+    return () => { active = false; };
+  }, [workspaceId, messageHistoryOpen, amend]);
 
   const requestAction = async (action: ChangeAction, targetFiles: File[]) => {
     if (busy || !targetFiles.length) return;
@@ -198,13 +224,14 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
   };
   const submit = async () => {
     if (busy) return;
-    if (selectedPaths.size === 0) { setError("请先勾选要提交的文件"); return; }
+    if (!amend && selectedPaths.size === 0) { setError("请先勾选要提交的文件"); return; }
     if (!message.trim()) { setError("请填写提交说明"); return; }
+    if (amend && !amendHead) { setError("请先载入最近一次提交"); return; }
     setBusy(true); setSubmitting(true);
     try {
-      const value = await commit({ workspaceId, message: message.trim(), paths: [...selectedPaths] });
+      const value = await commit({ workspaceId, message: message.trim(), paths: [...selectedPaths], amend, expectedHead: amend ? amendHead ?? undefined : undefined });
       setResult(value.summary);
-      setMessage("");
+      setMessage(""); setAmend(false); setAmendHead(null);
       setSelectedPaths(new Set());
       setRevision((current) => current + 1);
       setError("");
@@ -383,23 +410,42 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
         </View>
       </View> : null}
     </View> : null}
-    <View style={[styles.footer, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface0 }]}>
+    {selectedFiles.length > 0 ? <View style={styles.selectionSummary}>
       {selectedFiles.length > 0 ? <View style={styles.summaryRow}>
         <Text style={styles.summaryCount}>已选 {selectedFiles.length} 个文件</Text>
         <View style={styles.summaryDetails}>
-          {counts.added > 0 ? <Text style={styles.addedName}>新增 {counts.added}</Text> : null}
-          {counts.modified > 0 ? <Text style={styles.summaryModified}>修改 {counts.modified}</Text> : null}
-          {counts.deleted > 0 ? <Text style={styles.removedName}>删除 {counts.deleted}</Text> : null}
+          {counts.added > 0 ? <Text style={[styles.summaryCount, styles.addedName]}>新增 {counts.added}</Text> : null}
+          {counts.modified > 0 ? <Text style={[styles.summaryCount, styles.summaryModified]}>修改 {counts.modified}</Text> : null}
+          {counts.deleted > 0 ? <Text style={[styles.summaryCount, styles.removedName]}>删除 {counts.deleted}</Text> : null}
         </View>
       </View> : null}
+    </View> : null}
+    <View style={[styles.footer, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface0 }]}>
+      <View style={styles.messageEditor}>
+      <View style={styles.messageTools}>
+        <Pressable accessibilityRole="checkbox" accessibilityLabel="追加到最近一次提交" accessibilityState={{ checked: amend, disabled: busy }} disabled={busy} onPress={() => { setAmend((value) => !value); setAmendHead(null); }} style={({ pressed }) => [styles.amendToggle, { opacity: busy ? 0.45 : pressed ? 0.7 : 1 }]}>
+          <Icon name={amend ? "SquareCheck" : "Square"} size={16} color={amend ? theme.colors.accent : theme.colors.foregroundMuted} />
+          <Text style={[styles.actionLabel, { color: theme.colors.foreground }]}>追加</Text>
+        </Pressable>
+        <ToolbarButton label="历史提交说明" icon="History" size={24} theme={theme} disabled={busy} onPress={() => setMessageHistoryOpen(true)} />
+      </View>
+      {amend ? <Text style={[styles.confirmCaption, { color: theme.colors.foregroundMuted }]}>{messageHistoryLoading && !amendHead ? "正在载入最近提交…" : amendHead ? `将修改最近提交 ${amendHead.slice(0, 7)}` : messageHistoryError}</Text> : null}
       <TextInput ref={setBorderOnlyFocus} value={message} onChangeText={setMessage} onFocus={() => setMessageFocused(true)} onBlur={() => setMessageFocused(false)} multiline accessibilityLabel="提交说明" placeholder="填写提交说明…" placeholderTextColor={theme.colors.foregroundMuted} style={[styles.message, { color: theme.colors.foreground, borderWidth: messageFocused ? 2 : 1, padding: messageFocused ? 9 : 10, borderColor: messageFocused ? theme.colors.accent : theme.colors.border, backgroundColor: theme.colors.surface1 }]} />
+      </View>
       <View style={styles.actions}>
         <CommitActionButton label={pushing ? "推送中…" : "推送"} icon="ArrowUp" theme={theme} disabled={busy} loading={pushing} onPress={() => void pushBranch()} />
-        <CommitActionButton label={submitting ? "提交中…" : "提交"} icon="GitCommitHorizontal" theme={theme} primary loading={submitting} disabled={busy || !selectedPaths.size || !message.trim()} onPress={() => void submit()} />
+        <CommitActionButton label={submitting ? "提交中…" : amend ? "追加提交" : "提交"} icon="GitCommitHorizontal" theme={theme} primary loading={submitting} disabled={busy || (amend ? !amendHead : !selectedPaths.size) || !message.trim()} onPress={() => void submit()} />
       </View>
 
     </View>
     </>}
+    {messageHistoryOpen ? <Modal title="历史提交说明" open onOpenChange={setMessageHistoryOpen}><Modal.Content contentContainerStyle={styles.confirmContent}>
+      <Text style={[styles.confirmCaption, { color: theme.colors.foregroundMuted }]}>选择一条说明填入输入框</Text>
+      {messageHistoryLoading ? <ActivityIndicator color={theme.colors.accent} /> : messageHistoryError ? <Text accessibilityRole="alert" style={[styles.error, { color: theme.colors.statusDanger }]}>{messageHistoryError}</Text> : !messageHistory.length ? <Text style={[styles.confirmCaption, { color: theme.colors.foregroundMuted }]}>当前分支还没有提交记录</Text> : messageHistory.map((entry) => <Pressable key={entry.hash} accessibilityRole="button" accessibilityLabel={`使用提交说明 ${entry.message}`} onPress={() => { setMessage(entry.message); setMessageHistoryOpen(false); }} style={({ pressed }) => [styles.messageHistoryItem, { borderColor: theme.colors.border, backgroundColor: pressed ? theme.colors.surface2 : theme.colors.surface1 }]}>
+        <Text numberOfLines={3} style={[styles.confirmDescription, { color: theme.colors.foreground }]}>{entry.message}</Text>
+        <Text style={[styles.confirmCaption, { color: theme.colors.foregroundMuted }]}>{entry.hash.slice(0, 7)}</Text>
+      </Pressable>)}
+    </Modal.Content></Modal> : null}
     {confirmation ? <Modal title={confirmation.action === "rollback" ? "回滚更改" : confirmation.action === "delete" ? "删除文件" : "搁置更改"} open onOpenChange={(open) => { if (!open && !busy) { setConfirmation(null); setError(""); } }}><Modal.Content contentContainerStyle={styles.confirmContent}>
       <Text style={[styles.confirmDescription, { color: theme.colors.foreground }]}>{confirmation.action === "rollback" ? "文件将恢复到 HEAD，暂存的改动也会清除。新增和未跟踪文件将被移除。" : confirmation.action === "delete" ? "文件将从工作区删除，Git 暂存区保持不变。" : "改动将保存到 Shelf，工作区和暂存区将恢复到 HEAD。"}</Text>
       <View style={[styles.confirmFiles, { backgroundColor: theme.colors.surface1, borderColor: theme.colors.border }]}>
@@ -533,11 +579,16 @@ const styles = StyleSheet.create({
   addedName: { color: "#07833d" },
   removedName: { color: "#bc3145" },
   empty: { padding: 12, color: "#6b7280" },
-  footer: { borderTopWidth: 1, borderColor: "#e5e7eb", padding: 12, gap: 8 },
+  footer: { borderTopWidth: 1, borderColor: "#e5e7eb", padding: 12, paddingTop: 4, gap: 8 },
+  selectionSummary: { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 4 },
+  messageEditor: { gap: 4 },
   summaryRow: { minHeight: 24, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
   summaryCount: { color: "#6b7280", fontSize: 12 },
   summaryDetails: { flexDirection: "row", alignItems: "center", gap: 12 },
   summaryModified: { color: "#1641ad" },
+  messageTools: { flexDirection: "row", alignItems: "center", gap: 8 },
+  amendToggle: { minHeight: 24, flexDirection: "row", alignItems: "center", gap: 6 },
+  messageHistoryItem: { padding: 12, gap: 4, borderRadius: 6, borderWidth: 1 },
   message: { outlineWidth: 0, minHeight: 64, padding: 10, borderWidth: 1, borderRadius: 8, textAlignVertical: "top", fontSize: 13, lineHeight: 20 },
   actions: { flexDirection: "row", justifyContent: "flex-end", gap: 8 },
   actionButton: { minHeight: 32, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingHorizontal: 12, borderRadius: 6, borderWidth: 1 },
