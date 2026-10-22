@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions, type StyleProp, type ViewStyle } from "react-native";
 import type { PluginHostProps } from "@getpaseo/plugin/client";
 import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
-import { bindContextMenuTrigger, bindMenuKeyboard } from "../web";
+import { bindContextMenuOverlay, bindContextMenuTrigger, bindMenuKeyboard } from "../web";
 import { menuPosition, type MenuPoint } from "./context-menu-model";
 
 export type ContextMenuItem = {
@@ -50,6 +50,12 @@ export function ContextMenu({ children, items, theme, label, compact = false, sh
   }, []);
   useEffect(() => bindContextMenuTrigger(trigger.current, open), [open]);
   useEffect(close, [viewport.width, viewport.height, disabled, close]);
+  const cleanupOverlay = useRef<() => void>(() => {});
+  const overlayRef = useCallback((node: View | null) => {
+    cleanupOverlay.current();
+    cleanupOverlay.current = bindContextMenuOverlay(node, close);
+  }, [close]);
+  useEffect(() => () => cleanupOverlay.current(), []);
   const cleanupKeyboard = useRef<() => void>(() => {});
   const menuRef = useCallback((node: View | null) => {
     cleanupKeyboard.current();
@@ -75,7 +81,7 @@ export function ContextMenu({ children, items, theme, label, compact = false, sh
       {showMore ? <Pressable ref={moreTrigger} accessibilityRole="button" accessibilityLabel={`${label}更多操作`} accessibilityState={{ expanded: Boolean(point), disabled: disabled || pending }} disabled={disabled || pending} onPress={openAtMore} style={[styles.more, moreStyle]}><Icon name="Ellipsis" size={16} color={colors.foregroundMuted} /></Pressable> : null}
     </Pressable>
     <Modal visible={Boolean(point)} transparent animationType="none" onRequestClose={close}>
-      <View style={styles.overlay}>
+      <View ref={overlayRef} style={styles.overlay}>
         <Pressable accessibilityRole="button" accessibilityLabel="关闭操作菜单" onPress={close} style={StyleSheet.absoluteFill} />
         <View ref={menuRef} accessibilityRole="menu" accessibilityLabel={`${label}操作菜单`} onLayout={(event) => setSize(event.nativeEvent.layout)} style={[styles.menu, { backgroundColor: colors.surface1, borderColor: colors.border, maxHeight: Math.max(44, viewport.height - 16), width: Math.min(width, viewport.width - 16) }, nativeSheet ? { left: 8, right: 8, bottom: 8, width: undefined } : position]}>
           <ScrollView bounces={false} keyboardShouldPersistTaps="handled">

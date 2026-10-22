@@ -30,6 +30,20 @@ export function bindContextMenuTrigger(target: unknown, open: (point: { x: numbe
   return () => { node.removeEventListener("contextmenu", context); node.removeEventListener("keydown", key); };
 }
 
+/** Modal portals sit outside the sidebar DOM, so suppress their native menu too. */
+export function bindContextMenuOverlay(target: unknown, close: () => void): () => void {
+  if (Platform.OS !== "web" || !target) return () => {};
+  const node = target as HTMLElement;
+  const context = (event: MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const menu = node.querySelector('[role="menu"]');
+    if (!menu?.contains(event.target as Node)) close();
+  };
+  node.addEventListener("contextmenu", context, true);
+  return () => node.removeEventListener("contextmenu", context, true);
+}
+
 export function bindMenuKeyboard(target: unknown, close: () => void): () => void {
   if (Platform.OS !== "web" || !target) return () => {};
   const node = target as HTMLElement;

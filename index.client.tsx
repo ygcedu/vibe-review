@@ -1,3 +1,4 @@
+import { SidebarSurface } from "./client/components/sidebar-surface";
 import { SessionHistoryPanel } from "./client/session-history";
 import type { PluginClientContext, PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
 import { REVIEW_KIND, REVIEW_VERSION, reviewResultSchema, reviewAgentRpc } from "./shared/review";
@@ -19,18 +20,21 @@ export default function contribute(client: PluginClientContext) {
   function CommitPanel(props: PluginWorkspacePanelProps) {
     const { tabs, activeTabId, openTab } = useGitDiffState(props.workspaceId);
     const activeTab = tabs.find((tab) => tab.id === activeTabId);
-    return <WorkspaceCommitPanel {...props} onOpenShelfDiff={() => client.openPanel("vibe-review-git-diff", { workspaceId: props.workspaceId, location: "workspace" })} externalPreview={activeTab?.source === "working" ? activeTab : null} onFilePreview={(selection) => {
+    return <SidebarSurface><WorkspaceCommitPanel {...props} onOpenShelfDiff={() => client.openPanel("vibe-review-git-diff", { workspaceId: props.workspaceId, location: "workspace" })} externalPreview={activeTab?.source === "working" ? activeTab : null} onFilePreview={(selection) => {
       openTab({ id: `working:${selection.path}`, source: "working", ...selection });
       client.openPanel("vibe-review-git-diff", { workspaceId: props.workspaceId, location: "workspace" });
-    }} />;
+    }} /></SidebarSurface>;
   }
   function HistoryPanel(props: PluginWorkspacePanelProps) {
-    return <GitHistoryPanel {...props} onOpenDiff={() => client.openPanel("vibe-review-git-diff", { workspaceId: props.workspaceId, location: "workspace" })} />;
+    return <SidebarSurface><GitHistoryPanel {...props} onOpenDiff={() => client.openPanel("vibe-review-git-diff", { workspaceId: props.workspaceId, location: "workspace" })} /></SidebarSurface>;
+  }
+  function SessionsPanel(props: PluginWorkspacePanelProps) {
+    return <SidebarSurface><SessionHistoryPanel {...props} /></SidebarSurface>;
   }
   client.addWorkspacePanel({ id: "vibe-review-commit", title: "提交更改", icon: "GitCommitHorizontal", context: "workspace", locations: ["explorer"], Component: CommitPanel });
   client.addWorkspacePanel({ id: "vibe-review-git-diff", title: "Git Diff", icon: "FileDiff", context: "workspace", locations: ["workspace"], Component: GitDiffPanel });
   client.addWorkspacePanel({ id: "vibe-review-git-history", title: "Git 历史", icon: "GitBranch", context: "workspace", locations: ["explorer"], Component: HistoryPanel });
-  client.addWorkspacePanel({ id: "vibe-review-session-history", title: "会话历史", icon: "MessagesSquare", context: "workspace", locations: ["explorer"], Component: SessionHistoryPanel });
+  client.addWorkspacePanel({ id: "vibe-review-session-history", title: "会话历史", icon: "MessagesSquare", context: "workspace", locations: ["explorer"], Component: SessionsPanel });
   for (const [id, title, icon] of [
     ["vibe-review-commit", "提交更改", "GitCommitHorizontal"],
     ["vibe-review-git-diff", "Git Diff", "FileDiff"],
