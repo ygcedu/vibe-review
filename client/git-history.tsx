@@ -143,6 +143,15 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
   const { activeTabId, openTab: selectTab, refresh: refreshDiff } = useGitDiffState(workspaceId);
   const openTab = (tab: DiffTab) => { selectTab(tab); props.onOpenDiff(); };
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const filesTreeRef = useRef<View>(null);
+  const [activeFileNode, setActiveFileNode] = useState<string | null>(null);
+  const fileFocus = useRef<string | null>(null);
+  const filePreview = useRef<(path: string) => void>(() => {});
+  filePreview.current = (path) => {
+    const file = detail?.files.find((entry) => entry.path === path);
+    if (selectedHash && file) openTab({ id: `history:${selectedHash}:${path}`, source: "history", hash: selectedHash, path, status: file.status });
+  };
+
   const [branchCollapsed, setBranchCollapsed] = useState<Set<string>>(new Set(["remote", "tag"]));
   const branchDefaultsWorkspace = useRef<string | null>(null);
   const requestSeq = useRef(0);
@@ -231,6 +240,52 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
   }, []);
 
   useEffect(() => {
+    if (Platform.OS !== "web" || !filesTreeRef.current) return;
+    const node = filesTreeRef.current as unknown as HTMLElement;
+    node.tabIndex = 0;
+    node.style.setProperty("outline", "none", "important");
+    const keydown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) return;
+      if (event.target instanceof Element && event.target.closest('input, textarea, [contenteditable]:not([contenteditable="false"]), [role="menu"], [role="dialog"]')) return;
+      const rows = Array.from(node.querySelectorAll<HTMLElement>("[data-file-key]"));
+      if (!rows.length) return;
+      event.preventDefault(); event.stopPropagation();
+      const focused = event.target instanceof Element ? event.target.closest("[data-file-key]") : null;
+      const index = focused ? rows.indexOf(focused as HTMLElement) : rows.findIndex((row) => row.dataset.fileKey === fileFocus.current);
+      const current = rows[index];
+      let next = index;
+      if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+        next = index < 0 ? 0 : Math.max(0, Math.min(rows.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)));
+      } else if (current) {
+        const folder = current.dataset.fileKind === "folder";
+        const path = current.dataset.filePath!;
+        if (event.key === "ArrowRight") {
+          if (folder && current.dataset.fileExpanded === "false") {
+            setCollapsed((value) => { const result = new Set(value); result.delete(path); return result; });
+            return;
+          }
+          if (folder && rows[index + 1]?.dataset.fileParent === current.dataset.fileKey) next = index + 1;
+        } else if (folder && current.dataset.fileExpanded === "true") {
+          setCollapsed((value) => new Set(value).add(path));
+          return;
+        } else {
+          const parent = rows.findIndex((row) => row.dataset.fileKey === current.dataset.fileParent);
+          if (parent >= 0) next = parent;
+        }
+      }
+      const row = rows[next];
+      if (!row) return;
+      fileFocus.current = row.dataset.fileKey!;
+      setActiveFileNode(fileFocus.current);
+      row.focus({ preventScroll: true });
+      row.scrollIntoView({ block: "nearest", inline: "nearest" });
+    };
+    node.addEventListener("keydown", keydown);
+    return () => node.removeEventListener("keydown", keydown);
+  }, [selectedHash, detail]);
+
+  useEffect(() => {
     const timer = setInterval(() => setNowMs(Date.now()), 30_000);
     return () => clearInterval(timer);
   }, []);
@@ -271,7 +326,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
   const detailSeq = useRef(0);
   useEffect(() => {
     const seq = ++detailSeq.current;
-    setDetail(null);
+    setDetail(null); setActiveFileNode(null); fileFocus.current = null;
     if (selectedHash) void getDetail({ workspaceId, hash: selectedHash }).then((value) => {
       if (seq !== detailSeq.current) return;
       setDetail(value);
@@ -324,21 +379,32 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
       {group === "local" && (node.ahead > 0 || node.behind > 0) ? <View style={styles.branchTracking}>{node.behind > 0 ? <><Icon name="ArrowDownLeft" size={14} color="#3478f6" /><Text style={styles.behindCount}>{node.behind}</Text></> : null}{node.ahead > 0 ? <><Icon name="ArrowUpRight" size={14} color="#30a653" /><Text style={styles.aheadCount}>{node.ahead}</Text></> : null}</View> : null}
     </Pressable></ContextMenu>;
   });
-  const renderFiles = (nodes: TreeNode[], depth: number): React.ReactNode[] => nodes.map((node) => {
+  const bindFileNode = (row: View | null, key: string, parent: string, path: string, folder: boolean, expanded = false) => {
+    if (Platform.OS !== "web" || !row) return;
+    const element = row as unknown as HTMLElement;
+    element.dataset.fileKey = key;
+    element.dataset.fileParent = parent;
+    element.dataset.filePath = path;
+    element.dataset.fileKind = folder ? "folder" : "file";
+    element.dataset.fileExpanded = String(expanded);
+    element.style.setProperty("outline", "none", "important");
+  };
+  const focusFileNode = (key: string) => { fileFocus.current = key; setActiveFileNode(key); };
+  const renderFiles = (nodes: TreeNode[], depth: number, parent = ""): React.ReactNode[] => nodes.map((node) => {
     if (node.kind === "folder") return <View key={node.path}>
-      <Pressable accessibilityRole="button" accessibilityLabel={`${collapsed.has(node.path) ? "展开" : "折叠"} ${node.path}`} onPress={() => toggleFolder(node.path)} style={[styles.fileRow, { paddingLeft: 8 + depth * 18 }]}>
+      <Pressable ref={(row) => bindFileNode(row, `folder:${node.path}`, parent, node.path, true, !collapsed.has(node.path))} onFocus={() => focusFileNode(`folder:${node.path}`)} accessibilityRole="button" accessibilityState={{ expanded: !collapsed.has(node.path) }} accessibilityLabel={`${collapsed.has(node.path) ? "展开" : "折叠"} ${node.path}`} onPress={() => { focusFileNode(`folder:${node.path}`); toggleFolder(node.path); }} style={[styles.fileRow, { paddingLeft: 8 + depth * 18 }, activeFileNode === `folder:${node.path}` && styles.selected]}>
         <Icon name={collapsed.has(node.path) ? "ChevronRight" : "ChevronDown"} size={14} color={colors.foregroundMuted} />
         <View style={styles.fixedIcon}><Icon name="Folder" size={16} color={colors.foregroundMuted} /></View>
         <Text style={styles.folderName} numberOfLines={1}>{node.name}</Text>
         <Text style={styles.count}>{node.files.length} 个文件</Text>
       </Pressable>
-      {!collapsed.has(node.path) ? renderFiles(node.children, depth + 1) : null}
+      {!collapsed.has(node.path) ? renderFiles(node.children, depth + 1, `folder:${node.path}`) : null}
     </View>;
     const tabId = `history:${selectedHash}:${node.file.path}`;
     return <ContextMenu key={node.file.path} theme={props.theme} compact={props.layout.compact} label={node.file.path} items={[
       { id: "diff", label: "查看提交差异", icon: "FileDiff", disabled: !selectedHash, onSelect: () => { if (selectedHash) openTab({ id: tabId, source: "history", hash: selectedHash, path: node.file.path, status: node.file.status }); } },
       { id: "copy", label: "复制文件路径", icon: "Copy", onSelect: () => copyText(node.file.path) },
-    ]}><Pressable key={node.file.path} accessibilityRole="button" accessibilityLabel={`查看 ${node.file.path} 的提交差异`} onPress={() => { if (selectedHash) openTab({ id: tabId, source: "history", hash: selectedHash, path: node.file.path, status: node.file.status }); }} style={[{ flex: 1 }, styles.fileRow, { paddingLeft: 8 + depth * 18 }, activeTabId === tabId && styles.selected]}>
+    ]}><Pressable key={node.file.path} ref={(row) => bindFileNode(row, `file:${node.file.path}`, parent, node.file.path, false)} onFocus={() => focusFileNode(`file:${node.file.path}`)} accessibilityRole="button" accessibilityLabel={`查看 ${node.file.path} 的提交差异`} onPress={() => { focusFileNode(`file:${node.file.path}`); filePreview.current(node.file.path); }} style={[{ flex: 1 }, styles.fileRow, { paddingLeft: 8 + depth * 18 }, (activeFileNode === `file:${node.file.path}` || (!activeFileNode && activeTabId === tabId)) && styles.selected]}>
       <View style={styles.fileIndent} />
       <View style={styles.fixedIcon}><FileTypeIcon fileName={node.name} /></View>
       <Text style={[styles.fileName, node.file.status.includes("D") ? styles.deleted : node.file.status.includes("A") ? styles.added : styles.modified]} numberOfLines={1}>{node.name}</Text>
@@ -421,7 +487,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
         <ResizeHandle color={colors.border} direction="vertical" label="调整提交列表宽度" onResize={(delta) => setLogColumnWidth((width) => Math.max(minimumLogWidth, Math.min(maximumLogWidth, Math.max(minimumLogWidth, Math.min(maximumLogWidth, width ?? resolvedLogColumnWidth)) + delta)))} />
         <View style={styles.detail} onLayout={(event) => setDetailPanelHeight(event.nativeEvent.layout.height)}>
           {selectedCommit ? <>
-            <View style={[styles.filesSection, { height: filesHeight }]}><Text style={styles.columnHeading}>变更文件 {detail?.files.length ?? ""}</Text><ScrollView style={styles.files}>{detail ? renderFiles(buildFileTree(detail.files, true), 0) : <Text style={styles.empty}>加载变更文件…</Text>}</ScrollView></View>
+            <View ref={filesTreeRef} style={[styles.filesSection, { height: filesHeight }]}><Text style={styles.columnHeading}>变更文件 {detail?.files.length ?? ""}</Text><ScrollView style={styles.files}>{detail ? renderFiles(buildFileTree(detail.files, true), 0) : <Text style={styles.empty}>加载变更文件…</Text>}</ScrollView></View>
             <ResizeHandle color={colors.border} direction="horizontal" label="调整变更文件与提交说明的高度" onResize={(delta) => setPreferredFilesHeight((height) => Math.max(minimumFilesHeight, Math.min(maximumFilesHeight, Math.max(minimumFilesHeight, Math.min(maximumFilesHeight, height ?? filesHeight)) + delta)))} />
             <ScrollView key={selectedCommit.hash} style={styles.detailMessageScroll} contentContainerStyle={styles.detailMessageContent}>
               <Text selectable style={styles.detailMessage}>{detail?.message ?? selectedCommit.subject}</Text>
