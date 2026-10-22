@@ -55,3 +55,21 @@ test("new tag targets selected commit, rejects duplicate or invalid names", asyn
   await assert.rejects(applyHistoryAction(cwd, duplicate.token, { name: "v2.0.0" }));
   assert.equal((await git(cwd, ["rev-parse", "refs/tags/v2.0.0"])).trim(), first);
 });
+
+test("checkout revision detaches HEAD without moving current branch", async (t) => {
+  const { cwd, first, head } = await repository(t);
+  const preview = await prepareHistoryAction(cwd, first, "checkout");
+  await applyHistoryAction(cwd, preview.token, {});
+  assert.equal((await git(cwd, ["rev-parse", "HEAD"])).trim(), first);
+  assert.equal((await git(cwd, ["rev-parse", "main"])).trim(), head);
+  assert.equal((await git(cwd, ["branch", "--show-current"])).trim(), "");
+});
+
+test("checkout blocks dirty worktree both at preview and after preview", async (t) => {
+  const { cwd, first, head } = await repository(t);
+  const preview = await prepareHistoryAction(cwd, first, "checkout");
+  await writeFile(join(cwd, "file.txt"), "dirty\n");
+  await assert.rejects(prepareHistoryAction(cwd, first, "checkout"), /未提交改动/);
+  await assert.rejects(applyHistoryAction(cwd, preview.token, {}), /未提交改动/);
+  assert.equal((await git(cwd, ["rev-parse", "HEAD"])).trim(), head);
+});
