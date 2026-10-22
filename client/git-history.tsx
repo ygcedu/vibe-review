@@ -22,9 +22,8 @@ function borderOnlyFocus(input: TextInput | null) {
   (input as unknown as HTMLElement).style.setProperty("outline", "none", "important");
 }
 
-function ResizeHandle({ direction, label, onResize, color, style, subtle = false }: { style?: StyleProp<ViewStyle>; subtle?: boolean; color: string; direction: "horizontal" | "vertical"; label: string; onResize: (delta: number) => void }) {
+function ResizeHandle({ direction, label, onResize, color, style, invisible = false }: { style?: StyleProp<ViewStyle>; invisible?: boolean; color: string; direction: "horizontal" | "vertical"; label: string; onResize: (delta: number) => void }) {
   const ref = useRef<View>(null);
-  const [hovered, setHovered] = useState(false);
   const resizeRef = useRef(onResize);
   resizeRef.current = onResize;
   useEffect(() => {
@@ -61,6 +60,7 @@ function ResizeHandle({ direction, label, onResize, color, style, subtle = false
       window.addEventListener("pointercancel", up, { once: true });
     };
     node.tabIndex = 0;
+    if (invisible) node.style.setProperty("outline", "none", "important");
     const keydown = (event: KeyboardEvent) => {
       const negative = direction === "vertical" ? "ArrowLeft" : "ArrowUp";
       const positive = direction === "vertical" ? "ArrowRight" : "ArrowDown";
@@ -68,22 +68,16 @@ function ResizeHandle({ direction, label, onResize, color, style, subtle = false
       event.preventDefault(); event.stopPropagation();
       resizeRef.current(event.key === positive ? 8 : -8);
     };
-    const enter = () => setHovered(true);
-    const leave = () => setHovered(false);
-    node.addEventListener("mouseenter", enter);
-    node.addEventListener("mouseleave", leave);
     node.addEventListener("keydown", keydown);
     node.addEventListener("pointerdown", down);
     return () => {
       node.removeEventListener("pointerdown", down);
       node.removeEventListener("keydown", keydown);
-      node.removeEventListener("mouseenter", enter);
-      node.removeEventListener("mouseleave", leave);
       stopDragging?.();
     };
-  }, [direction]);
+  }, [direction, invisible]);
   return <View ref={ref} accessibilityRole="adjustable" accessibilityLabel={label} style={[direction === "vertical" ? baseStyles.verticalLineSplitter : baseStyles.horizontalLineSplitter, style]}>
-    <View style={[direction === "vertical" ? baseStyles.splitterLine : baseStyles.splitterLineHorizontal, { backgroundColor: subtle && !hovered ? "transparent" : color }]} />
+    <View style={[direction === "vertical" ? baseStyles.splitterLine : baseStyles.splitterLineHorizontal, { backgroundColor: invisible ? "transparent" : color }]} />
   </View>;
 }
 
@@ -512,12 +506,12 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
             {!loading && commits.length === 0 ? <Text style={styles.empty}>没有找到提交记录</Text> : null}
           </ScrollView>
           {[
-            { label: "调整作者列宽", left: 10 + commitColumns[0] },
+            { label: "调整作者列宽", left: 25 + commitColumns[0] },
             { label: "调整提交说明列宽", left: 40 + commitColumns[0] + commitColumns[1] },
             { label: "调整时间列宽", left: 46 + commitColumns[0] + commitColumns[1] + commitColumns[2] },
             { label: "调整 Hash 列宽", left: 52 + commitColumns[0] + commitColumns[1] + commitColumns[2] + commitColumns[3] },
           ].map(({ label, left }, index) => <View key={label} style={{ position: "absolute", left, top: 0, bottom: 0, width: SPLITTER_SIZE, zIndex: 2 }}>
-            <ResizeHandle color={colors.border} direction="vertical" label={label} subtle style={{ flex: 1 }} onResize={(delta) => resizeCommitColumn(index, delta)} />
+            <ResizeHandle color={colors.border} direction="vertical" label={label} invisible style={{ flex: 1 }} onResize={(delta) => resizeCommitColumn(index, delta)} />
           </View>)}
           </View></ScrollView>
         </View>
