@@ -225,7 +225,7 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
         <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: checkboxState(node.files, selectedPaths) === "all" }} accessibilityLabel={`${checkboxState(node.files, selectedPaths) === "all" ? "取消选择" : "选择"} ${node.path} 下的文件`} onPress={() => toggleSelection(node.files)} style={styles.checkbox}>
           <Icon name={checkboxIcon(checkboxState(node.files, selectedPaths))} size={17} color="#64748b" />
         </Pressable>
-        <ContextMenu theme={theme} compact={layout.compact} label={node.path} style={{ flex: 1 }} items={[
+        <ContextMenu theme={theme} compact={layout.compact} label={node.path} style={styles.fileContent} items={[
           { id: "rollback", label: "回滚目录内的更改…", icon: "Undo2", disabled: busy, onSelect: () => requestAction("rollback", node.files) },
           { id: "shelve", label: "搁置目录内的更改…", icon: "Download", disabled: busy, onSelect: () => requestAction("shelve", node.files) },
           { id: "delete", label: "删除目录内的变更文件…", icon: "Trash2", destructive: true, disabled: busy || node.files.some((file) => file.status.includes("D")), onSelect: () => requestAction("delete", node.files) },
@@ -233,7 +233,7 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
           { id: "toggle", label: isCollapsed ? "展开目录" : "折叠目录", onSelect: () => toggleFolder(key) },
           { id: "select", label: checkboxState(node.files, selectedPaths) === "all" ? "取消选择目录下的文件" : "选择目录下的文件", onSelect: () => toggleSelection(node.files) },
         ]}><Pressable accessibilityRole="button" onPress={() => toggleFolder(key)} style={styles.fileButton}>
-          <Icon name="Folder" size={16} color="#6b7280" />
+          <View style={styles.fileIcon}><Icon name="Folder" size={16} color="#6b7280" /></View>
           <Text style={[styles.folderName, group.title === "未跟踪" && styles.untrackedName]} numberOfLines={1}>{node.name}</Text>
           <Text style={styles.count} numberOfLines={1}>{node.files.length} 个文件</Text>
         </Pressable></ContextMenu>
@@ -251,7 +251,7 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
       <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: selectedPaths.has(file.path) }} accessibilityLabel={`${selectedPaths.has(file.path) ? "取消选择" : "选择"} ${file.path} 用于提交`} onPress={() => toggleSelection([file])} style={styles.checkbox}>
         <Icon name={checkboxIcon(checkboxState([file], selectedPaths))} size={17} color="#64748b" />
       </Pressable>
-      <ContextMenu theme={theme} compact={layout.compact} label={file.path} style={{ flex: 1 }} items={[
+      <ContextMenu theme={theme} compact={layout.compact} label={file.path} style={styles.fileContent} items={[
         { id: "diff", label: "查看差异", icon: "FileDiff", onSelect: preview },
         { id: "source", label: "跳转到源码", icon: "Pencil", disabled: busy || file.status.includes("D"), onSelect: () => { setActivePath(file.path); setSourcePath(file.path); } },
         { id: "navigation-separator", separator: true },
@@ -264,7 +264,7 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
         { id: "delete-separator", separator: true },
         { id: "delete", label: "删除…", icon: "Trash2", destructive: true, disabled: busy || file.status.includes("D"), onSelect: () => requestAction("delete", [file]) },
       ]}><Pressable accessibilityRole="button" accessibilityLabel={`查看 ${file.path} 的差异`} onPress={preview} style={styles.fileButton}>
-        <FileTypeIcon fileName={node.name} />
+        <View style={styles.fileIcon}><FileTypeIcon fileName={node.name} /></View>
         <Text style={[styles.path, fileNameColor(file)]} numberOfLines={1}>{node.name}</Text>
       </Pressable></ContextMenu>
     </>;
@@ -386,7 +386,7 @@ function Shelf({ workspaceId, onOpenDiff, theme, compact }: { workspaceId: strin
           const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next;
         })} style={[styles.fileRow, { paddingLeft: 29 + depth * 20 }]}>
           <View style={styles.chevron}><Icon name={closed ? "ChevronRight" : "ChevronDown"} size={15} color="#64748b" /></View>
-          <View style={styles.fileButton}><Icon name="Folder" size={16} color="#6b7280" /><Text style={styles.folderName} numberOfLines={1}>{node.name}</Text><Text style={styles.count}>{node.files.length} 个文件</Text></View>
+          <View style={styles.fileButton}><View style={styles.fileIcon}><Icon name="Folder" size={16} color="#6b7280" /></View><Text style={styles.folderName} numberOfLines={1}>{node.name}</Text><Text style={styles.count}>{node.files.length} 个文件</Text></View>
         </Pressable>
         {!closed ? renderTree(entry, node.children, depth + 1) : null}
       </View>;
@@ -398,10 +398,10 @@ function Shelf({ workspaceId, onOpenDiff, theme, compact }: { workspaceId: strin
     };
     return <View key={path} style={[styles.fileRow, { paddingLeft: 29 + depth * 20 }, activeTab?.source === "shelf" && activeTab.entryId === entry.id && activeTab.path === path && styles.active]}>
       <View style={styles.chevron} />
-      <ContextMenu theme={theme} compact={compact} label={path} style={{ flex: 1 }} items={[
+      <ContextMenu theme={theme} compact={compact} label={path} style={styles.fileContent} items={[
         { id: "diff", label: "查看暂存差异", icon: "FileDiff", onSelect: preview },
         { id: "copy", label: "复制文件路径", icon: "Copy", onSelect: () => copyText(path) },
-      ]}><Pressable accessibilityRole="button" accessibilityLabel={`查看暂存 ${path} 的差异`} style={styles.fileButton} onPress={preview}><FileTypeIcon fileName={node.name} /><Text style={styles.path} numberOfLines={1}>{node.name}</Text></Pressable></ContextMenu>
+      ]}><Pressable accessibilityRole="button" accessibilityLabel={`查看暂存 ${path} 的差异`} style={styles.fileButton} onPress={preview}><View style={styles.fileIcon}><FileTypeIcon fileName={node.name} /></View><Text style={styles.path} numberOfLines={1}>{node.name}</Text></Pressable></ContextMenu>
     </View>;
   });
   const getShelf = useRpc(workspaceGitShelfRpc);
@@ -466,14 +466,16 @@ const styles = StyleSheet.create({
   groupButton: { flex: 1, minHeight: 27, justifyContent: "center" },
   fileRow: { flexDirection: "row", alignItems: "center", minHeight: 32, paddingHorizontal: 9 },
   active: { backgroundColor: "#e9f0ff" },
-  checkbox: { padding: 4 },
-  chevron: { width: 20, height: 27, alignItems: "center", justifyContent: "center" },
+  checkbox: { flexShrink: 0, padding: 4 },
+  chevron: { flexShrink: 0, width: 20, height: 27, alignItems: "center", justifyContent: "center" },
+  fileContent: { flex: 1, minWidth: 0 },
+  fileIcon: { width: 16, height: 16, flexShrink: 0, alignItems: "center", justifyContent: "center" },
   fileButton: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 6, padding: 3 },
-  folderName: { flexShrink: 1, fontSize: 13, color: "#111827" },
+  folderName: { minWidth: 0, flexShrink: 1, fontSize: 13, color: "#111827" },
   untrackedName: { color: "#bc3145" },
   dropTarget: { backgroundColor: "#e9f0ff" },
   count: { flexShrink: 0, fontSize: 11, color: "#9ca3af" },
-  path: { flex: 1, fontSize: 13, color: "#1641ad" },
+  path: { flex: 1, minWidth: 0, fontSize: 13, color: "#1641ad" },
   addedName: { color: "#07833d" },
   removedName: { color: "#bc3145" },
   empty: { padding: 12, color: "#6b7280" },
