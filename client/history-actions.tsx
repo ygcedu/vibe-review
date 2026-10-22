@@ -41,7 +41,7 @@ export function useHistoryActions({ workspaceId, theme, onChanged, onCompare }: 
   useEffect(() => { request.current++; setTarget(null); setPreview(null); setCompareCommit(null); }, [workspaceId]);
   const open = async (commit: GitCommit, action: HistoryAction) => {
     const seq = ++request.current;
-    setTarget({ commit, action }); setPreview(null); setSquashInto(""); setResetMode("mixed"); setMainline(1); setValue(""); setError(""); setLoading(true);
+    setFocused(false); setTarget({ commit, action }); setPreview(null); setSquashInto(""); setResetMode("mixed"); setMainline(1); setValue(""); setError(""); setLoading(true);
     try {
       const result = await prepare({ workspaceId, hash: commit.hash, action });
       if (request.current !== seq) return;
@@ -95,17 +95,23 @@ export function useHistoryActions({ workspaceId, theme, onChanged, onCompare }: 
     </View>
   </Modal.Content></Modal> : null;
   function itemsFor(commit: GitCommit): ContextMenuItem[] {
+    const item = (action: HistoryAction, label: string): ContextMenuItem => ({
+      id: action, label, icon: actions[action].icon, destructive: actions[action].destructive,
+      disabled: busy, onSelect: () => open(commit, action),
+    });
     return [
-      { id: "cherry-pick", label: "拣选提交（Cherry-Pick）…", icon: "GitCommitHorizontal", disabled: busy, onSelect: () => open(commit, "cherry-pick") },
-      { id: "compare", label: "与本地比较…", icon: "FileDiff", onSelect: () => setCompareCommit(commit) },
-      { id: "checkout", label: "检出此版本…", icon: "GitCommitHorizontal", disabled: busy, onSelect: () => open(commit, "checkout") },
-      { id: "reword", label: "编辑提交说明…", icon: "Pencil", disabled: busy, onSelect: () => open(commit, "reword") },
-      { id: "squash", label: "压缩到（Squash Into）…", icon: "GitMerge", disabled: busy, onSelect: () => open(commit, "squash") },
-      { id: "drop", label: "丢弃提交…", icon: "Trash2", destructive: true, disabled: busy, onSelect: () => open(commit, "drop") },
-      { id: "reset", label: "重置当前分支到此处…", icon: "Undo2", destructive: true, disabled: busy, onSelect: () => open(commit, "reset") },
-      { id: "ref-separator", separator: true },
-      { id: "new-tag", label: "新建标签…", icon: "Tag", disabled: busy, onSelect: () => open(commit, "new-tag") },
-      { id: "new-branch", label: "新建分支…", icon: "GitBranch", disabled: busy, onSelect: () => open(commit, "new-branch") },
+      { id: "history-operations", separator: true },
+      item("cherry-pick", "拣选提交（Cherry-Pick）…"),
+      item("checkout", "检出此版本…"),
+      { id: "compare", label: "与本地比较…", icon: "FileDiff", disabled: busy, onSelect: () => setCompareCommit(commit) },
+      { id: "rewrite-operations", separator: true },
+      item("reset", "重置当前分支到此处…"),
+      item("reword", "编辑提交说明…"),
+      item("squash", "压缩到（Squash Into）…"),
+      item("drop", "丢弃提交…"),
+      { id: "ref-operations", separator: true },
+      item("new-branch", "新建分支…"),
+      item("new-tag", "新建标签…"),
     ];
   }
   return { itemsFor, dialog: <>{dialog}{compareCommit ? <HistoryCompare key={compareCommit.hash} workspaceId={workspaceId} theme={theme} commit={compareCommit} onClose={() => setCompareCommit(null)} onFile={(file) => {

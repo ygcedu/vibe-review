@@ -233,3 +233,47 @@ test("squash rejects root as source and invalid destination without moving HEAD"
   await assert.rejects(applyHistoryAction(cwd, preview.token, { squashInto: head, message: "Invalid" }), /请选择/);
   assert.equal((await git(cwd, ["rev-parse", "HEAD"])).trim(), head);
 });
+
+test("merge cherry-pick requires a mainline and applies changes relative to the chosen parent", async (t) => {
+  const { cwd, first, head } = await repository(t);
+  await git(cwd, ["checkout", "-b", "side", first]);
+  await writeFile(join(cwd, "side.txt"), "side\n");
+  await git(cwd, ["add", "."]);
+  await git(cwd, ["commit", "-m", "Side"]);
+  await git(cwd, ["checkout", "main"]);
+  await git(cwd, ["merge", "--no-ff", "side", "-m", "Merge side"]);
+  const merge = (await git(cwd, ["rev-parse", "HEAD"])).trim();
+  await git(cwd, ["checkout", "-b", "destination", head]);
+  const preview = await prepareHistoryAction(cwd, merge, "cherry-pick");
+  assert.equal(preview.parents.length, 2);
+  await assert.rejects(applyHistoryAction(cwd, preview.token, {}), /主线父提交/);
+  await applyHistoryAction(cwd, preview.token, { mainline: 1 });
+  assert.equal(await git(cwd, ["show", "HEAD:side.txt"]), "side\n");
+  assert.equal(await git(cwd, ["show", "HEAD:second.txt"]), "second\n");
+});
+
+test("history rewrite explicitly rejects merge ancestry", async (t) => {
+  const { cwd, first } = await repository(t);
+  await git(cwd, ["checkout", "-b", "side", first]);
+  await writeFile(join(cwd, "side.txt"), "side\n");
+  await git(cwd, ["add", "."]);
+  await git(cwd, ["commit", "-m", "Side"]);
+  await git(cwd, ["checkout", "main"]);
+  await git(cwd, ["merge", "--no-ff", "side", "-m", "Merge"]);
+  const before = (await git(cwd, ["rev-parse", "HEAD"])).trim();
+  for (const action of ["reword", "drop", "squash"] as const) await assert.rejects(prepareHistoryAction(cwd, first, action), /合并提交/);
+  assert.equal((await git(cwd, ["rev-parse", "HEAD"])).trim(), before);
+});
+
+test("conflicting nonadjacent squash leaves the original history untouched", async (t) => {
+  const { cwd, first } = await repository(t);
+  await writeFile(join(cwd, "file.txt"), "middle\n");
+  await git(cwd, ["commit", "-am", "Middle"]);
+  await writeFile(join(cwd, "file.txt"), "later\n");
+  await git(cwd, ["commit", "-am", "Later"]);
+  const before = (await git(cwd, ["rev-parse", "HEAD"])).trim();
+  const preview = await prepareHistoryAction(cwd, before, "squash");
+  await assert.rejects(applyHistoryAction(cwd, preview.token, { squashInto: first, message: "Combined" }), /当前分支未修改/);
+  assert.equal((await git(cwd, ["rev-parse", "HEAD"])).trim(), before);
+  assert.equal((await git(cwd, ["status", "--porcelain"])).trim(), "");
+});
