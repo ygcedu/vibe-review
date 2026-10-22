@@ -7,11 +7,15 @@ import { git } from "./git.ts";
 import { createHistoryBackup, historyHead, requireCleanHistoryWorktree } from "./history-repository.ts";
 
 const run = promisify(execFile);
-export async function planHistoryRewrite(cwd: string, hash: string) {
+export async function planHistoryRewrite(cwd: string, hash: string, squashInto?: string) {
   const current = await historyHead(cwd);
   if (!current.branch) throw new Error("请先检出一个本地分支，再改写提交历史");
   await git(cwd, ["merge-base", "--is-ancestor", hash, current.head]).catch(() => { throw new Error("所选提交不在当前分支历史中"); });
-  const parents = (await git(cwd, ["show", "-s", "--format=%P", hash])).trim().split(" ").filter(Boolean);
+  if (squashInto) {
+    if (!/^[a-f0-9]{40,64}$/.test(squashInto) || squashInto === hash) throw new Error("请选择所选提交之前的压缩目标");
+    await git(cwd, ["merge-base", "--is-ancestor", squashInto, hash]).catch(() => { throw new Error("压缩目标必须是所选提交的祖先"); });
+  }
+  const parents = (await git(cwd, ["show", "-s", "--format=%P", squashInto ?? hash])).trim().split(" ").filter(Boolean);
   const base = parents[0];
   const range = base ? `${base}..${current.head}` : current.head;
   if ((await git(cwd, ["rev-list", "--min-parents=2", range])).trim()) throw new Error("所选提交或后续历史包含合并提交，暂不支持改写这段历史");
@@ -20,9 +24,10 @@ export async function planHistoryRewrite(cwd: string, hash: string) {
 }
 
 const shellQuote = (value: string) => `'${value.replace(/'/g, "'\\''")}'`;
-export async function rewriteHistory(cwd: string, input: { hash: string; head: string; branch: string; action: "reword" | "drop"; message?: string }) {
+export async function rewriteHistory(cwd: string, input: { hash: string; head: string; branch: string; action: "reword" | "drop" | "squash"; message?: string; squashInto?: string }) {
   await requireCleanHistoryWorktree(cwd);
-  const plan = await planHistoryRewrite(cwd, input.hash);
+  const plan = await planHistoryRewrite(cwd, input.hash, input.action === "squash" ? input.squashInto : undefined);
+  if (input.action === "squash" && (!input.squashInto || !input.message?.trim())) throw new Error("请选择压缩目标并填写提交说明");
   if (plan.head !== input.head || plan.branch !== input.branch) throw new Error("当前分支或 HEAD 已变化，请重新打开操作");
   if (input.action === "drop" && !plan.base && plan.commits.length === 1) throw new Error("无法丢弃分支的唯一提交");
   const directory = await mkdtemp(join(tmpdir(), "vibe-history-rewrite-"));
@@ -31,7 +36,10 @@ export async function rewriteHistory(cwd: string, input: { hash: string; head: s
   try {
     await git(cwd, ["worktree", "add", "--detach", worktree, input.head]);
     added = true;
-    const todo = plan.commits.map((hash) => `${hash === input.hash ? input.action === "drop" ? "drop" : "reword" : "pick"} ${hash}`).join("\n") + "\n";
+    const replay = input.action === "squash"
+      ? plan.commits.flatMap((hash) => hash === input.hash ? [] : hash === input.squashInto ? [`pick ${hash}`, `squash ${input.hash}`] : [`pick ${hash}`])
+      : plan.commits.map((hash) => `${hash === input.hash ? input.action === "drop" ? "drop" : "reword" : "pick"} ${hash}`);
+    const todo = replay.join("\n") + "\n";
     const sequenceEditor = join(directory, "sequence.cjs");
     const messageEditor = join(directory, "message.cjs");
     await writeFile(sequenceEditor, `require('node:fs').writeFileSync(process.argv[2], ${JSON.stringify(todo)});\n`);

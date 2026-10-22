@@ -17,20 +17,27 @@ export async function prepareHistoryAction(cwd: string, hash: string, action: Hi
   const { head, branch } = await historyHead(cwd);
   if (action === "checkout" || action === "cherry-pick" || action === "reset") await requireCleanHistoryWorktree(cwd);
   if (action === "reset" && !branch) throw new Error("当前处于分离 HEAD，无法重置当前分支");
-  if (action === "reword" || action === "drop") { await requireCleanHistoryWorktree(cwd); await planHistoryRewrite(cwd, hash); }
+  if (action === "reword" || action === "drop" || action === "squash") { await requireCleanHistoryWorktree(cwd); await planHistoryRewrite(cwd, hash); }
   const message = (await git(cwd, ["show", "-s", "--format=%B", hash])).trimEnd();
   for (const [token, preview] of previews) if (preview.expires < Date.now()) previews.delete(token);
+  const squashTargets: Array<{ hash: string; message: string }> = [];
+  if (action === "squash") {
+    const parent = (await git(cwd, ["show", "-s", "--format=%P", hash])).trim();
+    if (!parent) throw new Error("根提交没有可压缩到的祖先提交");
+    const fields = (await git(cwd, ["log", "-50", "--first-parent", "--format=%H%x00%B%x00", `${hash}^`, "--"])).split("\0");
+    for (let i = 0; i + 1 < fields.length; i += 2) squashTargets.push({ hash: fields[i].trim(), message: fields[i + 1].trimEnd() });
+  }
   const token = randomUUID();
   previews.set(token, { cwd, hash, action, head, branch, expires: Date.now() + 600_000 });
   const parents = (await git(cwd, ["show", "-s", "--format=%P", hash])).trim().split(" ").filter(Boolean);
-  return { token, head, parents, branch: branch.replace(/^refs\/heads\//, ""), message };
+  return { token, head, parents, squashTargets, branch: branch.replace(/^refs\/heads\//, ""), message };
 }
 export async function checkedRefName(cwd: string, name: string | undefined, namespace: "heads" | "tags") {
   if (!name || name !== name.trim() || name.startsWith("-") || name === "HEAD") throw new Error("请输入有效名称");
   await git(cwd, ["check-ref-format", `refs/${namespace}/${name}`]).catch(() => { throw new Error("名称包含 Git 不允许的字符"); });
   return name;
 }
-export async function applyHistoryAction(cwd: string, token: string, input: { name?: string; message?: string; mainline?: number; mode?: "soft" | "mixed" | "hard" }) {
+export async function applyHistoryAction(cwd: string, token: string, input: { name?: string; message?: string; mainline?: number; mode?: "soft" | "mixed" | "hard"; squashInto?: string }) {
   const preview = previews.get(token);
   if (!preview || preview.cwd !== cwd || preview.expires < Date.now()) throw new Error("操作预览已过期，请重新打开菜单");
   if (running.has(cwd)) throw new Error("当前工作区已有 Git 操作正在执行");
@@ -41,6 +48,11 @@ export async function applyHistoryAction(cwd: string, token: string, input: { na
     let summary: string;
     let backupRef: string | undefined;
     switch (preview.action) {
+      case "squash": {
+        backupRef = await rewriteHistory(cwd, { ...preview, message: input.message?.trim(), squashInto: input.squashInto, action: "squash" });
+        summary = `已压缩提交，恢复分支：${backupRef}`;
+        break;
+      }
       case "drop": {
         backupRef = await rewriteHistory(cwd, { ...preview, action: "drop" });
         summary = `已丢弃提交，恢复分支：${backupRef}`;

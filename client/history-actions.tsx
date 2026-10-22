@@ -1,7 +1,7 @@
 import { HistoryCompare } from "./history-compare";
 import type { DiffTab } from "./git-diff-state";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useRpc, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
 import { Icon, Modal, useToast } from "@getpaseo/plugin/client/react-native";
 import { historyActionApplyRpc, historyActionPreviewRpc, type HistoryAction } from "../shared/history-actions";
@@ -9,6 +9,7 @@ import type { GitCommit } from "../shared/git-history";
 import type { ContextMenuItem } from "./components/context-menu";
 
 const actions: Record<HistoryAction, { title: string; icon: string; description: string; field?: "name" | "message"; destructive?: boolean }> = {
+  "squash": { title: "压缩到…", icon: "GitMerge", description: "将所选提交合并到一个较早的提交，并重放其余提交。后续 Hash 会变化，自动保留恢复分支；冲突时当前分支保持不变。", field: "message", destructive: true },
   "drop": { title: "丢弃提交", icon: "Trash2", description: "移除此提交及其改动，并重放后续提交；后续 Hash 会变化。仅支持当前分支线性历史，自动保留恢复分支。若有冲突，当前分支保持不变。", destructive: true },
   "reword": { title: "编辑提交说明", icon: "Pencil", description: "修改所选提交说明，后续提交的 Hash 会变化。仅支持当前分支的线性历史；自动保留恢复分支，不会推送远端。", field: "message", destructive: true },
   "reset": { title: "重置当前分支", icon: "Undo2", description: "将当前分支指向所选提交。操作前自动创建 vibe-review-backup/ 恢复分支。不会推送远端。", destructive: true },
@@ -27,7 +28,8 @@ export function useHistoryActions({ workspaceId, theme, onChanged, onCompare }: 
   const colors = theme.colors;
   const [compareCommit, setCompareCommit] = useState<GitCommit | null>(null);
   const [target, setTarget] = useState<{ commit: GitCommit; action: HistoryAction } | null>(null);
-  const [preview, setPreview] = useState<{ token: string; head: string; branch: string; message: string; parents: string[] } | null>(null);
+  const [preview, setPreview] = useState<{ token: string; head: string; branch: string; message: string; parents: string[]; squashTargets: Array<{ hash: string; message: string }> } | null>(null);
+  const [squashInto, setSquashInto] = useState("");
   const [resetMode, setResetMode] = useState<"soft" | "mixed" | "hard">("mixed");
   const [mainline, setMainline] = useState(1);
   const [value, setValue] = useState("");
@@ -39,12 +41,15 @@ export function useHistoryActions({ workspaceId, theme, onChanged, onCompare }: 
   useEffect(() => { request.current++; setTarget(null); setPreview(null); setCompareCommit(null); }, [workspaceId]);
   const open = async (commit: GitCommit, action: HistoryAction) => {
     const seq = ++request.current;
-    setTarget({ commit, action }); setPreview(null); setResetMode("mixed"); setMainline(1); setValue(""); setError(""); setLoading(true);
+    setTarget({ commit, action }); setPreview(null); setSquashInto(""); setResetMode("mixed"); setMainline(1); setValue(""); setError(""); setLoading(true);
     try {
       const result = await prepare({ workspaceId, hash: commit.hash, action });
       if (request.current !== seq) return;
       setPreview(result);
-      if (actions[action].field === "message") setValue(result.message);
+      if (action === "squash") {
+        setSquashInto(result.squashTargets[0]?.hash ?? "");
+        setValue(`${result.squashTargets[0]?.message ?? ""}\n\n${result.message}`);
+      } else if (actions[action].field === "message") setValue(result.message);
     } catch (reason) { if (request.current === seq) setError(String(reason)); }
     finally { if (request.current === seq) setLoading(false); }
   };
@@ -54,7 +59,7 @@ export function useHistoryActions({ workspaceId, theme, onChanged, onCompare }: 
     const seq = request.current;
     setBusy(true); setError("");
     try {
-      const result = await apply({ workspaceId, token: preview.token, mainline, mode: resetMode, [actions[target.action].field ?? "name"]: value });
+      const result = await apply({ workspaceId, token: preview.token, mainline, mode: resetMode, squashInto: squashInto || undefined, [actions[target.action].field ?? "name"]: value });
       if (seq !== request.current) return;
       setTarget(null); setPreview(null); onChanged(); toast.show(result.summary, { variant: "success" });
     } catch (reason) { if (seq === request.current) setError(String(reason)); }
@@ -68,6 +73,10 @@ export function useHistoryActions({ workspaceId, theme, onChanged, onCompare }: 
       <Icon name="GitCommitHorizontal" size={14} color={colors.foregroundMuted} />
       <View style={{ flex: 1, minWidth: 0 }}><Text numberOfLines={2} style={[styles.description, { color: colors.foreground }]}>{target.commit.subject}</Text><Text selectable style={[styles.caption, { color: colors.foregroundMuted }]}>{target.commit.hash.slice(0, 8)}{preview?.branch ? ` · 当前分支 ${preview.branch}` : ""}</Text></View>
     </View>
+    {target.action === "squash" && preview ? <View style={{ gap: 8 }}>
+      <Text style={[styles.caption, { color: colors.foregroundMuted }]}>压缩目标 · 最近 50 个祖先提交</Text>
+      <ScrollView style={{ maxHeight: 160 }}>{preview.squashTargets.map((entry) => <Pressable key={entry.hash} accessibilityRole="radio" accessibilityLabel={`压缩到 ${entry.message.split("\n")[0]}`} accessibilityState={{ checked: squashInto === entry.hash }} disabled={busy} onPress={() => { setSquashInto(entry.hash); setValue(`${entry.message}\n\n${preview.message}`); }} style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 6 }}><Icon name={squashInto === entry.hash ? "CircleDot" : "Circle"} size={14} color={colors.accent} /><Text numberOfLines={1} style={[styles.caption, { flex: 1, color: colors.foreground }]}>{entry.hash.slice(0, 8)} · {entry.message.split("\n")[0]}</Text></Pressable>)}</ScrollView>
+    </View> : null}
     {loading ? <ActivityIndicator color={colors.accent} /> : config.field && preview ? <>
       <Text style={[styles.caption, { color: colors.foregroundMuted }]}>{config.field === "name" ? "名称" : "提交说明"}</Text>
       <TextInput ref={borderOnlyFocus} autoFocus editable={!busy} accessibilityLabel={config.field === "name" ? "名称" : "提交说明"} value={value} onChangeText={setValue} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} multiline={config.field === "message"} placeholder={config.field === "name" ? "输入名称…" : "填写提交说明…"} placeholderTextColor={colors.foregroundMuted} style={[styles.input, { minHeight: config.field === "message" ? 100 : 36, color: colors.foreground, backgroundColor: colors.surface1, borderColor: focused ? colors.accent : colors.border }]} />
@@ -91,6 +100,7 @@ export function useHistoryActions({ workspaceId, theme, onChanged, onCompare }: 
       { id: "compare", label: "与本地比较…", icon: "FileDiff", onSelect: () => setCompareCommit(commit) },
       { id: "checkout", label: "检出此版本…", icon: "GitCommitHorizontal", disabled: busy, onSelect: () => open(commit, "checkout") },
       { id: "reword", label: "编辑提交说明…", icon: "Pencil", disabled: busy, onSelect: () => open(commit, "reword") },
+      { id: "squash", label: "压缩到（Squash Into）…", icon: "GitMerge", disabled: busy, onSelect: () => open(commit, "squash") },
       { id: "drop", label: "丢弃提交…", icon: "Trash2", destructive: true, disabled: busy, onSelect: () => open(commit, "drop") },
       { id: "reset", label: "重置当前分支到此处…", icon: "Undo2", destructive: true, disabled: busy, onSelect: () => open(commit, "reset") },
       { id: "ref-separator", separator: true },

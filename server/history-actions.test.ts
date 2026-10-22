@@ -198,3 +198,38 @@ test("a conflicting drop leaves current history and worktree intact and cleans t
   assert.equal((await git(cwd, ["status", "--porcelain"])).trim(), "");
   assert.equal((await git(cwd, ["worktree", "list", "--porcelain"])).match(/^worktree /gm)?.length, 1);
 });
+
+test("squash combines selected commit into chosen ancestor with custom message and recovery", async (t) => {
+  const { cwd, first, head } = await repository(t);
+  const originalTree = await git(cwd, ["rev-parse", "HEAD^{tree}"]);
+  const preview = await prepareHistoryAction(cwd, head, "squash");
+  assert.equal(preview.squashTargets[0].hash, first);
+  const result = await applyHistoryAction(cwd, preview.token, { squashInto: first, message: "Combined\n\nFull body" });
+  assert.ok(result.backupRef);
+  assert.equal((await git(cwd, ["rev-parse", result.backupRef])).trim(), head);
+  assert.equal((await git(cwd, ["rev-list", "--count", "HEAD"])).trim(), "1");
+  assert.equal(await git(cwd, ["rev-parse", "HEAD^{tree}"]), originalTree);
+  assert.equal((await git(cwd, ["show", "-s", "--format=%B"])).trim(), "Combined\n\nFull body");
+});
+
+test("squash can target a nonadjacent ancestor and preserves intervening changes", async (t) => {
+  const { cwd, first } = await repository(t);
+  await writeFile(join(cwd, "third.txt"), "third\n");
+  await git(cwd, ["add", "."]);
+  await git(cwd, ["commit", "-m", "Third"]);
+  const head = (await git(cwd, ["rev-parse", "HEAD"])).trim();
+  const originalTree = await git(cwd, ["rev-parse", "HEAD^{tree}"]);
+  const preview = await prepareHistoryAction(cwd, head, "squash");
+  await applyHistoryAction(cwd, preview.token, { squashInto: first, message: "First and third" });
+  assert.equal((await git(cwd, ["rev-list", "--count", "HEAD"])).trim(), "2");
+  assert.equal(await git(cwd, ["rev-parse", "HEAD^{tree}"]), originalTree);
+  assert.equal((await git(cwd, ["show", "-s", "--format=%s"])).trim(), "Second");
+});
+
+test("squash rejects root as source and invalid destination without moving HEAD", async (t) => {
+  const { cwd, first, head } = await repository(t);
+  await assert.rejects(prepareHistoryAction(cwd, first, "squash"), /根提交/);
+  const preview = await prepareHistoryAction(cwd, head, "squash");
+  await assert.rejects(applyHistoryAction(cwd, preview.token, { squashInto: head, message: "Invalid" }), /请选择/);
+  assert.equal((await git(cwd, ["rev-parse", "HEAD"])).trim(), head);
+});
