@@ -127,6 +127,11 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
   const [loading, setLoading] = useState(false);
   const [revision, setRevision] = useState(0);
   const [selectedHash, setSelectedHash] = useState<string | null>(null);
+  const logRef = useRef<View>(null);
+  const commitNodes = useRef(new Map<string, HTMLElement>());
+  const navigation = useRef({ commits, selectedHash });
+  navigation.current = { commits, selectedHash };
+
   const [detail, setDetail] = useState<{ message: string; files: ChangedFile[]; containingBranches: string[] } | null>(null);
   const [detailPanelHeight, setDetailPanelHeight] = useState(0);
   const [preferredFilesHeight, setPreferredFilesHeight] = useState<number | null>(null);
@@ -144,6 +149,31 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
   const [error, setError] = useState("");
 
   const historyActions = useHistoryActions({ workspaceId, theme: props.theme, onCompare: openTab, onChanged: () => { setSkip(0); setRevision((value) => value + 1); refreshDiff(); } });
+
+  useEffect(() => {
+    if (Platform.OS !== "web" || !logRef.current) return;
+    const node = logRef.current as unknown as HTMLElement;
+    node.tabIndex = 0;
+    const keydown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+      if (event.target instanceof Element && event.target.closest('input, textarea, [contenteditable]:not([contenteditable="false"]), [role="menu"], [role="dialog"]')) return;
+      const current = navigation.current;
+      if (!current.commits.length) return;
+      event.preventDefault(); event.stopPropagation();
+      const index = current.commits.findIndex((commit) => commit.hash === current.selectedHash);
+      const next = index < 0 ? 0 : Math.max(0, Math.min(current.commits.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)));
+      const hash = current.commits[next].hash;
+      navigation.current = { ...current, selectedHash: hash };
+      setSelectedHash(hash);
+      const row = commitNodes.current.get(hash);
+      row?.focus({ preventScroll: true });
+      row?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    };
+    node.addEventListener("keydown", keydown);
+    return () => node.removeEventListener("keydown", keydown);
+  }, []);
+
 
   useEffect(() => {
     const timer = setInterval(() => setNowMs(Date.now()), 30_000);
@@ -292,16 +322,15 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
           </ScrollView>
         </View>
         <ResizeHandle color={colors.border} direction="vertical" label="调整分支列表宽度" onResize={(delta) => setBranchColumnWidth((width) => Math.max(minimumBranchWidth, Math.min(maximumBranchWidth, Math.max(minimumBranchWidth, Math.min(maximumBranchWidth, width ?? resolvedBranchColumnWidth)) + delta)))} />
-        <View style={[styles.logColumn, { width: resolvedLogColumnWidth }]}>
+        <View ref={logRef} style={[styles.logColumn, { width: resolvedLogColumnWidth }]}>
           <View style={styles.logToolbar}><View style={[styles.commitSearchRow, focusedSearch === "commit" && { borderColor: colors.accent }]}><Icon name="Search" size={15} color={colors.foregroundMuted} /><TextInput ref={borderOnlyFocus} accessibilityLabel="搜索提交说明" value={searchText} onChangeText={setSearchText} onFocus={() => setFocusedSearch("commit")} onBlur={() => setFocusedSearch(null)} placeholder="搜索提交说明" placeholderTextColor={colors.foregroundMuted} style={styles.search} /></View></View>
           <ScrollView style={styles.log}>
             {commits.map((item) => {
               return <ContextMenu key={item.hash} theme={props.theme} compact={props.layout.compact} label={item.subject} items={[
-                { id: "detail", label: "查看提交详情", icon: "GitCommitHorizontal", onSelect: () => setSelectedHash(item.hash) },
                 { id: "hash", label: "复制提交 Hash", icon: "Copy", onSelect: () => copyText(item.hash) },
                 { id: "message", label: "复制提交说明", onSelect: async () => { const value = await getDetail({ workspaceId, hash: item.hash }); await copyText(value.message); } },
                 ...historyActions.itemsFor(item),
-              ]}><Pressable key={item.hash} accessibilityRole="button" accessibilityLabel={`查看提交 ${item.subject}`} accessibilityState={{ selected: selectedHash === item.hash }} onPress={() => setSelectedHash(item.hash)} onHoverIn={() => setHoveredHash(item.hash)} onHoverOut={() => setHoveredHash(null)} style={({ pressed }) => [styles.commitRow, { backgroundColor: selectedHash === item.hash ? colors.surface2 : hoveredHash === item.hash || pressed ? colors.surface1 : "transparent", borderLeftColor: selectedHash === item.hash ? colors.accent : "transparent" }]}>
+              ]}><Pressable key={item.hash} ref={(row) => { if (Platform.OS !== "web") return; if (row) commitNodes.current.set(item.hash, row as unknown as HTMLElement); else commitNodes.current.delete(item.hash); }} accessibilityRole="button" accessibilityLabel={`查看提交 ${item.subject}`} accessibilityState={{ selected: selectedHash === item.hash }} onPress={() => setSelectedHash(item.hash)} onHoverIn={() => setHoveredHash(item.hash)} onHoverOut={() => setHoveredHash(null)} style={({ pressed }) => [styles.commitRow, { backgroundColor: selectedHash === item.hash ? colors.surface2 : hoveredHash === item.hash || pressed ? colors.surface1 : "transparent", borderLeftColor: selectedHash === item.hash ? colors.accent : "transparent" }]}>
                 <Text style={styles.author} numberOfLines={1}>{item.author}</Text>
                 <View style={styles.graph}><View style={styles.graphLine} /><View style={[styles.graphDot, item.parents.length > 1 && styles.mergeDot]} /></View>
                 <View style={styles.subjectLine}>
