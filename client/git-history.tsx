@@ -154,6 +154,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
     if (Platform.OS !== "web" || !logRef.current) return;
     const node = logRef.current as unknown as HTMLElement;
     node.tabIndex = 0;
+    node.style.setProperty("outline", "none", "important");
     const keydown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
       if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
@@ -330,7 +331,14 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
                 { id: "hash", label: "复制提交 Hash", icon: "Copy", onSelect: () => copyText(item.hash) },
                 { id: "message", label: "复制提交说明", onSelect: async () => { const value = await getDetail({ workspaceId, hash: item.hash }); await copyText(value.message); } },
                 ...historyActions.itemsFor(item),
-              ]}><Pressable key={item.hash} ref={(row) => { if (Platform.OS !== "web") return; if (row) commitNodes.current.set(item.hash, row as unknown as HTMLElement); else commitNodes.current.delete(item.hash); }} accessibilityRole="button" accessibilityLabel={`查看提交 ${item.subject}`} accessibilityState={{ selected: selectedHash === item.hash }} onPress={() => setSelectedHash(item.hash)} onHoverIn={() => setHoveredHash(item.hash)} onHoverOut={() => setHoveredHash(null)} style={({ pressed }) => [styles.commitRow, { backgroundColor: selectedHash === item.hash ? colors.surface2 : hoveredHash === item.hash || pressed ? colors.surface1 : "transparent", borderLeftColor: selectedHash === item.hash ? colors.accent : "transparent" }]}>
+              ]}><Pressable key={item.hash} ref={(row) => {
+                if (Platform.OS !== "web") return;
+                if (row) {
+                  const node = row as unknown as HTMLElement;
+                  node.style.setProperty("outline", "none", "important");
+                  commitNodes.current.set(item.hash, node);
+                } else commitNodes.current.delete(item.hash);
+              }} accessibilityRole="button" accessibilityLabel={`查看提交 ${item.subject}`} accessibilityState={{ selected: selectedHash === item.hash }} onPress={() => setSelectedHash(item.hash)} onHoverIn={() => setHoveredHash(item.hash)} onHoverOut={() => setHoveredHash(null)} style={({ pressed }) => [styles.commitRow, { backgroundColor: selectedHash === item.hash ? colors.surface2 : hoveredHash === item.hash || pressed ? colors.surface1 : "transparent" }]}>
                 <Text style={styles.author} numberOfLines={1}>{item.author}</Text>
                 <View style={styles.graph}><View style={styles.graphLine} /><View style={[styles.graphDot, item.parents.length > 1 && styles.mergeDot]} /></View>
                 <View style={styles.subjectLine}>
@@ -437,7 +445,7 @@ function historyStyles(colors: PluginWorkspacePanelProps["theme"]["colors"]) {
     logToolbar: { height: 46, padding: 8, borderBottomWidth: 1, borderColor: colors.border },
     commitSearchRow: { flex: 1, height: 30, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 8, borderWidth: 1, borderColor: colors.border, borderRadius: 6, backgroundColor: colors.surface1 },
     search: { flex: 1, minWidth: 0, fontSize: 12, color: colors.foreground, outlineWidth: 0, paddingVertical: 0 },
-    commitRow: { flex: 1, flexDirection: "row", alignItems: "center", height: 36, paddingLeft: 8, paddingRight: 12, gap: 6, borderLeftWidth: 2 },
+    commitRow: { flex: 1, flexDirection: "row", alignItems: "center", height: 36, paddingLeft: 10, paddingRight: 12, gap: 6 },
     graph: { ...baseStyles.graph, width: 24, height: 36 },
     graphLine: { ...baseStyles.graphLine, width: 1, backgroundColor: colors.border },
     graphDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.accent },
