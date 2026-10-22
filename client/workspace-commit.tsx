@@ -5,7 +5,7 @@ import { workspaceChangePreviewRpc, workspaceChangeApplyRpc, workspaceChangeUndo
 import { ContextMenu } from "./components/context-menu";
 import { copyText } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type ViewStyle } from "react-native";
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type ViewStyle } from "react-native";
 import { useRpc, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { workspaceGitShelfRpc, type ShelfEntry, workspaceGitCommitRpc, workspaceGitPushRpc, workspaceGitTrackRpc, workspaceGitStatusRpc, type WorkingFile as File } from "../shared/workspace-commit";
@@ -27,6 +27,34 @@ function changeKind(file: File): "added" | "modified" | "deleted" {
   if (file.status.includes("D")) return "deleted";
   if (file.untracked || file.status.includes("A")) return "added";
   return "modified";
+}
+
+// The host's global :focus-visible rule adds an offset outline. This field
+// already indicates focus through its border; override the outline on the DOM node.
+function setBorderOnlyFocus(input: TextInput | null) {
+  if (Platform.OS !== "web" || !input) return;
+  const node = input as unknown as HTMLElement;
+  node.style.setProperty("outline", "none", "important");
+  node.style.setProperty("outline-offset", "0", "important");
+}
+
+function CommitActionButton({ label, icon, onPress, disabled = false, loading = false, primary = false, compact = false, danger = false, theme }: {
+  label: string; icon: string; onPress(): void; disabled?: boolean; loading?: boolean; primary?: boolean; compact?: boolean; danger?: boolean; theme: PluginWorkspacePanelProps["theme"];
+}) {
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const colors = theme.colors;
+  const foreground = primary ? colors.accentForeground : colors.foreground;
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled, busy: loading }} disabled={disabled} onPress={onPress}
+    onHoverIn={() => setHovered(true)} onHoverOut={() => setHovered(false)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
+    style={({ pressed }) => [styles.actionButton, compact && styles.compactButton, {
+      backgroundColor: primary ? danger ? colors.statusDanger : colors.accent : hovered || pressed ? colors.surface2 : compact ? "transparent" : colors.surface1,
+      borderColor: focused ? colors.accent : compact ? "transparent" : primary ? danger ? colors.statusDanger : colors.accent : colors.border,
+      opacity: disabled ? 0.45 : pressed ? 0.8 : 1,
+    }]}>
+    {loading ? <ActivityIndicator size="small" color={foreground} /> : <Icon name={icon} size={14} color={foreground} />}
+    <Text style={[styles.actionLabel, { color: foreground }]}>{label}</Text>
+  </Pressable>;
 }
 
 function DraggableRow({ children, paths, workspaceId, style }: { children: ReactNode; paths: string[]; workspaceId: string; style: ViewStyle | Array<ViewStyle | false | undefined> }) {
@@ -101,8 +129,10 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
   const push = useRpc(workspaceGitPushRpc);
   const [files, setFiles] = useState<File[]>([]);
   const [message, setMessage] = useState("");
+  const [messageFocused, setMessageFocused] = useState(false);
   const [busy, setBusy] = useState(false);
   const [pushing, setPushing] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState("");
   const [revision, setRevision] = useState(0);
@@ -170,7 +200,7 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
     if (busy) return;
     if (selectedPaths.size === 0) { setError("请先勾选要提交的文件"); return; }
     if (!message.trim()) { setError("请填写提交说明"); return; }
-    setBusy(true);
+    setBusy(true); setSubmitting(true);
     try {
       const value = await commit({ workspaceId, message: message.trim(), paths: [...selectedPaths] });
       setResult(value.summary);
@@ -179,7 +209,7 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
       setRevision((current) => current + 1);
       setError("");
     } catch (reason) { setError(String(reason)); }
-    finally { setBusy(false); }
+    finally { setBusy(false); setSubmitting(false); }
   };
   const pushBranch = async () => {
     if (busy) return;
@@ -335,7 +365,7 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
       })}
       {files.length === 0 && !error ? <Text style={styles.empty}>工作区没有待提交的改动</Text> : null}
     </ScrollView>
-    <View style={styles.footer}>
+    <View style={[styles.footer, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface0 }]}>
       {selectedFiles.length > 0 ? <View style={styles.summaryRow}>
         <Text style={styles.summaryCount}>已选 {selectedFiles.length} 个文件</Text>
         <View style={styles.summaryDetails}>
@@ -344,28 +374,45 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
           {counts.deleted > 0 ? <Text style={styles.removedName}>删除 {counts.deleted}</Text> : null}
         </View>
       </View> : null}
-      <TextInput value={message} onChangeText={setMessage} multiline accessibilityLabel="提交说明" placeholder="填写提交说明…" placeholderTextColor="#94a3b8" style={styles.message} />
+      <TextInput ref={setBorderOnlyFocus} value={message} onChangeText={setMessage} onFocus={() => setMessageFocused(true)} onBlur={() => setMessageFocused(false)} multiline accessibilityLabel="提交说明" placeholder="填写提交说明…" placeholderTextColor={theme.colors.foregroundMuted} style={[styles.message, { color: theme.colors.foreground, borderWidth: messageFocused ? 2 : 1, padding: messageFocused ? 9 : 10, borderColor: messageFocused ? theme.colors.accent : theme.colors.border, backgroundColor: theme.colors.surface1 }]} />
       <View style={styles.actions}>
-        <Pressable accessibilityRole="button" accessibilityLabel="推送当前分支" accessibilityState={{ disabled: busy }} disabled={busy} onPress={() => void pushBranch()} style={[styles.push, busy && styles.disabled]}><Text style={styles.pushText}>{pushing ? "推送中…" : "推送"}</Text></Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="提交勾选的文件" accessibilityState={{ disabled: busy }} disabled={busy} onPress={() => void submit()} style={[styles.commit, busy && styles.disabled]}><Text style={styles.commitText}>{busy && !pushing ? "提交中…" : "提交"}</Text></Pressable>
+        <CommitActionButton label={pushing ? "推送中…" : "推送"} icon="ArrowUp" theme={theme} disabled={busy} loading={pushing} onPress={() => void pushBranch()} />
+        <CommitActionButton label={submitting ? "提交中…" : "提交"} icon="GitCommitHorizontal" theme={theme} primary loading={submitting} disabled={busy || !selectedPaths.size || !message.trim()} onPress={() => void submit()} />
       </View>
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      {result ? <Text style={styles.result}>{result}</Text> : null}
-      {undoId ? <Pressable accessibilityRole="button" accessibilityLabel="撤销上次文件操作" disabled={busy} onPress={() => {
-        setBusy(true); setError("");
-        void undoAction({ workspaceId, undoId }).then((value) => { setResult(value.summary); setUndoId(null); refreshDiff(); setRevision((value) => value + 1); }, (reason) => setError(String(reason))).finally(() => setBusy(false));
-      }}><Text style={{ color: theme.colors.accent }}>撤销上次文件操作</Text></Pressable> : null}
+      {error ? <View accessibilityRole="alert" accessibilityLiveRegion="polite" style={[styles.feedback, { backgroundColor: theme.colors.surface1, borderColor: theme.colors.border }]}>
+        <Icon name="CircleAlert" size={15} color={theme.colors.statusDanger} />
+        <Text selectable style={[styles.feedbackText, { color: theme.colors.statusDanger }]}>{error}</Text>
+      </View> : null}
+      {result || undoId ? <View accessibilityLiveRegion="polite" style={styles.resultFeedback}>
+        <Icon name="CircleCheck" size={15} color={theme.colors.statusSuccess} />
+        <Text selectable style={[styles.feedbackText, { color: theme.colors.foreground }]}>{result || "文件操作已完成"}</Text>
+        {undoId ? <CommitActionButton label="撤销" icon="Undo2" compact theme={theme} disabled={busy} onPress={() => {
+          setBusy(true); setError("");
+          void undoAction({ workspaceId, undoId }).then(() => { setResult(""); setUndoId(null); refreshDiff(); setRevision((value) => value + 1); }, (reason) => setError(String(reason))).finally(() => setBusy(false));
+        }} /> : <Pressable accessibilityRole="button" accessibilityLabel="关闭操作提示" hitSlop={4} onPress={() => setResult("")} style={styles.dismissFeedback}><Icon name="X" size={14} color={theme.colors.foregroundMuted} /></Pressable>}
+      </View> : null}
     </View>
     </>}
-    {confirmation ? <Modal title={confirmation.action === "rollback" ? "回滚更改" : confirmation.action === "delete" ? "删除文件" : "搁置更改"} open onOpenChange={(open) => { if (!open && !busy) { setConfirmation(null); setError(""); } }}><Modal.Content>
-      <Text style={{ color: theme.colors.foreground }}>{confirmation.action === "rollback" ? "将所列文件恢复到 HEAD，并移除其暂存区改动；新增和未跟踪文件会移除。" : confirmation.action === "delete" ? "将从工作区删除所列文件，保留 Git 暂存区。" : "将所列改动保存到 Shelf，然后恢复工作区和暂存区到 HEAD。"}</Text>
-      <Text style={{ color: theme.colors.foregroundMuted }}>共 {confirmation.paths.length} 个文件。操作前保留恢复副本，完成后可撤销。</Text>
-      {confirmation.paths.map((path) => <Text key={path} style={{ color: theme.colors.foreground }}>{path}</Text>)}
-      {confirmation.action === "shelve" ? <TextInput accessibilityLabel="搁置说明" value={shelfMessage} onChangeText={setShelfMessage} editable={!busy} placeholder="搁置说明" placeholderTextColor={theme.colors.foregroundMuted} style={{ color: theme.colors.foreground, borderColor: theme.colors.border, borderWidth: 1, padding: 10, borderRadius: 5 }} /> : null}
-      {error ? <Text style={{ color: theme.colors.statusDanger }}>{error}</Text> : null}
-      <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 16 }}>
-        <Pressable accessibilityRole="button" accessibilityLabel="取消文件操作" disabled={busy} onPress={() => { setConfirmation(null); setError(""); }} style={{ padding: 10 }}><Text style={{ color: theme.colors.foregroundMuted }}>取消</Text></Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="确认文件操作" disabled={busy} onPress={() => void executeAction()} style={{ padding: 10 }}><Text style={{ color: confirmation.action === "delete" ? theme.colors.statusDanger : theme.colors.accent }}>{busy ? "处理中…" : "确认"}</Text></Pressable>
+    {confirmation ? <Modal title={confirmation.action === "rollback" ? "回滚更改" : confirmation.action === "delete" ? "删除文件" : "搁置更改"} open onOpenChange={(open) => { if (!open && !busy) { setConfirmation(null); setError(""); } }}><Modal.Content contentContainerStyle={styles.confirmContent}>
+      <Text style={[styles.confirmDescription, { color: theme.colors.foreground }]}>{confirmation.action === "rollback" ? "文件将恢复到 HEAD，暂存的改动也会清除。新增和未跟踪文件将被移除。" : confirmation.action === "delete" ? "文件将从工作区删除，Git 暂存区保持不变。" : "改动将保存到 Shelf，工作区和暂存区将恢复到 HEAD。"}</Text>
+      <View style={[styles.confirmFiles, { backgroundColor: theme.colors.surface1, borderColor: theme.colors.border }]}>
+        <Text style={[styles.confirmCaption, { color: theme.colors.foregroundMuted }]}>涉及 {confirmation.paths.length} 个文件</Text>
+        <ScrollView style={styles.confirmFileList}>
+          {confirmation.paths.map((path) => <View key={path} style={styles.confirmFileRow}>
+            <View style={styles.fileIcon}><FileTypeIcon fileName={path} /></View>
+            <Text selectable style={[styles.confirmPath, { color: theme.colors.foreground }]}>{path}</Text>
+          </View>)}
+        </ScrollView>
+      </View>
+      <View style={styles.confirmNote}>
+        <Icon name="Undo2" size={13} color={theme.colors.foregroundMuted} />
+        <Text style={[styles.confirmCaption, { flex: 1, color: theme.colors.foregroundMuted }]}>操作前会保留恢复副本，完成后可撤销。</Text>
+      </View>
+      {confirmation.action === "shelve" ? <TextInput accessibilityLabel="搁置说明" value={shelfMessage} onChangeText={setShelfMessage} editable={!busy} placeholder="搁置说明" placeholderTextColor={theme.colors.foregroundMuted} style={[styles.message, { color: theme.colors.foreground, borderColor: theme.colors.border, backgroundColor: theme.colors.surface1 }]} /> : null}
+      {error ? <Text accessibilityRole="alert" style={[styles.error, { color: theme.colors.statusDanger }]}>{error}</Text> : null}
+      <View style={[styles.confirmActions, { borderColor: theme.colors.border }]}>
+        <CommitActionButton label="取消" icon="X" theme={theme} disabled={busy} onPress={() => { setConfirmation(null); setError(""); }} />
+        <CommitActionButton label={busy ? "处理中…" : confirmation.action === "rollback" ? "回滚更改" : confirmation.action === "delete" ? "删除文件" : "搁置更改"} icon={confirmation.action === "rollback" ? "Undo2" : confirmation.action === "delete" ? "Trash2" : "Download"} primary danger={confirmation.action !== "shelve"} theme={theme} disabled={busy} loading={busy} onPress={() => void executeAction()} />
       </View>
     </Modal.Content></Modal> : null}
     {sourcePath ? <SourceEditor key={`${workspaceId}:${sourcePath}`} workspaceId={workspaceId} path={sourcePath} theme={theme} onClose={() => setSourcePath(null)} onSaved={() => { setRevision((value) => value + 1); refreshDiff(); }} /> : null}
@@ -479,18 +526,30 @@ const styles = StyleSheet.create({
   addedName: { color: "#07833d" },
   removedName: { color: "#bc3145" },
   empty: { padding: 12, color: "#6b7280" },
-  footer: { borderTopWidth: 1, borderColor: "#e5e7eb", padding: 10, gap: 7 },
+  footer: { borderTopWidth: 1, borderColor: "#e5e7eb", padding: 12, gap: 8 },
   summaryRow: { minHeight: 24, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
   summaryCount: { color: "#6b7280", fontSize: 12 },
   summaryDetails: { flexDirection: "row", alignItems: "center", gap: 12 },
   summaryModified: { color: "#1641ad" },
-  message: { minHeight: 58, padding: 8, borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 5, textAlignVertical: "top", fontSize: 13, color: "#111827" },
+  message: { outlineWidth: 0, minHeight: 64, padding: 10, borderWidth: 1, borderRadius: 8, textAlignVertical: "top", fontSize: 13, lineHeight: 20 },
   actions: { flexDirection: "row", justifyContent: "flex-end", gap: 8 },
-  push: { backgroundColor: "#fff", borderWidth: 1, borderColor: "#1664d9", paddingHorizontal: 18, paddingVertical: 7, borderRadius: 5 },
-  pushText: { color: "#1664d9", fontWeight: "600" },
-  commit: { backgroundColor: "#1664d9", paddingHorizontal: 18, paddingVertical: 8, borderRadius: 5 },
-  disabled: { opacity: 0.65 },
-  commitText: { color: "#fff", fontWeight: "600" },
+  actionButton: { minHeight: 32, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingHorizontal: 12, borderRadius: 6, borderWidth: 1 },
+  compactButton: { minHeight: 28, paddingHorizontal: 4, gap: 3, borderWidth: 0 },
+  actionLabel: { fontSize: 12, lineHeight: 18, fontWeight: "500" },
+  feedback: { flexDirection: "row", alignItems: "center", gap: 8, padding: 8, borderWidth: 1, borderRadius: 8 },
+  resultFeedback: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 2 },
+  confirmContent: { padding: 20, gap: 12 },
+  confirmDescription: { fontSize: 13, lineHeight: 21 },
+  confirmFiles: { borderWidth: 1, borderRadius: 8, padding: 12, gap: 8 },
+  confirmCaption: { fontSize: 12, lineHeight: 18 },
+  confirmFileList: { maxHeight: 180 },
+  confirmFileRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 4 },
+  confirmPath: { flex: 1, minWidth: 0, fontSize: 12, lineHeight: 18 },
+  confirmNote: { flexDirection: "row", alignItems: "center", gap: 6 },
+  confirmActions: { flexDirection: "row", justifyContent: "flex-end", gap: 8, borderTopWidth: 1, paddingTop: 16, marginTop: 4 },
+  feedbackText: { flex: 1, minWidth: 0, fontSize: 12, lineHeight: 18 },
+  dismissFeedback: { width: 24, height: 24, alignItems: "center", justifyContent: "center" },
+  disabled: { opacity: 0.45 },
   error: { color: "#b91c1c", fontSize: 12 },
   result: { color: "#15803d", fontSize: 12 },
 });
