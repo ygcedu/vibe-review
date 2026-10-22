@@ -120,6 +120,9 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
   const [currentBranch, setCurrentBranch] = useState("");
   const [nowMs, setNowMs] = useState(Date.now());
   const [branch, setBranch] = useState("");
+  const branchTreeRef = useRef<View>(null);
+  const branchNavigation = useRef(branch);
+  branchNavigation.current = branch;
   const [searchText, setSearchText] = useState("");
   const [query, setQuery] = useState("");
   const [skip, setSkip] = useState(0);
@@ -175,6 +178,32 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
     return () => node.removeEventListener("keydown", keydown);
   }, []);
 
+
+  useEffect(() => {
+    if (Platform.OS !== "web" || !branchTreeRef.current) return;
+    const node = branchTreeRef.current as unknown as HTMLElement;
+    node.tabIndex = 0;
+    node.style.setProperty("outline", "none", "important");
+    const keydown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+      if (event.target instanceof Element && event.target.closest('input, textarea, [contenteditable]:not([contenteditable="false"]), [role="menu"], [role="dialog"]')) return;
+      const rows = Array.from(node.querySelectorAll<HTMLElement>("[data-history-branch]"));
+      if (!rows.length) return;
+      event.preventDefault(); event.stopPropagation();
+      const focused = event.target instanceof Element ? event.target.closest("[data-history-branch]") : null;
+      const index = focused ? rows.indexOf(focused as HTMLElement) : rows.findIndex((row) => row.dataset.historyBranch === branchNavigation.current);
+      const next = index < 0 ? 0 : Math.max(0, Math.min(rows.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)));
+      const row = rows[next];
+      const name = row.dataset.historyBranch!;
+      branchNavigation.current = name;
+      setBranch(name); setSkip(0);
+      row.focus({ preventScroll: true });
+      row.scrollIntoView({ block: "nearest", inline: "nearest" });
+    };
+    node.addEventListener("keydown", keydown);
+    return () => node.removeEventListener("keydown", keydown);
+  }, []);
 
   useEffect(() => {
     const timer = setInterval(() => setNowMs(Date.now()), 30_000);
@@ -252,7 +281,12 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
     return <ContextMenu key={`${group}/${node.fullName}`} theme={props.theme} compact={props.layout.compact} label={node.fullName} items={[
       { id: "history", label: "查看历史", icon: "GitBranch", onSelect: () => chooseBranch(node.fullName) },
       { id: "copy", label: group === "tag" ? "复制标签名称" : "复制分支名称", icon: "Copy", onSelect: () => copyText(node.fullName) },
-    ]}><Pressable key={`${group}/${node.fullName}`} accessibilityRole="button" accessibilityLabel={`查看${group === "tag" ? "标签" : "分支"} ${node.fullName}`} accessibilityState={{ selected: branch === node.fullName }} onPress={() => chooseBranch(node.fullName)} style={[{ flex: 1 }, styles.branchRow, branch === node.fullName && styles.branchSelected]}>
+    ]}><Pressable key={`${group}/${node.fullName}`} ref={(row) => {
+      if (Platform.OS !== "web" || !row) return;
+      const element = row as unknown as HTMLElement;
+      element.dataset.historyBranch = node.fullName;
+      element.style.setProperty("outline", "none", "important");
+    }} accessibilityRole="button" accessibilityLabel={`查看${group === "tag" ? "标签" : "分支"} ${node.fullName}`} accessibilityState={{ selected: branch === node.fullName }} onPress={() => chooseBranch(node.fullName)} style={[{ flex: 1 }, styles.branchRow, branch === node.fullName && styles.branchSelected]}>
       <View style={styles.branchIndent} />
       <View style={styles.branchIcon}>{isCurrent && isMain ? <Image source={{ uri: CURRENT_BRANCH_ICON }} style={styles.currentBranchIcon} /> : isMain ? <Text style={styles.mainBranchIcon}>★</Text> : <Icon name={group === "tag" || isCurrent ? "Tag" : "GitBranch"} size={16} color={isCurrent ? colors.accent : colors.foregroundMuted} />}</View>
       <Text style={[styles.branchLeafName, branch === node.fullName && styles.activeBranch]} numberOfLines={1}>{node.name}</Text>
@@ -307,7 +341,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
       </View>
       <View style={styles.bottomViewport}>
       <View style={[styles.columns, { height: Math.max(0, bottomHeight - 64) }]}>
-        <View style={[styles.sidebar, { width: resolvedBranchColumnWidth }]}>
+        <View ref={branchTreeRef} style={[styles.sidebar, { width: resolvedBranchColumnWidth }]}>
           <View style={[styles.branchSearchRow, focusedSearch === "branch" && { borderColor: colors.accent }]}><Icon name="Search" size={16} color={colors.foregroundMuted} /><TextInput ref={borderOnlyFocus} accessibilityLabel="搜索分支或标签" onFocus={() => setFocusedSearch("branch")} onBlur={() => setFocusedSearch(null)} placeholderTextColor={colors.foregroundMuted} value={branchSearch} onChangeText={setBranchSearch} placeholder="搜索分支或标签" style={styles.branchSearchInput} /></View>
           <ScrollView style={styles.sidebarScroll}>
             {(["local", "remote", "tag"] as const).map((group) => {
