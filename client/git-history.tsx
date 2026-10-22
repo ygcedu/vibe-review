@@ -4,7 +4,7 @@ import { ToolbarButton } from "./components/toolbar-button";
 import { ContextMenu } from "./components/context-menu";
 import { copyText } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Image, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type StyleProp, type ViewStyle } from "react-native";
 import { useRpc, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { gitCommitDetailRpc, gitHistoryRpc, type GitCommit as Commit, type GitBranch as Branch, type ChangedFile } from "../shared/git-history";
@@ -22,8 +22,9 @@ function borderOnlyFocus(input: TextInput | null) {
   (input as unknown as HTMLElement).style.setProperty("outline", "none", "important");
 }
 
-function ResizeHandle({ direction, label, onResize, color }: { color: string; direction: "horizontal" | "vertical"; label: string; onResize: (delta: number) => void }) {
+function ResizeHandle({ direction, label, onResize, color, style, subtle = false }: { style?: StyleProp<ViewStyle>; subtle?: boolean; color: string; direction: "horizontal" | "vertical"; label: string; onResize: (delta: number) => void }) {
   const ref = useRef<View>(null);
+  const [hovered, setHovered] = useState(false);
   const resizeRef = useRef(onResize);
   resizeRef.current = onResize;
   useEffect(() => {
@@ -67,16 +68,22 @@ function ResizeHandle({ direction, label, onResize, color }: { color: string; di
       event.preventDefault(); event.stopPropagation();
       resizeRef.current(event.key === positive ? 8 : -8);
     };
+    const enter = () => setHovered(true);
+    const leave = () => setHovered(false);
+    node.addEventListener("mouseenter", enter);
+    node.addEventListener("mouseleave", leave);
     node.addEventListener("keydown", keydown);
     node.addEventListener("pointerdown", down);
     return () => {
       node.removeEventListener("pointerdown", down);
       node.removeEventListener("keydown", keydown);
+      node.removeEventListener("mouseenter", enter);
+      node.removeEventListener("mouseleave", leave);
       stopDragging?.();
     };
   }, [direction]);
-  return <View ref={ref} accessibilityRole="adjustable" accessibilityLabel={label} style={direction === "vertical" ? baseStyles.verticalLineSplitter : baseStyles.horizontalLineSplitter}>
-    <View style={[direction === "vertical" ? baseStyles.splitterLine : baseStyles.splitterLineHorizontal, { backgroundColor: color }]} />
+  return <View ref={ref} accessibilityRole="adjustable" accessibilityLabel={label} style={[direction === "vertical" ? baseStyles.verticalLineSplitter : baseStyles.horizontalLineSplitter, style]}>
+    <View style={[direction === "vertical" ? baseStyles.splitterLine : baseStyles.splitterLineHorizontal, { backgroundColor: subtle && !hovered ? "transparent" : color }]} />
   </View>;
 }
 
@@ -473,17 +480,6 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
           <View style={styles.logToolbar}><View style={[styles.commitSearchRow, focusedSearch === "commit" && { borderColor: colors.accent }]}><Icon name="Search" size={15} color={colors.foregroundMuted} /><TextInput ref={borderOnlyFocus} accessibilityLabel="搜索提交说明" value={searchText} onChangeText={setSearchText} onFocus={() => setFocusedSearch("commit")} onBlur={() => setFocusedSearch(null)} placeholder="搜索提交说明" placeholderTextColor={colors.foregroundMuted} style={styles.search} /></View></View>
           <ScrollView horizontal style={styles.logTableViewport} contentContainerStyle={styles.logTableScroll}>
           <View style={{ width: commitTableWidth, minHeight: 0 }}>
-          <View style={styles.commitColumnHeader}>
-            <Text style={[styles.commitColumnLabel, { width: commitColumns[0] }]}>作者</Text>
-            <ResizeHandle color={colors.border} direction="vertical" label="调整作者列宽" onResize={(delta) => resizeCommitColumn(0, delta)} />
-            <View style={{ width: 24 }} />
-            <Text style={[styles.commitColumnLabel, { width: commitColumns[1] }]}>提交说明</Text>
-            <ResizeHandle color={colors.border} direction="vertical" label="调整提交说明列宽" onResize={(delta) => resizeCommitColumn(1, delta)} />
-            <Text style={[styles.commitColumnLabel, { width: commitColumns[2] }]}>时间</Text>
-            <ResizeHandle color={colors.border} direction="vertical" label="调整时间列宽" onResize={(delta) => resizeCommitColumn(2, delta)} />
-            <Text style={[styles.commitColumnLabel, { width: commitColumns[3] }]}>Hash</Text>
-            <ResizeHandle color={colors.border} direction="vertical" label="调整 Hash 列宽" onResize={(delta) => resizeCommitColumn(3, delta)} />
-          </View>
           <ScrollView style={styles.log}>
             {commits.map((item) => {
               return <ContextMenu key={item.hash} theme={props.theme} compact={props.layout.compact} label={item.subject} items={[
@@ -515,6 +511,14 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
             {hasMore ? <Pressable accessibilityRole="button" onPress={() => { if (!loading) setSkip((value) => value + 50); }} style={styles.loadMore}><Text style={styles.loadMoreText}>{loading ? "加载中…" : "加载更多提交"}</Text></Pressable> : null}
             {!loading && commits.length === 0 ? <Text style={styles.empty}>没有找到提交记录</Text> : null}
           </ScrollView>
+          {[
+            { label: "调整作者列宽", left: 10 + commitColumns[0] },
+            { label: "调整提交说明列宽", left: 40 + commitColumns[0] + commitColumns[1] },
+            { label: "调整时间列宽", left: 46 + commitColumns[0] + commitColumns[1] + commitColumns[2] },
+            { label: "调整 Hash 列宽", left: 52 + commitColumns[0] + commitColumns[1] + commitColumns[2] + commitColumns[3] },
+          ].map(({ label, left }, index) => <View key={label} style={{ position: "absolute", left, top: 0, bottom: 0, width: SPLITTER_SIZE, zIndex: 2 }}>
+            <ResizeHandle color={colors.border} direction="vertical" label={label} subtle style={{ flex: 1 }} onResize={(delta) => resizeCommitColumn(index, delta)} />
+          </View>)}
           </View></ScrollView>
         </View>
         <ResizeHandle color={colors.border} direction="vertical" label="调整提交列表宽度" onResize={(delta) => setLogColumnWidth((width) => Math.max(minimumLogWidth, Math.min(maximumLogWidth, Math.max(minimumLogWidth, Math.min(maximumLogWidth, width ?? resolvedLogColumnWidth)) + delta)))} />
@@ -611,8 +615,6 @@ function historyStyles(colors: PluginWorkspacePanelProps["theme"]["colors"]) {
     search: { flex: 1, minWidth: 0, fontSize: 12, color: colors.foreground, outlineWidth: 0, paddingVertical: 0 },
     logTableViewport: { flex: 1, minHeight: 0 },
     logTableScroll: { flexGrow: 1, alignItems: "stretch" },
-    commitColumnHeader: { height: 26, flexDirection: "row", alignItems: "stretch", paddingLeft: 10, paddingRight: 12, borderBottomWidth: 1, borderColor: colors.border },
-    commitColumnLabel: { fontSize: 10, lineHeight: 25, color: colors.foregroundMuted, flexShrink: 0 },
     commitRow: { flex: 1, flexDirection: "row", alignItems: "center", height: 36, paddingLeft: 10, paddingRight: 12, gap: 0 },
     graph: { ...baseStyles.graph, width: 24, height: 36 },
     graphLine: { ...baseStyles.graphLine, width: 1, backgroundColor: colors.border },
