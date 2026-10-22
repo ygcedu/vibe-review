@@ -1,3 +1,4 @@
+import { useKeyboardTree } from "./components/use-keyboard-tree";
 import { ToolbarButton } from "./components/toolbar-button";
 import { SourceEditor } from "./components/source-editor";
 import { Modal } from "@getpaseo/plugin/client/react-native";
@@ -114,6 +115,7 @@ function TrackedDropZone({ children, workspaceId, onFiles }: { children: ReactNo
 export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPreview, onOpenShelfDiff, theme, layout }: PluginWorkspacePanelProps & { onFilePreview: (selection: Selection) => void; externalPreview?: Selection | null; onOpenShelfDiff: () => void }) {
   const [toolbarWidth, setToolbarWidth] = useState(0);
   const [tab, setTab] = useState<"commit" | "shelf">("commit");
+  const tree = useKeyboardTree(workspaceId);
   const prepareAction = useRpc(workspaceChangePreviewRpc);
   const applyAction = useRpc(workspaceChangeApplyRpc);
   const undoAction = useRpc(workspaceChangeUndoRpc);
@@ -271,15 +273,15 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
     else next.add(title);
     return next;
   });
-  const renderNodes = (nodes: TreeNode[], group: { title: string }, depth: number): React.ReactNode[] => nodes.map((node) => {
+  const renderNodes = (nodes: TreeNode[], group: { title: string }, depth: number, parent = `group:${group.title}`): React.ReactNode[] => nodes.map((node) => {
     if (node.kind === "folder") {
       const key = `${group.title}:${node.path}`;
       const isCollapsed = collapsed.has(key);
       const row = <>
-        <Pressable accessibilityRole="button" accessibilityLabel={`${isCollapsed ? "展开" : "折叠"} ${node.path}`} accessibilityState={{ expanded: !isCollapsed }} onPress={() => toggleFolder(key)} style={styles.chevron}>
+        <Pressable accessibilityRole="button" accessibilityLabel={`${isCollapsed ? "展开" : "折叠"} ${node.path}`} onFocus={() => tree.select(key)} accessibilityState={{ expanded: !isCollapsed }} onPress={() => toggleFolder(key)} style={styles.chevron}>
           <Icon name={isCollapsed ? "ChevronRight" : "ChevronDown"} size={15} color="#64748b" />
         </Pressable>
-        <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: checkboxState(node.files, selectedPaths) === "all" }} accessibilityLabel={`${checkboxState(node.files, selectedPaths) === "all" ? "取消选择" : "选择"} ${node.path} 下的文件`} onPress={() => toggleSelection(node.files)} style={styles.checkbox}>
+        <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: checkboxState(node.files, selectedPaths) === "all" }} accessibilityLabel={`${checkboxState(node.files, selectedPaths) === "all" ? "取消选择" : "选择"} ${node.path} 下的文件`} onFocus={() => tree.select(key)} onPress={() => toggleSelection(node.files)} style={styles.checkbox}>
           <Icon name={checkboxIcon(checkboxState(node.files, selectedPaths))} size={17} color="#64748b" />
         </Pressable>
         <ContextMenu theme={theme} compact={layout.compact} label={node.path} style={styles.fileContent} items={[
@@ -289,23 +291,23 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
           { id: "copy", label: "复制目录路径", icon: "Copy", onSelect: () => copyText(node.path) },
           { id: "toggle", label: isCollapsed ? "展开目录" : "折叠目录", onSelect: () => toggleFolder(key) },
           { id: "select", label: checkboxState(node.files, selectedPaths) === "all" ? "取消选择目录下的文件" : "选择目录下的文件", onSelect: () => toggleSelection(node.files) },
-        ]}><Pressable accessibilityRole="button" onPress={() => toggleFolder(key)} style={styles.fileButton}>
+        ]}><Pressable ref={(row) => tree.bind(row, key, parent, { expanded: !isCollapsed, toggle: () => toggleFolder(key), check: () => toggleSelection(node.files) })} accessibilityRole="button" accessibilityLabel={`${isCollapsed ? "展开" : "折叠"} ${node.path} 目录`} onPress={() => toggleFolder(key)} style={styles.fileButton}>
           <View style={styles.fileIcon}><Icon name="Folder" size={16} color="#6b7280" /></View>
           <Text style={[styles.folderName, group.title === "未跟踪" && styles.untrackedName]} numberOfLines={1}>{node.name}</Text>
           <Text style={styles.count} numberOfLines={1}>{node.files.length} 个文件</Text>
         </Pressable></ContextMenu>
       </>;
-      const rowStyle = [styles.fileRow, { paddingLeft: 29 + depth * 20 }];
+      const rowStyle = [styles.fileRow, { paddingLeft: 29 + depth * 20 }, tree.activeKey === key && styles.active];
       return <View key={key}>
         {group.title === "未跟踪" ? <DraggableRow workspaceId={workspaceId} paths={node.files.map((file) => file.path)} style={rowStyle}>{row}</DraggableRow> : <View style={rowStyle}>{row}</View>}
-        {!isCollapsed ? renderNodes(node.children, group, depth + 1) : null}
+        {!isCollapsed ? renderNodes(node.children, group, depth + 1, key) : null}
       </View>;
     }
     const file = node.file;
     const preview = () => { setActivePath(file.path); onFilePreview({ path: file.path, staged: !file.unstaged && file.staged, status: file.untracked ? "??" : file.status }); };
     const row = <>
       <View style={styles.chevron} />
-      <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: selectedPaths.has(file.path) }} accessibilityLabel={`${selectedPaths.has(file.path) ? "取消选择" : "选择"} ${file.path} 用于提交`} onPress={() => toggleSelection([file])} style={styles.checkbox}>
+      <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: selectedPaths.has(file.path) }} accessibilityLabel={`${selectedPaths.has(file.path) ? "取消选择" : "选择"} ${file.path} 用于提交`} onFocus={() => { tree.select(`${group.title}:file:${file.path}`); setActivePath(file.path); }} onPress={() => toggleSelection([file])} style={styles.checkbox}>
         <Icon name={checkboxIcon(checkboxState([file], selectedPaths))} size={17} color="#64748b" />
       </Pressable>
       <ContextMenu theme={theme} compact={layout.compact} label={file.path} style={styles.fileContent} items={[
@@ -320,12 +322,12 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
         { id: "refresh", label: "刷新", icon: "RefreshCw", disabled: busy, onSelect: () => setRevision((value) => value + 1) },
         { id: "delete-separator", separator: true },
         { id: "delete", label: "删除…", icon: "Trash2", destructive: true, disabled: busy || file.status.includes("D"), onSelect: () => requestAction("delete", [file]) },
-      ]}><Pressable accessibilityRole="button" accessibilityLabel={`查看 ${file.path} 的差异`} onPress={preview} style={styles.fileButton}>
+      ]}><Pressable ref={(row) => tree.bind(row, `${group.title}:file:${file.path}`, parent, { check: () => toggleSelection([file]), onSelect: () => setActivePath(file.path) })} accessibilityRole="button" accessibilityLabel={`查看 ${file.path} 的差异`} onPress={preview} style={styles.fileButton}>
         <View style={styles.fileIcon}><FileTypeIcon fileName={node.name} /></View>
         <Text style={[styles.path, fileNameColor(file)]} numberOfLines={1}>{node.name}</Text>
       </Pressable></ContextMenu>
     </>;
-    const rowStyle = [styles.fileRow, { paddingLeft: 29 + depth * 20 }, externalPreview?.path === file.path && styles.active];
+    const rowStyle = [styles.fileRow, { paddingLeft: 29 + depth * 20 }, (tree.activeKey === `${group.title}:file:${file.path}` || (!tree.activeKey && externalPreview?.path === file.path)) && styles.active];
     return group.title === "未跟踪"
       ? <DraggableRow key={`${group.title}:${file.path}`} workspaceId={workspaceId} paths={[file.path]} style={rowStyle}>{row}</DraggableRow>
       : <View key={`${group.title}:${file.path}`} style={rowStyle}>{row}</View>;
@@ -357,17 +359,17 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
         }, false],
       ] as const).map(([label, icon, onPress, disabled], index) => <ToolbarButton key={index} label={label} icon={icon} onPress={onPress} disabled={disabled} theme={theme} boundary={{ width: toolbarWidth }} />)}
     </View>
-    <ScrollView style={styles.listExpanded}>
+    <View ref={tree.rootRef} style={styles.listExpanded}><ScrollView style={styles.listExpanded}>
       {groups.map((group) => {
         const isCollapsed = collapsedGroups.has(group.title);
         const header = <>
-          <Pressable accessibilityRole="button" accessibilityLabel={`${isCollapsed ? "展开" : "折叠"}${group.title}`} accessibilityState={{ expanded: !isCollapsed }} onPress={() => toggleGroup(group.title)} style={styles.chevron}>
+          <Pressable accessibilityRole="button" accessibilityLabel={`${isCollapsed ? "展开" : "折叠"}${group.title}`} accessibilityState={{ expanded: !isCollapsed }} onFocus={() => tree.select(`group:${group.title}`)} onPress={() => toggleGroup(group.title)} style={styles.chevron}>
             <Icon name={isCollapsed ? "ChevronRight" : "ChevronDown"} size={15} color="#64748b" />
           </Pressable>
-          <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: checkboxState(group.files, selectedPaths) === "all" }} accessibilityLabel={`${checkboxState(group.files, selectedPaths) === "all" ? "取消选择" : "选择"}全部${group.title}文件用于提交`} onPress={() => toggleSelection(group.files)} disabled={group.files.length === 0} style={styles.checkbox}>
+          <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: checkboxState(group.files, selectedPaths) === "all" }} accessibilityLabel={`${checkboxState(group.files, selectedPaths) === "all" ? "取消选择" : "选择"}全部${group.title}文件用于提交`} onFocus={() => tree.select(`group:${group.title}`)} onPress={() => toggleSelection(group.files)} disabled={group.files.length === 0} style={styles.checkbox}>
             <Icon name={checkboxIcon(checkboxState(group.files, selectedPaths))} size={17} color="#64748b" />
           </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel={`${isCollapsed ? "展开" : "折叠"}${group.title}`} onPress={() => toggleGroup(group.title)} style={styles.groupButton}>
+          <Pressable ref={(row) => tree.bind(row, `group:${group.title}`, "", { expanded: !isCollapsed, toggle: () => toggleGroup(group.title), check: () => toggleSelection(group.files) })} accessibilityRole="button" accessibilityLabel={`${isCollapsed ? "展开" : "折叠"}${group.title}`} onPress={() => toggleGroup(group.title)} style={styles.groupButton}>
             <Text style={styles.group}>{group.title}  {group.files.length} 个文件</Text>
           </Pressable>
         </>;
@@ -381,8 +383,8 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
             { id: "delete", label: "删除分组内的文件…", icon: "Trash2", destructive: true, disabled: busy || !hasFiles || group.files.some((file) => file.status.includes("D")), onSelect: () => requestAction("delete", group.files) },
           ]}>
             {group.title === "未跟踪" && hasFiles
-              ? <DraggableRow workspaceId={workspaceId} paths={group.files.map((file) => file.path)} style={[styles.groupRow, { flex: 1 }]}>{header}</DraggableRow>
-              : <View style={[styles.groupRow, { flex: 1 }]}>{header}</View>}
+              ? <DraggableRow workspaceId={workspaceId} paths={group.files.map((file) => file.path)} style={[styles.groupRow, { flex: 1 }, tree.activeKey === `group:${group.title}` && styles.active]}>{header}</DraggableRow>
+              : <View style={[styles.groupRow, { flex: 1 }, tree.activeKey === `group:${group.title}` && styles.active]}>{header}</View>}
           </ContextMenu>
           {!isCollapsed ? renderNodes(buildFileTree(group.files, true), group, 0) : null}
         </View>;
@@ -391,7 +393,7 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
           : <View key={group.title}>{content}</View>;
       })}
       {files.length === 0 && !error ? <Text style={styles.empty}>工作区没有待提交的改动</Text> : null}
-    </ScrollView>
+    </ScrollView></View>
     {error || result || undoId ? <View style={styles.feedbackArea}>
       {error ? <View accessibilityRole="alert" accessibilityLiveRegion="polite" style={[styles.feedback, { backgroundColor: theme.colors.surface1, borderColor: theme.colors.border }]}>
         <Icon name="CircleAlert" size={15} color={theme.colors.statusDanger} />
@@ -473,22 +475,24 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
 }
 
 function Shelf({ workspaceId, onOpenDiff, theme, compact }: { workspaceId: string; onOpenDiff: () => void; theme: PluginWorkspacePanelProps["theme"]; compact: boolean }) {
+  const tree = useKeyboardTree(workspaceId);
   const [toolbarWidth, setToolbarWidth] = useState(0);
   const { openTab, tabs, activeTabId } = useGitDiffState(workspaceId);
   const activeTab = tabs.find((tab) => tab.id === activeTabId);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const renderTree = (entry: ShelfEntry, nodes: FileTreeNode<{ path: string }>[], depth = 0): ReactNode[] => nodes.map((node) => {
+  const toggleShelfFolder = (key: string) => setCollapsed((current) => {
+    const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next;
+  });
+  const renderTree = (entry: ShelfEntry, nodes: FileTreeNode<{ path: string }>[], depth = 0, parent = `entry:${entry.id}`): ReactNode[] => nodes.map((node) => {
     if (node.kind === "folder") {
       const key = `${entry.id}:${node.path}`;
       const closed = collapsed.has(key);
       return <View key={key}>
-        <Pressable accessibilityRole="button" accessibilityLabel={`${closed ? "展开" : "折叠"} ${node.path}`} accessibilityState={{ expanded: !closed }} onPress={() => setCollapsed((current) => {
-          const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next;
-        })} style={[styles.fileRow, { paddingLeft: 29 + depth * 20 }]}>
+        <Pressable ref={(row) => tree.bind(row, key, parent, { expanded: !closed, toggle: () => toggleShelfFolder(key) })} accessibilityRole="button" accessibilityLabel={`${closed ? "展开" : "折叠"} ${node.path}`} accessibilityState={{ expanded: !closed }} onPress={() => toggleShelfFolder(key)} style={[styles.fileRow, { paddingLeft: 29 + depth * 20 }, tree.activeKey === key && styles.active]}>
           <View style={styles.chevron}><Icon name={closed ? "ChevronRight" : "ChevronDown"} size={15} color="#64748b" /></View>
           <View style={styles.fileButton}><View style={styles.fileIcon}><Icon name="Folder" size={16} color="#6b7280" /></View><Text style={styles.folderName} numberOfLines={1}>{node.name}</Text><Text style={styles.count}>{node.files.length} 个文件</Text></View>
         </Pressable>
-        {!closed ? renderTree(entry, node.children, depth + 1) : null}
+        {!closed ? renderTree(entry, node.children, depth + 1, key) : null}
       </View>;
     }
     const path = node.file.path;
@@ -496,17 +500,20 @@ function Shelf({ workspaceId, onOpenDiff, theme, compact }: { workspaceId: strin
       openTab({ id: `shelf:${entry.id}:${path}`, source: "shelf", entryId: entry.id, label: entry.message, path });
       onOpenDiff();
     };
-    return <View key={path} style={[styles.fileRow, { paddingLeft: 29 + depth * 20 }, activeTab?.source === "shelf" && activeTab.entryId === entry.id && activeTab.path === path && styles.active]}>
+    return <View key={path} style={[styles.fileRow, { paddingLeft: 29 + depth * 20 }, (tree.activeKey === `${entry.id}:file:${path}` || (!tree.activeKey && activeTab?.source === "shelf" && activeTab.entryId === entry.id && activeTab.path === path)) && styles.active]}>
       <View style={styles.chevron} />
       <ContextMenu theme={theme} compact={compact} label={path} style={styles.fileContent} items={[
         { id: "diff", label: "查看暂存差异", icon: "FileDiff", onSelect: preview },
         { id: "copy", label: "复制文件路径", icon: "Copy", onSelect: () => copyText(path) },
-      ]}><Pressable accessibilityRole="button" accessibilityLabel={`查看暂存 ${path} 的差异`} style={styles.fileButton} onPress={preview}><View style={styles.fileIcon}><FileTypeIcon fileName={node.name} /></View><Text style={styles.path} numberOfLines={1}>{node.name}</Text></Pressable></ContextMenu>
+      ]}><Pressable ref={(row) => tree.bind(row, `${entry.id}:file:${path}`, parent)} accessibilityRole="button" accessibilityLabel={`查看暂存 ${path} 的差异`} style={styles.fileButton} onPress={preview}><View style={styles.fileIcon}><FileTypeIcon fileName={node.name} /></View><Text style={styles.path} numberOfLines={1}>{node.name}</Text></Pressable></ContextMenu>
     </View>;
   });
   const getShelf = useRpc(workspaceGitShelfRpc);
   const [entries, setEntries] = useState<ShelfEntry[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggleEntry = (id: string) => setExpanded((current) => {
+    const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next;
+  });
   const [revision, setRevision] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -523,14 +530,14 @@ function Shelf({ workspaceId, onOpenDiff, theme, compact }: { workspaceId: strin
     <View onLayout={(event) => setToolbarWidth(event.nativeEvent.layout.width)} style={[styles.operationBar, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface0 }]}>
       <ToolbarButton label="刷新 Shelf" icon="RefreshCw" onPress={() => setRevision((value) => value + 1)} disabled={loading} theme={theme} boundary={{ width: toolbarWidth }} />
     </View>
-    <ScrollView style={styles.listExpanded}>
+    <View ref={tree.rootRef} style={styles.listExpanded}><ScrollView style={styles.listExpanded}>
       {loading ? <Text style={styles.empty}>加载暂存内容…</Text> : error ? <Text style={[styles.empty, styles.error]}>{error}</Text> : entries.length === 0 ? <Text style={styles.empty}>没有暂存的更改（Shelf / Git stash）</Text> : entries.map((entry) => <View key={entry.id} style={styles.shelfEntry}>
         <ContextMenu theme={theme} compact={compact} label={entry.message} items={[
           { id: "copy", label: "复制暂存说明", icon: "Copy", onSelect: () => copyText(entry.message) },
           { id: "toggle", label: expanded.has(entry.id) ? "折叠暂存文件" : "展开暂存文件", onSelect: () => setExpanded((current) => {
             const next = new Set(current); if (next.has(entry.id)) next.delete(entry.id); else next.add(entry.id); return next;
           }) },
-        ]}><Pressable accessibilityRole="button" accessibilityLabel={`${expanded.has(entry.id) ? "折叠" : "展开"} ${entry.message}`} accessibilityState={{ expanded: expanded.has(entry.id) }} style={[styles.shelfRow, { flex: 1 }]} onPress={() => setExpanded((current) => {
+        ]}><Pressable ref={(row) => tree.bind(row, `entry:${entry.id}`, "", { expanded: expanded.has(entry.id), toggle: () => toggleEntry(entry.id) })} accessibilityRole="button" accessibilityLabel={`${expanded.has(entry.id) ? "折叠" : "展开"} ${entry.message}`} accessibilityState={{ expanded: expanded.has(entry.id) }} style={[styles.shelfRow, { flex: 1 }, tree.activeKey === `entry:${entry.id}` && styles.active]} onPress={() => setExpanded((current) => {
           const next = new Set(current);
           if (next.has(entry.id)) next.delete(entry.id); else next.add(entry.id);
           return next;
@@ -543,7 +550,7 @@ function Shelf({ workspaceId, onOpenDiff, theme, compact }: { workspaceId: strin
         </Pressable></ContextMenu>
         {expanded.has(entry.id) ? renderTree(entry, buildFileTree(entry.files.map((path) => ({ path })), true)) : null}
       </View>)}
-    </ScrollView>
+    </ScrollView></View>
   </>;
 }
 
