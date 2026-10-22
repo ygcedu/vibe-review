@@ -1,3 +1,4 @@
+import { compareHistoryWithLocal } from "./history-compare.ts";
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -71,5 +72,19 @@ test("checkout blocks dirty worktree both at preview and after preview", async (
   await writeFile(join(cwd, "file.txt"), "dirty\n");
   await assert.rejects(prepareHistoryAction(cwd, first, "checkout"), /未提交改动/);
   await assert.rejects(applyHistoryAction(cwd, preview.token, {}), /未提交改动/);
+  assert.equal((await git(cwd, ["rev-parse", "HEAD"])).trim(), head);
+});
+
+test("compare with local includes staged and unstaged differences without changing the repository", async (t) => {
+  const { cwd, first, head } = await repository(t);
+  await writeFile(join(cwd, "file.txt"), "staged change\n");
+  await git(cwd, ["add", "file.txt"]);
+  await writeFile(join(cwd, "second.txt"), "unstaged change\n");
+  const before = await git(cwd, ["status", "--porcelain"]);
+  const comparison = await compareHistoryWithLocal(cwd, first);
+  assert.deepEqual(comparison.files.map((file) => file.path), ["file.txt", "second.txt"]);
+  assert.match((await compareHistoryWithLocal(cwd, first, "second.txt", true)).diff, /unstaged change/);
+  await assert.rejects(compareHistoryWithLocal(cwd, first, "../outside"), /比较结果/);
+  assert.equal(await git(cwd, ["status", "--porcelain"]), before);
   assert.equal((await git(cwd, ["rev-parse", "HEAD"])).trim(), head);
 });

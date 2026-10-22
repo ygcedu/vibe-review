@@ -24,3 +24,9 @@ export const gitCommitFileDiffRpc = defineRpc({
 export type GitCommit = z.infer<typeof commit>;
 export type GitBranch = z.infer<typeof branch>;
 export type ChangedFile = z.infer<typeof changedFile>;
+
+export const gitCompareLocalRpc = defineRpc({
+  name: "vibe-review.git-compare-local",
+  input: z.object({ workspaceId: z.string(), hash: z.string().regex(/^[a-f0-9]{40,64}$/), path: z.string().optional(), fullContext: z.boolean().optional() }),
+  output: z.object({ files: z.array(changedFile), diff: z.string() }),
+});

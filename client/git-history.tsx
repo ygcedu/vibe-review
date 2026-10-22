@@ -143,7 +143,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
   const [logColumnWidth, setLogColumnWidth] = useState<number | null>(null);
   const [error, setError] = useState("");
 
-  const historyActions = useHistoryActions({ workspaceId, theme: props.theme, onChanged: () => { setSkip(0); setRevision((value) => value + 1); refreshDiff(); } });
+  const historyActions = useHistoryActions({ workspaceId, theme: props.theme, onCompare: openTab, onChanged: () => { setSkip(0); setRevision((value) => value + 1); refreshDiff(); } });
 
   useEffect(() => {
     const timer = setInterval(() => setNowMs(Date.now()), 30_000);

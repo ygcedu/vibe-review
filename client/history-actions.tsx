@@ -1,3 +1,5 @@
+import { HistoryCompare } from "./history-compare";
+import type { DiffTab } from "./git-diff-state";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useRpc, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
@@ -14,11 +16,12 @@ const actions: Record<HistoryAction, { title: string; icon: string; description:
 function borderOnlyFocus(node: TextInput | null) {
   if (Platform.OS === "web" && node) (node as unknown as HTMLElement).style.setProperty("outline", "none", "important");
 }
-export function useHistoryActions({ workspaceId, theme, onChanged }: Pick<PluginWorkspacePanelProps, "workspaceId" | "theme"> & { onChanged(): void }) {
+export function useHistoryActions({ workspaceId, theme, onChanged, onCompare }: Pick<PluginWorkspacePanelProps, "workspaceId" | "theme"> & { onChanged(): void; onCompare(tab: DiffTab): void }) {
   const prepare = useRpc(historyActionPreviewRpc);
   const apply = useRpc(historyActionApplyRpc);
   const toast = useToast();
   const colors = theme.colors;
+  const [compareCommit, setCompareCommit] = useState<GitCommit | null>(null);
   const [target, setTarget] = useState<{ commit: GitCommit; action: HistoryAction } | null>(null);
   const [preview, setPreview] = useState<{ token: string; head: string; branch: string; message: string } | null>(null);
   const [value, setValue] = useState("");
@@ -27,7 +30,7 @@ export function useHistoryActions({ workspaceId, theme, onChanged }: Pick<Plugin
   const [busy, setBusy] = useState(false);
   const [focused, setFocused] = useState(false);
   const request = useRef(0);
-  useEffect(() => { request.current++; setTarget(null); setPreview(null); }, [workspaceId]);
+  useEffect(() => { request.current++; setTarget(null); setPreview(null); setCompareCommit(null); }, [workspaceId]);
   const open = async (commit: GitCommit, action: HistoryAction) => {
     const seq = ++request.current;
     setTarget({ commit, action }); setPreview(null); setValue(""); setError(""); setLoading(true);
@@ -71,13 +74,16 @@ export function useHistoryActions({ workspaceId, theme, onChanged }: Pick<Plugin
   </Modal.Content></Modal> : null;
   function itemsFor(commit: GitCommit): ContextMenuItem[] {
     return [
+      { id: "compare", label: "与本地比较…", icon: "FileDiff", onSelect: () => setCompareCommit(commit) },
       { id: "checkout", label: "检出此版本…", icon: "GitCommitHorizontal", disabled: busy, onSelect: () => open(commit, "checkout") },
       { id: "ref-separator", separator: true },
       { id: "new-tag", label: "新建标签…", icon: "Tag", disabled: busy, onSelect: () => open(commit, "new-tag") },
       { id: "new-branch", label: "新建分支…", icon: "GitBranch", disabled: busy, onSelect: () => open(commit, "new-branch") },
     ];
   }
-  return { itemsFor, dialog };
+  return { itemsFor, dialog: <>{dialog}{compareCommit ? <HistoryCompare key={compareCommit.hash} workspaceId={workspaceId} theme={theme} commit={compareCommit} onClose={() => setCompareCommit(null)} onFile={(file) => {
+    onCompare({ id: `compare:${compareCommit.hash}:${file.path}`, source: "compare", hash: compareCommit.hash, path: file.path, status: file.status }); setCompareCommit(null);
+  }} /> : null}</> };
 }
 const styles = StyleSheet.create({
   content: { padding: 20, gap: 12 }, description: { fontSize: 13, lineHeight: 21 }, caption: { fontSize: 12, lineHeight: 18 },

@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 export type DiffTab =
+  | { id: string; source: "compare"; path: string; hash: string; status: string }
   | { id: string; source: "shelf"; path: string; entryId: string; label: string; status?: string }
   | { id: string; source: "working"; path: string; staged: boolean; status?: string }
   | { id: string; source: "history"; path: string; hash: string; status: string };

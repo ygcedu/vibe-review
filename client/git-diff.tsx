@@ -4,7 +4,7 @@ import { useRpc, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client"
 import { ContextMenu } from "./components/context-menu";
 import { copyText } from "@getpaseo/plugin/client/react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import { gitCommitFileDiffRpc } from "../shared/git-history";
+import { gitCompareLocalRpc, gitCommitFileDiffRpc } from "../shared/git-history";
 import { workspaceGitShelfDiffRpc, workspaceGitDiffRpc } from "../shared/workspace-commit";
 import { parseDiffFiles } from "./diff/diff";
 import { FileTypeIcon } from "./diff/file-icons";
@@ -72,7 +72,7 @@ function ReorderableTab({ tab, active, onActivate, onClose, onReorder, onNode, t
     <Pressable accessibilityRole="tab" accessibilityLabel={`${tab.source === "working" ? "工作区" : tab.source === "shelf" ? "Shelf" : "历史提交"} ${tab.path}`} accessibilityState={{ selected: active }} onPress={onActivate} style={styles.tabSelect}>
       <FileTypeIcon fileName={tab.path} />
       <Text style={[styles.tabTitle, fileColor(tab.status ?? "M")]} numberOfLines={1}>{tab.path.split("/").at(-1)}</Text>
-      <Text style={styles.tabSource} numberOfLines={1}>{tab.source === "working" ? "工作区" : tab.source === "shelf" ? tab.label : tab.hash.slice(0, 7)}</Text>
+      <Text style={styles.tabSource} numberOfLines={1}>{tab.source === "working" ? "工作区" : tab.source === "shelf" ? tab.label : tab.source === "compare" ? `${tab.hash.slice(0, 7)} → 本地` : tab.hash.slice(0, 7)}</Text>
     </Pressable>
     <Pressable accessibilityRole="button" accessibilityLabel={`关闭 ${tab.path} 标签`} onPress={onClose} onHoverIn={() => setCloseHovered(true)} onHoverOut={() => setCloseHovered(false)} style={[styles.tabClose, closeHovered && styles.tabCloseHovered]}><Icon name="X" size={13} color="#94a3b8" /></Pressable>
   </View></ContextMenu>;
@@ -86,6 +86,7 @@ function fileColor(status: string) {
 
 
 export function GitDiffPanel({ workspaceId, theme, layout }: PluginWorkspacePanelProps) {
+  const compareLocal = useRpc(gitCompareLocalRpc);
   const getFileDiff = useRpc(gitCommitFileDiffRpc);
   const getShelfDiff = useRpc(workspaceGitShelfDiffRpc);
   const getWorkingDiff = useRpc(workspaceGitDiffRpc);
@@ -141,7 +142,9 @@ export function GitDiffPanel({ workspaceId, theme, layout }: PluginWorkspacePane
     setError("");
     setDiff({ tabId: activeTab?.id ?? null, text: "", loading: Boolean(activeTab) });
     if (activeTab) {
-      const request = activeTab.source === "working"
+      const request = activeTab.source === "compare"
+        ? compareLocal({ workspaceId, hash: activeTab.hash, path: activeTab.path })
+        : activeTab.source === "working"
         ? getWorkingDiff({ workspaceId, path: activeTab.path, staged: activeTab.staged })
         : activeTab.source === "shelf" ? getShelfDiff({ workspaceId, entryId: activeTab.entryId, path: activeTab.path })
         : getFileDiff({ workspaceId, hash: activeTab.hash, path: activeTab.path });
@@ -156,7 +159,9 @@ export function GitDiffPanel({ workspaceId, theme, layout }: PluginWorkspacePane
   const parsed = useMemo(() => parseDiffFiles(activeTab?.id === diff.tabId ? diff.text : ""), [activeTab?.id, diff.tabId, diff.text]);
   const loadFullDiff = async () => {
     if (!activeTab) return null;
-    const result = activeTab.source === "working"
+    const result = activeTab.source === "compare"
+      ? await compareLocal({ workspaceId, hash: activeTab.hash, path: activeTab.path, fullContext: true })
+      : activeTab.source === "working"
       ? await getWorkingDiff({ workspaceId, path: activeTab.path, staged: activeTab.staged, fullContext: true })
       : activeTab.source === "shelf" ? await getShelfDiff({ workspaceId, entryId: activeTab.entryId, path: activeTab.path })
       : await getFileDiff({ workspaceId, hash: activeTab.hash, path: activeTab.path, fullContext: true });
@@ -175,14 +180,14 @@ export function GitDiffPanel({ workspaceId, theme, layout }: PluginWorkspacePane
                 <Pressable accessibilityRole="button" accessibilityLabel={`切换到 ${tab.path}`} onPress={() => { setActiveTabId(tab.id); setTabMenuOpen(false); }} style={styles.tabMenuSelect}>
                   <FileTypeIcon fileName={tab.path} />
                   <Text style={[styles.tabMenuTitle, fileColor(tab.status ?? "M")]} numberOfLines={1}>{tab.path.split("/").at(-1)}</Text>
-                  <Text style={styles.tabSource}>{tab.source === "working" ? "工作区" : tab.source === "shelf" ? tab.label : tab.hash.slice(0, 7)}</Text>
+                  <Text style={styles.tabSource}>{tab.source === "working" ? "工作区" : tab.source === "shelf" ? tab.label : tab.source === "compare" ? `${tab.hash.slice(0, 7)} → 本地` : tab.hash.slice(0, 7)}</Text>
                 </Pressable>
                 <Pressable accessibilityRole="button" accessibilityLabel={`关闭 ${tab.path} 标签`} onPress={() => closeTab(tab.id)} style={styles.tabMenuClose}><Icon name="X" size={14} color="#94a3b8" /></Pressable>
               </View>)}
             </ScrollView> : null}
           </View>
           <View style={styles.diffHeader}>
-            <Text style={styles.diffPath} numberOfLines={1}>{activeTab ? `${activeTab.source === "working" ? "Working Diff" : activeTab.source === "shelf" ? "Shelf Diff" : "Repository Diff"}: ${activeTab.path}` : "选择文件查看差异"}</Text>
+            <Text style={styles.diffPath} numberOfLines={1}>{activeTab ? `${activeTab.source === "working" ? "Working Diff" : activeTab.source === "shelf" ? "Shelf Diff" : activeTab.source === "compare" ? `${activeTab.hash.slice(0, 7)} → 本地` : "Repository Diff"}: ${activeTab.path}` : "选择文件查看差异"}</Text>
             {activeTab ? <>
               <View style={styles.diffActions}><DiffOptionButton active={collapseUnchanged} onToggle={() => setCollapseUnchanged((value) => !value)} label="折叠未变更代码" icon="ChevronsDownUp" /><DiffOptionButton active={syncScrolling} onToggle={() => setSyncScrolling((value) => !value)} label="左右同步滚动" icon="ArrowDownUp" /><WrapToggleButton active={wrapLines} onToggle={() => setWrapLines((value) => !value)} /></View>
             </> : null}

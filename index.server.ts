@@ -1,3 +1,4 @@
+import { registerHistoryCompare } from "./server/history-compare";
 import { registerHistoryActions } from "./server/history-actions";
 import { registerSessionHistory } from "./server/session-history";
 import type { PluginHandlerContext, PluginServerContext } from "@getpaseo/plugin/server";
@@ -22,6 +23,7 @@ export default function contribute(server: PluginServerContext) {
   registerSessionHistory(server);
   registerGitHistory(server);
   registerHistoryActions(server);
+  registerHistoryCompare(server);
   registerEditDiff(server);
   const settings = server.registerSettings(llmSettings);
   const verifySettings = server.registerSettings(verificationSettings);
