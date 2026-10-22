@@ -1,3 +1,4 @@
+import { useHistoryActions } from "./history-actions";
 import { ToolbarButton } from "./components/toolbar-button";
 import { ContextMenu } from "./components/context-menu";
 import { copyText } from "@getpaseo/plugin/client/react-native";
@@ -129,7 +130,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
   const [detail, setDetail] = useState<{ message: string; files: ChangedFile[]; containingBranches: string[] } | null>(null);
   const [detailPanelHeight, setDetailPanelHeight] = useState(0);
   const [preferredFilesHeight, setPreferredFilesHeight] = useState<number | null>(null);
-  const { activeTabId, openTab: selectTab } = useGitDiffState(workspaceId);
+  const { activeTabId, openTab: selectTab, refresh: refreshDiff } = useGitDiffState(workspaceId);
   const openTab = (tab: DiffTab) => { selectTab(tab); props.onOpenDiff(); };
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [branchCollapsed, setBranchCollapsed] = useState<Set<string>>(new Set(["remote", "tag"]));
@@ -141,6 +142,8 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
   const [branchColumnWidth, setBranchColumnWidth] = useState<number | null>(null);
   const [logColumnWidth, setLogColumnWidth] = useState<number | null>(null);
   const [error, setError] = useState("");
+
+  const historyActions = useHistoryActions({ workspaceId, theme: props.theme, onChanged: () => { setSkip(0); setRevision((value) => value + 1); refreshDiff(); } });
 
   useEffect(() => {
     const timer = setInterval(() => setNowMs(Date.now()), 30_000);
@@ -297,6 +300,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
                 { id: "detail", label: "查看提交详情", icon: "GitCommitHorizontal", onSelect: () => setSelectedHash(item.hash) },
                 { id: "hash", label: "复制提交 Hash", icon: "Copy", onSelect: () => copyText(item.hash) },
                 { id: "message", label: "复制提交说明", onSelect: async () => { const value = await getDetail({ workspaceId, hash: item.hash }); await copyText(value.message); } },
+                ...historyActions.itemsFor(item),
               ]}><Pressable key={item.hash} accessibilityRole="button" accessibilityLabel={`查看提交 ${item.subject}`} accessibilityState={{ selected: selectedHash === item.hash }} onPress={() => setSelectedHash(item.hash)} onHoverIn={() => setHoveredHash(item.hash)} onHoverOut={() => setHoveredHash(null)} style={({ pressed }) => [styles.commitRow, { backgroundColor: selectedHash === item.hash ? colors.surface2 : hoveredHash === item.hash || pressed ? colors.surface1 : "transparent", borderLeftColor: selectedHash === item.hash ? colors.accent : "transparent" }]}>
                 <Text style={styles.author} numberOfLines={1}>{item.author}</Text>
                 <View style={styles.graph}><View style={styles.graphLine} /><View style={[styles.graphDot, item.parents.length > 1 && styles.mergeDot]} /></View>
@@ -328,6 +332,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
     </View>
       <View style={styles.historyFooter}><Icon name="GitBranch" size={13} color={colors.foregroundMuted} /><Text style={styles.historyBranch} numberOfLines={1}>{currentBranch || "未检测到分支"}</Text></View>
     </View>
+    {historyActions.dialog}
     {error ? <Text style={styles.error} numberOfLines={2}>{error}</Text> : null}
   </View>;
 }

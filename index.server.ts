@@ -1,3 +1,4 @@
+import { registerHistoryActions } from "./server/history-actions";
 import { registerSessionHistory } from "./server/session-history";
 import type { PluginHandlerContext, PluginServerContext } from "@getpaseo/plugin/server";
 import { cancelVerificationRpc, reconcileVerificationRpc, openVerificationRpc, reviewAgentRpc } from "./shared/review";
@@ -20,6 +21,7 @@ export default function contribute(server: PluginServerContext) {
   registerWorkspaceCommit(server);
   registerSessionHistory(server);
   registerGitHistory(server);
+  registerHistoryActions(server);
   registerEditDiff(server);
   const settings = server.registerSettings(llmSettings);
   const verifySettings = server.registerSettings(verificationSettings);
