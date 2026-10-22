@@ -433,7 +433,7 @@ function historyStyles(colors: PluginWorkspacePanelProps["theme"]["colors"]) {
     fileName: { ...baseStyles.fileName, minWidth: 0 },
     added: { color: colors.statusSuccess },
     modified: { color: "#1641ad" },
-    deleted: { color: colors.statusDanger },
+    deleted: { color: "#6c707e" },
     empty: { ...baseStyles.empty, color: colors.foregroundMuted },
     loadMoreText: { ...baseStyles.loadMoreText, color: colors.accent },
     error: { ...baseStyles.error, backgroundColor: colors.surface0, color: colors.statusDanger },
