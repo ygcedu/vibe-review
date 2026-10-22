@@ -9,6 +9,7 @@ import type { GitCommit } from "../shared/git-history";
 import type { ContextMenuItem } from "./components/context-menu";
 
 const actions: Record<HistoryAction, { title: string; icon: string; description: string; field?: "name" | "message"; destructive?: boolean }> = {
+  "cherry-pick": { title: "拣选提交", icon: "GitCommitHorizontal", description: "将此提交的改动应用到当前 HEAD，创建一条新提交。如有冲突或提交为空，会自动中止并恢复。" },
   "checkout": { title: "检出此版本", icon: "GitCommitHorizontal", description: "以分离 HEAD 模式检出所选提交，不移动当前分支。工作区需无未提交改动。" },
   "new-tag": { title: "新建标签", icon: "Tag", description: "在所选提交上创建本地轻量标签，不自动推送。", field: "name" },
   "new-branch": { title: "新建分支", icon: "GitBranch", description: "在所选提交上创建分支，保持当前分支和工作区不变。", field: "name" },
@@ -23,7 +24,8 @@ export function useHistoryActions({ workspaceId, theme, onChanged, onCompare }: 
   const colors = theme.colors;
   const [compareCommit, setCompareCommit] = useState<GitCommit | null>(null);
   const [target, setTarget] = useState<{ commit: GitCommit; action: HistoryAction } | null>(null);
-  const [preview, setPreview] = useState<{ token: string; head: string; branch: string; message: string } | null>(null);
+  const [preview, setPreview] = useState<{ token: string; head: string; branch: string; message: string; parents: string[] } | null>(null);
+  const [mainline, setMainline] = useState(1);
   const [value, setValue] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -33,7 +35,7 @@ export function useHistoryActions({ workspaceId, theme, onChanged, onCompare }: 
   useEffect(() => { request.current++; setTarget(null); setPreview(null); setCompareCommit(null); }, [workspaceId]);
   const open = async (commit: GitCommit, action: HistoryAction) => {
     const seq = ++request.current;
-    setTarget({ commit, action }); setPreview(null); setValue(""); setError(""); setLoading(true);
+    setTarget({ commit, action }); setPreview(null); setMainline(1); setValue(""); setError(""); setLoading(true);
     try {
       const result = await prepare({ workspaceId, hash: commit.hash, action });
       if (request.current !== seq) return;
@@ -48,7 +50,7 @@ export function useHistoryActions({ workspaceId, theme, onChanged, onCompare }: 
     const seq = request.current;
     setBusy(true); setError("");
     try {
-      const result = await apply({ workspaceId, token: preview.token, [actions[target.action].field ?? "name"]: value });
+      const result = await apply({ workspaceId, token: preview.token, mainline, [actions[target.action].field ?? "name"]: value });
       if (seq !== request.current) return;
       setTarget(null); setPreview(null); onChanged(); toast.show(result.summary, { variant: "success" });
     } catch (reason) { if (seq === request.current) setError(String(reason)); }
@@ -66,6 +68,10 @@ export function useHistoryActions({ workspaceId, theme, onChanged, onCompare }: 
       <Text style={[styles.caption, { color: colors.foregroundMuted }]}>{config.field === "name" ? "名称" : "提交说明"}</Text>
       <TextInput ref={borderOnlyFocus} autoFocus editable={!busy} accessibilityLabel={config.field === "name" ? "名称" : "提交说明"} value={value} onChangeText={setValue} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} multiline={config.field === "message"} placeholder={config.field === "name" ? "输入名称…" : "填写提交说明…"} placeholderTextColor={colors.foregroundMuted} style={[styles.input, { minHeight: config.field === "message" ? 100 : 36, color: colors.foreground, backgroundColor: colors.surface1, borderColor: focused ? colors.accent : colors.border }]} />
     </> : null}
+    {target.action === "cherry-pick" && preview && preview.parents.length > 1 ? <View style={{ gap: 8 }}>
+      <Text style={[styles.caption, { color: colors.foregroundMuted }]}>合并提交 · 选择主线父提交（应用相对此父提交的改动）</Text>
+      {preview.parents.map((parent, index) => <Pressable key={parent} accessibilityRole="radio" accessibilityState={{ checked: mainline === index + 1 }} disabled={busy} onPress={() => setMainline(index + 1)} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}><Icon name={mainline === index + 1 ? "CircleDot" : "Circle"} size={14} color={colors.accent} /><Text style={[styles.caption, { color: colors.foreground }]}>父提交 {index + 1} · {parent.slice(0, 8)}</Text></Pressable>)}
+    </View> : null}
     {error ? <Text accessibilityRole="alert" selectable style={[styles.caption, { color: colors.statusDanger }]}>{error}</Text> : null}
     <View style={styles.footer}>
       <Pressable accessibilityRole="button" disabled={busy} onPress={close} style={({ pressed }) => button(false, pressed)}><Text style={[styles.label, { color: colors.foreground }]}>取消</Text></Pressable>
@@ -74,6 +80,7 @@ export function useHistoryActions({ workspaceId, theme, onChanged, onCompare }: 
   </Modal.Content></Modal> : null;
   function itemsFor(commit: GitCommit): ContextMenuItem[] {
     return [
+      { id: "cherry-pick", label: "拣选提交（Cherry-Pick）…", icon: "GitCommitHorizontal", disabled: busy, onSelect: () => open(commit, "cherry-pick") },
       { id: "compare", label: "与本地比较…", icon: "FileDiff", onSelect: () => setCompareCommit(commit) },
       { id: "checkout", label: "检出此版本…", icon: "GitCommitHorizontal", disabled: busy, onSelect: () => open(commit, "checkout") },
       { id: "ref-separator", separator: true },

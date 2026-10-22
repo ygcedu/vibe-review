@@ -88,3 +88,28 @@ test("compare with local includes staged and unstaged differences without changi
   assert.equal(await git(cwd, ["status", "--porcelain"]), before);
   assert.equal((await git(cwd, ["rev-parse", "HEAD"])).trim(), head);
 });
+
+test("cherry-pick applies a selected commit to current branch", async (t) => {
+  const { cwd, first, head } = await repository(t);
+  await git(cwd, ["checkout", "-b", "destination", first]);
+  const preview = await prepareHistoryAction(cwd, head, "cherry-pick");
+  await applyHistoryAction(cwd, preview.token, {});
+  assert.equal(await git(cwd, ["show", "HEAD:second.txt"]), "second\n");
+  assert.equal((await git(cwd, ["branch", "--show-current"])).trim(), "destination");
+});
+
+test("conflicting cherry-pick aborts and restores original HEAD and files", async (t) => {
+  const { cwd, first } = await repository(t);
+  await writeFile(join(cwd, "file.txt"), "source\n");
+  await git(cwd, ["commit", "-am", "Source"]);
+  const source = (await git(cwd, ["rev-parse", "HEAD"])).trim();
+  await git(cwd, ["checkout", "-b", "destination", first]);
+  await writeFile(join(cwd, "file.txt"), "destination\n");
+  await git(cwd, ["commit", "-am", "Destination"]);
+  const before = (await git(cwd, ["rev-parse", "HEAD"])).trim();
+  const preview = await prepareHistoryAction(cwd, source, "cherry-pick");
+  await assert.rejects(applyHistoryAction(cwd, preview.token, {}), /拣选未完成/);
+  assert.equal((await git(cwd, ["rev-parse", "HEAD"])).trim(), before);
+  assert.equal((await git(cwd, ["status", "--porcelain"])).trim(), "");
+  assert.equal(await git(cwd, ["show", "HEAD:file.txt"]), "destination\n");
+});

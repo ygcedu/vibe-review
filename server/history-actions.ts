@@ -16,12 +16,13 @@ export async function prepareHistoryAction(cwd: string, hash: string, action: Hi
   if (!/^[a-f0-9]{40,64}$/.test(hash)) throw new Error("无效提交 Hash");
   if ((await git(cwd, ["rev-parse", "--verify", `${hash}^{commit}`])).trim() !== hash) throw new Error("提交不存在");
   const { head, branch } = await historyHead(cwd);
-  if (action === "checkout") await requireCleanHistoryWorktree(cwd);
+  if (action === "checkout" || action === "cherry-pick") await requireCleanHistoryWorktree(cwd);
   const message = (await git(cwd, ["show", "-s", "--format=%B", hash])).trimEnd();
   for (const [token, preview] of previews) if (preview.expires < Date.now()) previews.delete(token);
   const token = randomUUID();
   previews.set(token, { cwd, hash, action, head, branch, expires: Date.now() + 600_000 });
-  return { token, head, branch: branch.replace(/^refs\/heads\//, ""), message };
+  const parents = (await git(cwd, ["show", "-s", "--format=%P", hash])).trim().split(" ").filter(Boolean);
+  return { token, head, parents, branch: branch.replace(/^refs\/heads\//, ""), message };
 }
 export async function requireCleanHistoryWorktree(cwd: string) {
   for (const marker of ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply", "sequencer"]) {
@@ -36,7 +37,7 @@ export async function checkedRefName(cwd: string, name: string | undefined, name
   await git(cwd, ["check-ref-format", `refs/${namespace}/${name}`]).catch(() => { throw new Error("名称包含 Git 不允许的字符"); });
   return name;
 }
-export async function applyHistoryAction(cwd: string, token: string, input: { name?: string; message?: string }) {
+export async function applyHistoryAction(cwd: string, token: string, input: { name?: string; message?: string; mainline?: number }) {
   const preview = previews.get(token);
   if (!preview || preview.cwd !== cwd || preview.expires < Date.now()) throw new Error("操作预览已过期，请重新打开菜单");
   if (running.has(cwd)) throw new Error("当前工作区已有 Git 操作正在执行");
@@ -46,6 +47,22 @@ export async function applyHistoryAction(cwd: string, token: string, input: { na
     if (current.head !== preview.head || current.branch !== preview.branch) throw new Error("当前分支或 HEAD 已变化，请重新打开操作");
     let summary: string;
     switch (preview.action) {
+      case "cherry-pick": {
+        await requireCleanHistoryWorktree(cwd);
+        const parents = (await git(cwd, ["show", "-s", "--format=%P", preview.hash])).trim().split(" ").filter(Boolean);
+        if (parents.length > 1 && (!input.mainline || input.mainline > parents.length)) throw new Error("请选择合并提交的主线父提交");
+        try {
+          await git(cwd, ["cherry-pick", ...(parents.length > 1 ? ["-m", String(input.mainline)] : []), preview.hash]);
+        } catch (reason) {
+          const marker = (await git(cwd, ["rev-parse", "--git-path", "CHERRY_PICK_HEAD"])).trim();
+          if (await access(resolve(cwd, marker)).then(() => true, () => false)) {
+            await git(cwd, ["cherry-pick", "--abort"]).catch(() => { throw new Error("拣选失败且自动中止失败，请在终端检查 git status"); });
+          }
+          throw new Error(`拣选未完成，已保留原分支状态。${String((reason as { stderr?: string }).stderr ?? reason).slice(0, 1500)}`);
+        }
+        summary = `已拣选 ${preview.hash.slice(0, 8)}`;
+        break;
+      }
       case "checkout": {
         await requireCleanHistoryWorktree(cwd);
         await git(cwd, ["checkout", "--detach", preview.hash]);
