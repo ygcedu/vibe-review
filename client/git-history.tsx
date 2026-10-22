@@ -121,6 +121,8 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
   const [nowMs, setNowMs] = useState(Date.now());
   const [branch, setBranch] = useState("");
   const branchTreeRef = useRef<View>(null);
+  const [activeBranchNode, setActiveBranchNode] = useState<string | null>(null);
+  const branchFocus = useRef<string | null>(null);
   const branchNavigation = useRef(branch);
   branchNavigation.current = branch;
   const [searchText, setSearchText] = useState("");
@@ -186,18 +188,41 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
     node.style.setProperty("outline", "none", "important");
     const keydown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+      if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) return;
       if (event.target instanceof Element && event.target.closest('input, textarea, [contenteditable]:not([contenteditable="false"]), [role="menu"], [role="dialog"]')) return;
-      const rows = Array.from(node.querySelectorAll<HTMLElement>("[data-history-branch]"));
+      const rows = Array.from(node.querySelectorAll<HTMLElement>("[data-branch-key]"));
       if (!rows.length) return;
       event.preventDefault(); event.stopPropagation();
-      const focused = event.target instanceof Element ? event.target.closest("[data-history-branch]") : null;
-      const index = focused ? rows.indexOf(focused as HTMLElement) : rows.findIndex((row) => row.dataset.historyBranch === branchNavigation.current);
-      const next = index < 0 ? 0 : Math.max(0, Math.min(rows.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)));
+      const focused = event.target instanceof Element ? event.target.closest("[data-branch-key]") : null;
+      let index = focused ? rows.indexOf(focused as HTMLElement) : rows.findIndex((row) => row.dataset.branchKey === branchFocus.current);
+      if (index < 0) index = rows.findIndex((row) => row.dataset.historyBranch === branchNavigation.current);
+      const current = rows[index];
+      let next = index;
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        next = index < 0 ? 0 : Math.max(0, Math.min(rows.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)));
+      } else if (current) {
+        const key = current.dataset.branchKey!;
+        const folder = current.dataset.branchKind === "folder";
+        if (event.key === "ArrowRight") {
+          if (folder && current.dataset.branchExpanded === "false") {
+            setBranchCollapsed((value) => { const result = new Set(value); result.delete(key); return result; });
+            return;
+          }
+          if (folder && rows[index + 1]?.dataset.branchParent === key) next = index + 1;
+        } else if (folder && current.dataset.branchExpanded === "true") {
+          setBranchCollapsed((value) => new Set(value).add(key));
+          return;
+        } else {
+          const parent = rows.findIndex((row) => row.dataset.branchKey === current.dataset.branchParent);
+          if (parent >= 0) next = parent;
+        }
+      }
       const row = rows[next];
-      const name = row.dataset.historyBranch!;
-      branchNavigation.current = name;
-      setBranch(name); setSkip(0);
+      if (!row) return;
+      branchFocus.current = row.dataset.branchKey!;
+      setActiveBranchNode(branchFocus.current);
+      const name = row.dataset.historyBranch;
+      if (name) { branchNavigation.current = name; setBranch(name); setSkip(0); }
       row.focus({ preventScroll: true });
       row.scrollIntoView({ block: "nearest", inline: "nearest" });
     };
@@ -266,27 +291,33 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
     else next.add(path);
     return next;
   });
-  const chooseBranch = (name: string) => { setBranch(name); setSkip(0); };
-  const renderBranches = (nodes: BranchNode[], group: Branch["group"]): React.ReactNode[] => nodes.map((node) => {
+  const chooseBranch = (name: string, key?: string) => { setBranch(name); setSkip(0); setActiveBranchNode(key ?? null); branchFocus.current = key ?? null; };
+  const bindBranchNode = (row: View | null, key: string, parent: string, name?: string, expanded?: boolean) => {
+    if (Platform.OS !== "web" || !row) return;
+    const element = row as unknown as HTMLElement;
+    element.dataset.branchKey = key;
+    element.dataset.branchParent = parent;
+    element.dataset.branchKind = name ? "branch" : "folder";
+    if (name) element.dataset.historyBranch = name;
+    if (expanded !== undefined) element.dataset.branchExpanded = String(expanded);
+    element.style.setProperty("outline", "none", "important");
+  };
+  const focusBranchNode = (key: string) => { branchFocus.current = key; setActiveBranchNode(key); };
+  const renderBranches = (nodes: BranchNode[], group: Branch["group"], parent: string = group): React.ReactNode[] => nodes.map((node) => {
     if (node.kind === "folder") return <View key={node.path}>
-      <Pressable accessibilityRole="button" accessibilityLabel={`${branchCollapsed.has(node.path) ? "展开" : "折叠"} ${node.name}`} onPress={() => toggleBranchFolder(node.path)} style={styles.branchRow}>
+      <Pressable ref={(row) => bindBranchNode(row, node.path, parent, undefined, !branchCollapsed.has(node.path) || Boolean(branchSearch.trim()))} onFocus={() => focusBranchNode(node.path)} accessibilityRole="button" accessibilityState={{ expanded: !branchCollapsed.has(node.path) || Boolean(branchSearch.trim()) }} accessibilityLabel={`${branchCollapsed.has(node.path) ? "展开" : "折叠"} ${node.name}`} onPress={() => { focusBranchNode(node.path); toggleBranchFolder(node.path); }} style={[styles.branchRow, activeBranchNode === node.path && styles.branchSelected]}>
         <Icon name={branchCollapsed.has(node.path) ? "ChevronRight" : "ChevronDown"} size={14} color={colors.foregroundMuted} />
         <Icon name="Folder" size={15} color={colors.foregroundMuted} />
         <Text style={styles.branchName} numberOfLines={1}>{node.name}</Text>
       </Pressable>
-      {!branchCollapsed.has(node.path) || branchSearch.trim() ? <View style={styles.branchChildren}>{renderBranches(node.children, group)}</View> : null}
+      {!branchCollapsed.has(node.path) || branchSearch.trim() ? <View style={styles.branchChildren}>{renderBranches(node.children, group, node.path)}</View> : null}
     </View>;
     const isCurrent = group === "local" && node.fullName === currentBranch;
     const isMain = (group === "local" && (node.fullName === "main" || node.fullName === "master")) || (group === "remote" && (node.fullName === "origin/main" || node.fullName === "origin/master"));
     return <ContextMenu key={`${group}/${node.fullName}`} theme={props.theme} compact={props.layout.compact} label={node.fullName} items={[
       { id: "history", label: "查看历史", icon: "GitBranch", onSelect: () => chooseBranch(node.fullName) },
       { id: "copy", label: group === "tag" ? "复制标签名称" : "复制分支名称", icon: "Copy", onSelect: () => copyText(node.fullName) },
-    ]}><Pressable key={`${group}/${node.fullName}`} ref={(row) => {
-      if (Platform.OS !== "web" || !row) return;
-      const element = row as unknown as HTMLElement;
-      element.dataset.historyBranch = node.fullName;
-      element.style.setProperty("outline", "none", "important");
-    }} accessibilityRole="button" accessibilityLabel={`查看${group === "tag" ? "标签" : "分支"} ${node.fullName}`} accessibilityState={{ selected: branch === node.fullName }} onPress={() => chooseBranch(node.fullName)} style={[{ flex: 1 }, styles.branchRow, branch === node.fullName && styles.branchSelected]}>
+    ]}><Pressable key={`${group}/${node.fullName}`} ref={(row) => bindBranchNode(row, `leaf:${group}/${node.fullName}`, parent, node.fullName)} onFocus={() => focusBranchNode(`leaf:${group}/${node.fullName}`)} accessibilityRole="button" accessibilityLabel={`查看${group === "tag" ? "标签" : "分支"} ${node.fullName}`} accessibilityState={{ selected: branch === node.fullName }} onPress={() => chooseBranch(node.fullName, `leaf:${group}/${node.fullName}`)} style={[{ flex: 1 }, styles.branchRow, (activeBranchNode === `leaf:${group}/${node.fullName}` || (!activeBranchNode && branch === node.fullName)) && styles.branchSelected]}>
       <View style={styles.branchIndent} />
       <View style={styles.branchIcon}>{isCurrent && isMain ? <Image source={{ uri: CURRENT_BRANCH_ICON }} style={styles.currentBranchIcon} /> : isMain ? <Text style={styles.mainBranchIcon}>★</Text> : <Icon name={group === "tag" || isCurrent ? "Tag" : "GitBranch"} size={16} color={isCurrent ? colors.accent : colors.foregroundMuted} />}</View>
       <Text style={[styles.branchLeafName, branch === node.fullName && styles.activeBranch]} numberOfLines={1}>{node.name}</Text>
@@ -350,7 +381,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
               if (!matching.length) return null;
               const label = group === "local" ? "本地分支" : group === "remote" ? "远程分支" : "标签";
               return <View key={group}>
-                <Pressable accessibilityRole="button" accessibilityLabel={`${branchCollapsed.has(group) ? "展开" : "折叠"}${label}`} onPress={() => toggleBranchFolder(group)} style={styles.branchGroup}><Icon name={branchCollapsed.has(group) ? "ChevronRight" : "ChevronDown"} size={14} color={colors.foregroundMuted} /><Text style={styles.branchGroupText}>{label}</Text></Pressable>
+                <Pressable ref={(row) => bindBranchNode(row, group, "", undefined, !branchCollapsed.has(group) || Boolean(query))} onFocus={() => focusBranchNode(group)} accessibilityRole="button" accessibilityState={{ expanded: !branchCollapsed.has(group) || Boolean(query) }} accessibilityLabel={`${branchCollapsed.has(group) ? "展开" : "折叠"}${label}`} onPress={() => { focusBranchNode(group); toggleBranchFolder(group); }} style={[styles.branchGroup, activeBranchNode === group && styles.branchSelected]}><Icon name={branchCollapsed.has(group) ? "ChevronRight" : "ChevronDown"} size={14} color={colors.foregroundMuted} /><Text style={styles.branchGroupText}>{label}</Text></Pressable>
                 {!branchCollapsed.has(group) || query ? <View style={styles.branchChildren}>{renderBranches(branchTree(matching, group), group)}</View> : null}
               </View>;
             })}
