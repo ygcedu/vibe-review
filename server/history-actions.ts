@@ -17,7 +17,7 @@ export async function prepareHistoryAction(cwd: string, hash: string, action: Hi
   const { head, branch } = await historyHead(cwd);
   if (action === "checkout" || action === "cherry-pick" || action === "reset") await requireCleanHistoryWorktree(cwd);
   if (action === "reset" && !branch) throw new Error("当前处于分离 HEAD，无法重置当前分支");
-  if (action === "reword") { await requireCleanHistoryWorktree(cwd); await planHistoryRewrite(cwd, hash); }
+  if (action === "reword" || action === "drop") { await requireCleanHistoryWorktree(cwd); await planHistoryRewrite(cwd, hash); }
   const message = (await git(cwd, ["show", "-s", "--format=%B", hash])).trimEnd();
   for (const [token, preview] of previews) if (preview.expires < Date.now()) previews.delete(token);
   const token = randomUUID();
@@ -41,6 +41,11 @@ export async function applyHistoryAction(cwd: string, token: string, input: { na
     let summary: string;
     let backupRef: string | undefined;
     switch (preview.action) {
+      case "drop": {
+        backupRef = await rewriteHistory(cwd, { ...preview, action: "drop" });
+        summary = `已丢弃提交，恢复分支：${backupRef}`;
+        break;
+      }
       case "reword": {
         if (!input.message?.trim()) throw new Error("请填写提交说明");
         backupRef = await rewriteHistory(cwd, { ...preview, message: input.message.trim(), action: "reword" });

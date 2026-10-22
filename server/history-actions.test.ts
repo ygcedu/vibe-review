@@ -159,3 +159,42 @@ test("message editing rejects targets on another branch and dirty worktrees", as
   await writeFile(join(cwd, "file.txt"), "dirty\n");
   await assert.rejects(prepareHistoryAction(cwd, first, "reword"), /未提交改动/);
 });
+
+test("drop removes a selected commit and its changes, preserving descendants and a recovery branch", async (t) => {
+  const { cwd, head } = await repository(t);
+  await writeFile(join(cwd, "third.txt"), "third\n");
+  await git(cwd, ["add", "."]);
+  await git(cwd, ["commit", "-m", "Third"]);
+  const before = (await git(cwd, ["rev-parse", "HEAD"])).trim();
+  const preview = await prepareHistoryAction(cwd, head, "drop");
+  const result = await applyHistoryAction(cwd, preview.token, {});
+  assert.ok(result.backupRef);
+  assert.equal((await git(cwd, ["rev-parse", result.backupRef])).trim(), before);
+  assert.equal((await git(cwd, ["rev-list", "--count", "HEAD"])).trim(), "2");
+  assert.equal(await git(cwd, ["show", "HEAD:third.txt"]), "third\n");
+  await assert.rejects(git(cwd, ["show", "HEAD:second.txt"]));
+});
+
+test("drop can remove HEAD and refuses dropping the sole commit", async (t) => {
+  const { cwd, first, head } = await repository(t);
+  const preview = await prepareHistoryAction(cwd, head, "drop");
+  await applyHistoryAction(cwd, preview.token, {});
+  assert.equal((await git(cwd, ["rev-parse", "HEAD"])).trim(), first);
+  const only = await prepareHistoryAction(cwd, first, "drop");
+  await assert.rejects(applyHistoryAction(cwd, only.token, {}), /唯一提交/);
+});
+
+test("a conflicting drop leaves current history and worktree intact and cleans temporary worktree", async (t) => {
+  const { cwd } = await repository(t);
+  await writeFile(join(cwd, "file.txt"), "middle\n");
+  await git(cwd, ["commit", "-am", "Middle"]);
+  const middle = (await git(cwd, ["rev-parse", "HEAD"])).trim();
+  await writeFile(join(cwd, "file.txt"), "later\n");
+  await git(cwd, ["commit", "-am", "Later"]);
+  const before = (await git(cwd, ["rev-parse", "HEAD"])).trim();
+  const preview = await prepareHistoryAction(cwd, middle, "drop");
+  await assert.rejects(applyHistoryAction(cwd, preview.token, {}), /当前分支未修改/);
+  assert.equal((await git(cwd, ["rev-parse", "HEAD"])).trim(), before);
+  assert.equal((await git(cwd, ["status", "--porcelain"])).trim(), "");
+  assert.equal((await git(cwd, ["worktree", "list", "--porcelain"])).match(/^worktree /gm)?.length, 1);
+});
