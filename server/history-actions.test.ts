@@ -43,3 +43,15 @@ test("invalid and existing names are rejected; changed HEAD invalidates preview"
   await git(cwd, ["commit", "--allow-empty", "-m", "Changed"]);
   await assert.rejects(applyHistoryAction(cwd, preview.token, { name: "stale" }), /HEAD 已变化/);
 });
+
+test("new tag targets selected commit, rejects duplicate or invalid names", async (t) => {
+  const { cwd, first, head } = await repository(t);
+  const preview = await prepareHistoryAction(cwd, first, "new-tag");
+  await assert.rejects(applyHistoryAction(cwd, preview.token, { name: "--force" }));
+  await applyHistoryAction(cwd, preview.token, { name: "v2.0.0" });
+  assert.equal((await git(cwd, ["rev-parse", "refs/tags/v2.0.0"])).trim(), first);
+  assert.equal((await git(cwd, ["rev-parse", "HEAD"])).trim(), head);
+  const duplicate = await prepareHistoryAction(cwd, head, "new-tag");
+  await assert.rejects(applyHistoryAction(cwd, duplicate.token, { name: "v2.0.0" }));
+  assert.equal((await git(cwd, ["rev-parse", "refs/tags/v2.0.0"])).trim(), first);
+});

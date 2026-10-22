@@ -1,7 +1,7 @@
 import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
 
-export const historyAction = z.enum(["new-branch"]);
+export const historyAction = z.enum(["new-branch", "new-tag"]);
 export type HistoryAction = z.infer<typeof historyAction>;
 export const historyActionPreviewRpc = defineRpc({
   name: "vibe-review.history-action-preview",

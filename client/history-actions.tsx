@@ -7,6 +7,7 @@ import type { GitCommit } from "../shared/git-history";
 import type { ContextMenuItem } from "./components/context-menu";
 
 const actions: Record<HistoryAction, { title: string; icon: string; description: string; field?: "name" | "message"; destructive?: boolean }> = {
+  "new-tag": { title: "新建标签", icon: "Tag", description: "在所选提交上创建本地轻量标签，不自动推送。", field: "name" },
   "new-branch": { title: "新建分支", icon: "GitBranch", description: "在所选提交上创建分支，保持当前分支和工作区不变。", field: "name" },
 };
 function borderOnlyFocus(node: TextInput | null) {
@@ -70,6 +71,7 @@ export function useHistoryActions({ workspaceId, theme, onChanged }: Pick<Plugin
   function itemsFor(commit: GitCommit): ContextMenuItem[] {
     return [
       { id: "ref-separator", separator: true },
+      { id: "new-tag", label: "新建标签…", icon: "Tag", disabled: busy, onSelect: () => open(commit, "new-tag") },
       { id: "new-branch", label: "新建分支…", icon: "GitBranch", disabled: busy, onSelect: () => open(commit, "new-branch") },
     ];
   }

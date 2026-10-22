@@ -35,6 +35,12 @@ export async function applyHistoryAction(cwd: string, token: string, input: { na
     if (current.head !== preview.head || current.branch !== preview.branch) throw new Error("当前分支或 HEAD 已变化，请重新打开操作");
     let summary: string;
     switch (preview.action) {
+      case "new-tag": {
+        const name = await checkedRefName(cwd, input.name, "tags");
+        await git(cwd, ["-c", "tag.gpgSign=false", "tag", "--", name, preview.hash]);
+        summary = `已创建标签 ${name}`;
+        break;
+      }
       case "new-branch": {
         const name = await checkedRefName(cwd, input.name, "heads");
         await git(cwd, ["branch", "--", name, preview.hash]);
