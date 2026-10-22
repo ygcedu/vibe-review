@@ -1,3 +1,4 @@
+import { fitHistoryColumns, resizeHistoryColumns, HISTORY_TABLE_CHROME, type HistoryColumnWidths } from "./history-columns";
 import { useHistoryActions } from "./history-actions";
 import { ToolbarButton } from "./components/toolbar-button";
 import { ContextMenu } from "./components/context-menu";
@@ -33,7 +34,7 @@ function ResizeHandle({ direction, label, onResize, color }: { color: string; di
     let stopDragging: (() => void) | undefined;
     const down = (event: PointerEvent) => {
       if (event.button !== 0) return;
-      event.preventDefault();
+      event.preventDefault(); event.stopPropagation();
       stopDragging?.();
       let previous = direction === "vertical" ? event.clientX : event.clientY;
       const oldCursor = document.body.style.cursor;
@@ -58,9 +59,19 @@ function ResizeHandle({ direction, label, onResize, color }: { color: string; di
       window.addEventListener("pointerup", up, { once: true });
       window.addEventListener("pointercancel", up, { once: true });
     };
+    node.tabIndex = 0;
+    const keydown = (event: KeyboardEvent) => {
+      const negative = direction === "vertical" ? "ArrowLeft" : "ArrowUp";
+      const positive = direction === "vertical" ? "ArrowRight" : "ArrowDown";
+      if (event.key !== negative && event.key !== positive) return;
+      event.preventDefault(); event.stopPropagation();
+      resizeRef.current(event.key === positive ? 8 : -8);
+    };
+    node.addEventListener("keydown", keydown);
     node.addEventListener("pointerdown", down);
     return () => {
       node.removeEventListener("pointerdown", down);
+      node.removeEventListener("keydown", keydown);
       stopDragging?.();
     };
   }, [direction]);
@@ -160,6 +171,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
   const [panelHeight, setPanelHeight] = useState(0);
   const [branchColumnWidth, setBranchColumnWidth] = useState<number | null>(null);
   const [logColumnWidth, setLogColumnWidth] = useState<number | null>(null);
+  const [preferredCommitColumns, setPreferredCommitColumns] = useState<HistoryColumnWidths | null>(null);
   const [error, setError] = useState("");
 
   const historyActions = useHistoryActions({ workspaceId, theme: props.theme, onCompare: openTab, onChanged: () => { setSkip(0); setRevision((value) => value + 1); refreshDiff(); } });
@@ -423,6 +435,9 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
   const defaultLogColumnWidth = Math.round((columnSpace - resolvedBranchColumnWidth) * 0.68);
   const maximumLogWidth = Math.max(minimumLogWidth, columnSpace - resolvedBranchColumnWidth - minimumDetailWidth);
   const resolvedLogColumnWidth = Math.max(minimumLogWidth, Math.min(maximumLogWidth, logColumnWidth ?? defaultLogColumnWidth));
+  const commitColumns = fitHistoryColumns(resolvedLogColumnWidth - HISTORY_TABLE_CHROME, preferredCommitColumns);
+  const commitTableWidth = commitColumns.reduce((sum, width) => sum + width, HISTORY_TABLE_CHROME);
+  const resizeCommitColumn = (boundary: number, delta: number) => setPreferredCommitColumns((current) => resizeHistoryColumns(fitHistoryColumns(resolvedLogColumnWidth - HISTORY_TABLE_CHROME, current), boundary, delta));
   const minimumFilesHeight = Math.min(100, Math.max(0, detailPanelHeight - SPLITTER_SIZE));
   const minimumMessageHeight = Math.min(100, Math.max(0, detailPanelHeight - SPLITTER_SIZE - minimumFilesHeight));
   const maximumFilesHeight = Math.max(minimumFilesHeight, detailPanelHeight - SPLITTER_SIZE - minimumMessageHeight);
@@ -456,6 +471,19 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
         <ResizeHandle color={colors.border} direction="vertical" label="调整分支列表宽度" onResize={(delta) => setBranchColumnWidth((width) => Math.max(minimumBranchWidth, Math.min(maximumBranchWidth, Math.max(minimumBranchWidth, Math.min(maximumBranchWidth, width ?? resolvedBranchColumnWidth)) + delta)))} />
         <View ref={logRef} style={[styles.logColumn, { width: resolvedLogColumnWidth }]}>
           <View style={styles.logToolbar}><View style={[styles.commitSearchRow, focusedSearch === "commit" && { borderColor: colors.accent }]}><Icon name="Search" size={15} color={colors.foregroundMuted} /><TextInput ref={borderOnlyFocus} accessibilityLabel="搜索提交说明" value={searchText} onChangeText={setSearchText} onFocus={() => setFocusedSearch("commit")} onBlur={() => setFocusedSearch(null)} placeholder="搜索提交说明" placeholderTextColor={colors.foregroundMuted} style={styles.search} /></View></View>
+          <ScrollView horizontal style={styles.logTableViewport} contentContainerStyle={styles.logTableScroll}>
+          <View style={{ width: commitTableWidth, minHeight: 0 }}>
+          <View style={styles.commitColumnHeader}>
+            <Text style={[styles.commitColumnLabel, { width: commitColumns[0] }]}>作者</Text>
+            <ResizeHandle color={colors.border} direction="vertical" label="调整作者列宽" onResize={(delta) => resizeCommitColumn(0, delta)} />
+            <View style={{ width: 24 }} />
+            <Text style={[styles.commitColumnLabel, { width: commitColumns[1] }]}>提交说明</Text>
+            <ResizeHandle color={colors.border} direction="vertical" label="调整提交说明列宽" onResize={(delta) => resizeCommitColumn(1, delta)} />
+            <Text style={[styles.commitColumnLabel, { width: commitColumns[2] }]}>时间</Text>
+            <ResizeHandle color={colors.border} direction="vertical" label="调整时间列宽" onResize={(delta) => resizeCommitColumn(2, delta)} />
+            <Text style={[styles.commitColumnLabel, { width: commitColumns[3] }]}>Hash</Text>
+            <ResizeHandle color={colors.border} direction="vertical" label="调整 Hash 列宽" onResize={(delta) => resizeCommitColumn(3, delta)} />
+          </View>
           <ScrollView style={styles.log}>
             {commits.map((item) => {
               return <ContextMenu key={item.hash} theme={props.theme} compact={props.layout.compact} label={item.subject} items={[
@@ -470,19 +498,24 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
                   commitNodes.current.set(item.hash, node);
                 } else commitNodes.current.delete(item.hash);
               }} accessibilityRole="button" accessibilityLabel={`查看提交 ${item.subject}`} accessibilityState={{ selected: selectedHash === item.hash }} onPress={() => setSelectedHash(item.hash)} onHoverIn={() => setHoveredHash(item.hash)} onHoverOut={() => setHoveredHash(null)} style={({ pressed }) => [styles.commitRow, { backgroundColor: selectedHash === item.hash ? colors.surface2 : hoveredHash === item.hash || pressed ? colors.surface1 : "transparent" }]}>
-                <Text style={styles.author} numberOfLines={1}>{item.author}</Text>
+                <Text style={[styles.author, { width: commitColumns[0] }]} numberOfLines={1}>{item.author}</Text>
+                <View style={{ width: SPLITTER_SIZE }} />
                 <View style={styles.graph}><View style={styles.graphLine} /><View style={[styles.graphDot, item.parents.length > 1 && styles.mergeDot]} /></View>
-                <View style={styles.subjectLine}>
+                <View style={[styles.subjectLine, { width: commitColumns[1] }]}>
                   <Text style={styles.subject} numberOfLines={1}>{item.subject}</Text>
                   {item.refs[0] ? <View style={styles.refBadge}><Icon name="GitBranch" size={10} color={colors.accent} /><Text style={styles.ref} numberOfLines={1}>{item.refs[0]}</Text></View> : null}
                 </View>
-                <Text style={styles.date} numberOfLines={1}>{formatCommitTime(item.date, nowMs)}</Text>
-                <Text style={styles.hash} numberOfLines={1}>{item.hash.slice(0, 8)}</Text>
+                <View style={{ width: SPLITTER_SIZE }} />
+                <Text style={[styles.date, { width: commitColumns[2] }]} numberOfLines={1}>{formatCommitTime(item.date, nowMs)}</Text>
+                <View style={{ width: SPLITTER_SIZE }} />
+                <Text style={[styles.hash, { width: commitColumns[3] }]} numberOfLines={1}>{item.hash.slice(0, 8)}</Text>
+                <View style={{ width: SPLITTER_SIZE }} />
               </Pressable></ContextMenu>;
             })}
             {hasMore ? <Pressable accessibilityRole="button" onPress={() => { if (!loading) setSkip((value) => value + 50); }} style={styles.loadMore}><Text style={styles.loadMoreText}>{loading ? "加载中…" : "加载更多提交"}</Text></Pressable> : null}
             {!loading && commits.length === 0 ? <Text style={styles.empty}>没有找到提交记录</Text> : null}
           </ScrollView>
+          </View></ScrollView>
         </View>
         <ResizeHandle color={colors.border} direction="vertical" label="调整提交列表宽度" onResize={(delta) => setLogColumnWidth((width) => Math.max(minimumLogWidth, Math.min(maximumLogWidth, Math.max(minimumLogWidth, Math.min(maximumLogWidth, width ?? resolvedLogColumnWidth)) + delta)))} />
         <View style={styles.detail} onLayout={(event) => setDetailPanelHeight(event.nativeEvent.layout.height)}>
@@ -576,18 +609,22 @@ function historyStyles(colors: PluginWorkspacePanelProps["theme"]["colors"]) {
     logToolbar: { height: 46, padding: 8, borderBottomWidth: 1, borderColor: colors.border },
     commitSearchRow: { flex: 1, height: 30, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 8, borderWidth: 1, borderColor: colors.border, borderRadius: 6, backgroundColor: colors.surface1 },
     search: { flex: 1, minWidth: 0, fontSize: 12, color: colors.foreground, outlineWidth: 0, paddingVertical: 0 },
-    commitRow: { flex: 1, flexDirection: "row", alignItems: "center", height: 36, paddingLeft: 10, paddingRight: 12, gap: 6 },
+    logTableViewport: { flex: 1, minHeight: 0 },
+    logTableScroll: { flexGrow: 1, alignItems: "stretch" },
+    commitColumnHeader: { height: 26, flexDirection: "row", alignItems: "stretch", paddingLeft: 10, paddingRight: 12, borderBottomWidth: 1, borderColor: colors.border },
+    commitColumnLabel: { fontSize: 10, lineHeight: 25, color: colors.foregroundMuted, flexShrink: 0 },
+    commitRow: { flex: 1, flexDirection: "row", alignItems: "center", height: 36, paddingLeft: 10, paddingRight: 12, gap: 0 },
     graph: { ...baseStyles.graph, width: 24, height: 36 },
     graphLine: { ...baseStyles.graphLine, width: 1, backgroundColor: colors.border },
     graphDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.accent },
     mergeDot: { backgroundColor: colors.surface0, borderWidth: 2, borderColor: colors.accent, width: 9, height: 9, borderRadius: 5 },
-    subjectLine: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 8 },
+    subjectLine: { flexShrink: 0, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 8 },
     subject: { flex: 1, minWidth: 0, fontSize: 12, lineHeight: 18, fontWeight: "400", color: colors.foreground },
     refBadge: { maxWidth: 130, flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 4, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 5, paddingVertical: 1 },
     ref: { flexShrink: 1, fontSize: 10, lineHeight: 14, color: colors.accent },
-    author: { width: 80, minWidth: 40, flexShrink: 1, fontSize: 11, lineHeight: 16, color: colors.foregroundMuted },
-    date: { width: 105, minWidth: 0, flexShrink: 1, fontSize: 11, lineHeight: 16, color: colors.foregroundMuted },
-    hash: { width: 56, flexShrink: 0, fontFamily: "monospace", fontSize: 10, color: colors.foregroundMuted },
+    author: { flexShrink: 0, fontSize: 11, lineHeight: 16, color: colors.foregroundMuted },
+    date: { flexShrink: 0, fontSize: 11, lineHeight: 16, color: colors.foregroundMuted },
+    hash: { flexShrink: 0, fontFamily: "monospace", fontSize: 10, color: colors.foregroundMuted },
     selected: { backgroundColor: colors.surface2 },
     columnHeading: { ...baseStyles.columnHeading, fontSize: 11, fontWeight: "500", paddingVertical: 10, color: colors.foregroundMuted, borderColor: colors.border },
     detailMessageContent: { padding: 12, gap: 16 },
