@@ -1,6 +1,6 @@
 export type HistoryColumnWidths = [number, number, number, number];
 export const HISTORY_COLUMN_MINIMUMS: HistoryColumnWidths = [48, 120, 88, 64];
-export const HISTORY_TABLE_CHROME = 70; // Padding, graph lane and four resize handles.
+export const HISTORY_TABLE_CHROME = 64; // Padding, graph lane and three internal resize handles.
 
 export function fitHistoryColumns(available: number, preferred?: HistoryColumnWidths | null): HistoryColumnWidths {
   const minimum = HISTORY_COLUMN_MINIMUMS.reduce((sum, width) => sum + width, 0);

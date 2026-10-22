@@ -499,7 +499,6 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
                 <Text style={[styles.date, { width: commitColumns[2] }]} numberOfLines={1}>{formatCommitTime(item.date, nowMs)}</Text>
                 <View style={{ width: SPLITTER_SIZE }} />
                 <Text style={[styles.hash, { width: commitColumns[3] }]} numberOfLines={1}>{item.hash.slice(0, 8)}</Text>
-                <View style={{ width: SPLITTER_SIZE }} />
               </Pressable></ContextMenu>;
             })}
             {hasMore ? <Pressable accessibilityRole="button" onPress={() => { if (!loading) setSkip((value) => value + 50); }} style={styles.loadMore}><Text style={styles.loadMoreText}>{loading ? "加载中…" : "加载更多提交"}</Text></Pressable> : null}
@@ -509,7 +508,6 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
             { label: "调整作者列宽", left: 25 + commitColumns[0] },
             { label: "调整提交说明列宽", left: 40 + commitColumns[0] + commitColumns[1] },
             { label: "调整时间列宽", left: 46 + commitColumns[0] + commitColumns[1] + commitColumns[2] },
-            { label: "调整 Hash 列宽", left: 52 + commitColumns[0] + commitColumns[1] + commitColumns[2] + commitColumns[3] },
           ].map(({ label, left }, index) => <View key={label} style={{ position: "absolute", left, top: 0, bottom: 0, width: SPLITTER_SIZE, zIndex: 2 }}>
             <ResizeHandle color={colors.border} direction="vertical" label={label} invisible style={{ flex: 1 }} onResize={(delta) => resizeCommitColumn(index, delta)} />
           </View>)}
