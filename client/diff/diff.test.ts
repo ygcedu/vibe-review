@@ -76,3 +76,17 @@ test("opening one skipped range inserts only its unchanged lines", () => {
   assert.deepEqual(expanded.map((row) => row.kind === "context" ? row.before.text : "change"), ["one", "two", "three", "four", "seven"]);
   assert.equal(buildPaneRows(expanded, "before").filter((row) => row.kind === "wave").length, 1);
 });
+
+test("non-adjacent edits merge in first-seen file order and retain change counts", () => {
+  const files = parseDiffFiles([
+    "diff --git a/b.ts b/b.ts", "@@ -1 +1 @@", "-old", "+new",
+    "diff --git a/empty.ts b/empty.ts", "old mode 100644", "new mode 100755",
+    "diff --git a/a.ts b/a.ts", "@@ -1 +1 @@", "+created",
+    "diff --git a/b.ts b/b.ts", "@@ -2 +2 @@", "-next", "+updated",
+  ].join("\n"));
+  assert.deepEqual(files.map(({ path, added, removed }) => ({ path, added, removed })), [
+    { path: "b.ts", added: 2, removed: 2 },
+    { path: "a.ts", added: 1, removed: 0 },
+  ]);
+  assert.deepEqual(buildSplitDiffRows(files[0].lines).map((row) => row.kind), ["change", "change"]);
+});

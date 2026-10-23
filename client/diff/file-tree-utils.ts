@@ -19,11 +19,10 @@ type SortableNode<T> = {
 
 /** Folder-before-file, name-localeCompare order, applied recursively. */
 export function sortTreeNodes<T extends SortableNode<T>>(nodes: T[]): void {
-  const sort = (items: T[]): void => {
-    items.sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === "folder" ? -1 : 1));
-    items.forEach((node) => { if (node.kind === "folder" && node.children) sort(node.children); });
-  };
-  sort(nodes);
+  nodes.sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === "folder" ? -1 : 1));
+  for (const node of nodes) {
+    if (node.kind === "folder" && node.children) sortTreeNodes(node.children);
+  }
 }
 
 /**
@@ -35,8 +34,8 @@ export function compactTree<T extends SortableNode<T>>(nodes: T[]): T[] {
   for (const node of nodes) {
     if (node.kind !== "folder" || !node.children) continue;
     compactTree(node.children);
-    while ((node.children?.length ?? 0) === 1 && node.children?.[0]?.kind === "folder") {
-      const child = node.children[0] as T & { path?: string; children?: T[] };
+    while (node.children?.length === 1 && node.children[0].kind === "folder") {
+      const child: T = node.children[0];
       node.name += `/${child.name}`;
       node.path = child.path;
       node.children = child.children ?? [];

@@ -136,7 +136,6 @@ export function expandCollapsedRows(rows: SplitDiffRow[], fullRows: SplitDiffRow
 
 export function parseDiffFiles(diffText?: string): DiffFile[] {
   if (!diffText?.trim()) return [];
-  const files: DiffFile[] = [];
   const byPath = new Map<string, DiffFile>();
   let current: DiffFile | undefined;
   const startFile = (path: string) => {
@@ -146,8 +145,8 @@ export function parseDiffFiles(diffText?: string): DiffFile[] {
     } else {
       current = { path, status: "modified", added: 0, removed: 0, lines: [] };
       byPath.set(path, current);
-      files.push(current);
     }
+    return current;
   };
 
   for (const line of diffText.replace(/\r\n/g, "\n").split("\n")) {
@@ -170,18 +169,18 @@ export function parseDiffFiles(diffText?: string): DiffFile[] {
       continue;
     }
     if (/^--- (?:a\/|\/dev\/null)/.test(line) || /^(?:index |old mode |new mode |similarity index |dissimilarity index |rename from |rename to |copy from |copy to )/.test(line)) continue;
-    if (!current) startFile("修改内容");
+    current ??= startFile("修改内容");
     if (line.startsWith("+")) {
-      current!.added++;
-      current!.lines.push({ type: "add", content: line });
+      current.added++;
+      current.lines.push({ type: "add", content: line });
     } else if (line.startsWith("-")) {
-      current!.removed++;
-      current!.lines.push({ type: "remove", content: line });
+      current.removed++;
+      current.lines.push({ type: "remove", content: line });
     } else if (line.startsWith("@@") || line.startsWith("\\ No newline")) {
-      current!.lines.push({ type: "header", content: line });
+      current.lines.push({ type: "header", content: line });
     } else if (line.length) {
-      current!.lines.push({ type: "context", content: line });
+      current.lines.push({ type: "context", content: line });
     }
   }
-  return files.filter((file) => file.lines.length || file.added || file.removed);
+  return [...byPath.values()].filter((file) => file.lines.length);
 }
