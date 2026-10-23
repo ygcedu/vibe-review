@@ -8,15 +8,16 @@ import { appendReviewWithRetry } from "../review/review-append.ts";
 import { recoverFinishedVerification, VERIFIER_LABEL, VERIFIER_TITLE } from "./verify.ts";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { resultAfterVerification, verdictOf, type ReviewResult } from "../review/verdict.ts";
+import { resultAfterVerification, verdictOf } from "../review/verdict.ts";
 import type { VerificationControl, VerificationRequest, VerificationResult } from "./verify.ts";
 
 export type ReviewCardData = output<typeof reviewResultSchema>;
-export type ActiveVerification = { canceled: boolean; verifierAgentId?: string; cardId: string; card: ReviewCardData; writeQueue: Promise<unknown> };
-export const activeVerifications = new Map<string, ActiveVerification>();
-export const reconcilingVerifications = new Set<string>();
-export const verificationKey = (agentId: string, scoredAt: string) => `${agentId}:${scoredAt}`;
+type ActiveVerification = { cardId: string; card: ReviewCardData; writeQueue: Promise<unknown> };
+type VerificationRunner = { verifyTask(agentId: string, request: VerificationRequest, control?: VerificationControl): Promise<VerificationResult> };
+const activeVerifications = new Map<string, ActiveVerification>();
+const verificationKey = (agentId: string, scoredAt: string) => `${agentId}:${scoredAt}`;
 const execFileAsync = promisify(execFile);
+const isCanceled = (active: ActiveVerification) => active.card.verificationState === "canceled";
 
 /** Select the same review card for navigation, recovery and cancellation. */
 function findReviewCard(entries: readonly { item: AgentTimelineItem }[], scoredAt: string) {
@@ -48,97 +49,115 @@ export async function openVerification(paseo: PluginHandlerContext["paseo"], age
   return { verifierAgentId, workspaceId: snapshot.workspaceId };
 }
 
-/** Restore a card whose verifier outlived the plugin process that created it. */
-export async function reconcileVerification(paseo: PluginHandlerContext["paseo"], agentId: string, scoredAt: string): Promise<void> {
-  const key = verificationKey(agentId, scoredAt);
-  if (activeVerifications.has(key) || reconcilingVerifications.has(key)) return;
-  reconcilingVerifications.add(key);
-  try {
-    const parent = paseo.agents.ref(agentId);
-    const findCard = async () => {
-      const page = await parent.timeline.refetch({ limit: 200 });
-      return findReviewCard(page.entries, scoredAt);
-    };
-    const item = await findCard();
-    if (!item) return;
-    const parsed = reviewResultSchema.safeParse(item.data);
-    if (!parsed.success || parsed.data.verificationState !== "running") return;
-    const card = parsed.data;
-    const verification = card.verificationAgentId
-      ? await recoverFinishedVerification(paseo, card.verificationAgentId)
-      : Date.now() - Date.parse(scoredAt) > 6 * 60_000
-        ? { status: "unavailable" as const, summary: "插件重载后无法找到原验证 agent，请重新发起验证。", evidence: [], provider: "" }
-        : null;
-    if (!verification) return;
-    if (activeVerifications.has(key)) return;
-    const latest = await findCard();
-    const latestParsed = latest ? reviewResultSchema.safeParse(latest.data) : null;
-    if (!latestParsed?.success || latestParsed.data.verificationState !== "running") return;
-    const result = resultAfterVerification(card.result, verification.status);
-    const finalVerdict = verdictOf({ result: result ?? "unknown", drifts: card.drifts ?? [] });
-    await appendReviewWithRetry(paseo, agentId, {
-      type: "plugin", id: item.id, kind: REVIEW_KIND, version: REVIEW_VERSION,
-      data: { ...card, verdict: finalVerdict.verdict, completed: finalVerdict.completed, result,
-        verificationState: "complete", verificationStage: undefined, verificationAgentId: card.verificationAgentId, verification },
-    }, true);
-  } finally {
-    reconcilingVerifications.delete(key);
-  }
+function completeCard(card: ReviewCardData, verification: VerificationResult): ReviewCardData {
+  const result = resultAfterVerification(card.result, verification.status) ?? "unknown";
+  const { verdict, completed } = verdictOf({ result, drifts: card.drifts ?? [] });
+  return { ...card, verdict, completed, result, verification,
+    verificationState: "complete", verificationStage: undefined };
 }
 
-export function queueVerificationCardWrite(paseo: PaseoApi, agentId: string, cardId: string, active: ActiveVerification, data: ReviewCardData, skipIfCanceled = true): Promise<unknown> {
+function sessionFor(cardId: string, card: ReviewCardData): ActiveVerification {
+  return { cardId, card, writeQueue: Promise.resolve() };
+}
+
+/** Every writer, including recovery and cancellation, uses this card's queue. */
+function writeCard(paseo: PaseoApi, agentId: string, active: ActiveVerification, data: ReviewCardData, replace = true) {
   const write = active.writeQueue.catch(() => undefined).then(() => {
-    if (skipIfCanceled && active.canceled) return null;
+    if (data.verificationState !== "canceled" && isCanceled(active)) return null;
     return appendReviewWithRetry(paseo, agentId, {
-      type: "plugin", id: cardId, kind: REVIEW_KIND, version: REVIEW_VERSION, data,
-    }, true);
+      type: "plugin", id: active.cardId, kind: REVIEW_KIND, version: REVIEW_VERSION, data,
+    }, replace);
   });
   active.writeQueue = write;
   return write;
 }
 
-/** Cancel only the verification attached to this card, including after plugin reload. */
-export async function cancelVerification(paseo: PaseoApi, agentId: string, scoredAt: string): Promise<void> {
-  const key = verificationKey(agentId, scoredAt);
-  const live = activeVerifications.get(key);
-  if (live?.canceled) return;
-  if (live) live.canceled = true;
-  let cardId = live?.cardId;
-  let cardData: unknown = live?.card;
-  if (!live) {
-    const ref = paseo.agents.ref(agentId);
-    let page: Awaited<ReturnType<typeof ref.timeline.refetch>> | undefined;
-    for (let attempt = 0; attempt < 4; attempt++) {
-      try { page = await ref.timeline.refetch(); break; }
-      catch (error) {
-        if (!/Transport (?:closed|not connected)|status: disconnected/i.test(String(error)) || attempt === 3) throw error;
-        await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
-      }
+async function releaseSession(key: string, active: ActiveVerification) {
+  // Cancellation may enqueue another write while the previous one settles.
+  let pending: Promise<unknown>;
+  do {
+    pending = active.writeQueue;
+    await pending.catch(() => undefined);
+  } while (pending !== active.writeQueue);
+  if (activeVerifications.get(key) === active) activeVerifications.delete(key);
+}
+
+/** Own publication and verification together; callers never manipulate runtime state. */
+export async function publishReviewCard(paseo: PaseoApi, agentId: string, cardId: string, card: ReviewCardData, run: VerificationRunner, replace = false): Promise<ReviewCardData | null> {
+  const key = verificationKey(agentId, card.scoredAt);
+  if (activeVerifications.has(key)) return null;
+  const active = sessionFor(cardId, card);
+  if (card.verificationState === "running") activeVerifications.set(key, active);
+  try {
+    const appended = await writeCard(paseo, agentId, active, card, replace);
+    if (isCanceled(active)) return null;
+    console.log(`[vibe-review] appended review: verdict=${card.verdict} completed=${card.completed} drift=${card.drift} followups=${card.followups?.length ?? 0} seq=${appended?.seq ?? "already-present"}`);
+    if (card.verificationState !== "running") return card;
+    let verification: VerificationResult;
+    try {
+      verification = await run.verifyTask(agentId, { goal: card.goal ?? card.summary, narrative: card.narrative ?? "" }, {
+        isCanceled: () => isCanceled(active),
+        onAgentCreated: async (verifierAgentId) => {
+          if (active.card.verificationState !== "running") {
+            archiveVerifier(paseo, verifierAgentId);
+            return;
+          }
+          active.card = { ...active.card, verificationAgentId: verifierAgentId, verificationStage: "正在选择验证方式…" };
+          await writeCard(paseo, agentId, active, active.card);
+        },
+        onProgress: (stage) => {
+          if (active.card.verificationState !== "running" || active.card.verificationStage === stage) return;
+          active.card = { ...active.card, verificationStage: stage };
+          void writeCard(paseo, agentId, active, active.card).catch((error) =>
+            console.warn("[vibe-review] verification progress update failed:", error));
+        },
+      });
+    } catch (error) {
+      console.error("[vibe-review] independent verification failed:", error);
+      verification = { status: "unavailable", summary: error instanceof Error ? error.message : "验证任务无法运行。", evidence: [], provider: "" };
     }
-    const item = findReviewCard(page?.entries ?? [], scoredAt);
-    if (!item) throw new Error("审核卡片已失效，请刷新后重试。");
-    cardId = item.id;
-    cardData = item.data;
+    if (isCanceled(active)) return null;
+    active.card = completeCard(active.card, verification);
+    await writeCard(paseo, agentId, active, active.card);
+    return active.card;
+  } catch (error) {
+    console.error("[vibe-review] review card update failed:", error);
+    return null;
+  } finally {
+    await releaseSession(key, active);
   }
-  const card = reviewResultSchema.safeParse(cardData);
-  if (!card.success) {
-    if (live) live.canceled = false;
-    throw new Error("审核卡片数据无效，请刷新后重试。");
+}
+
+/** Restore a card whose verifier outlived the plugin process that created it. */
+export async function reconcileVerification(paseo: PluginHandlerContext["paseo"], agentId: string, scoredAt: string): Promise<void> {
+  const key = verificationKey(agentId, scoredAt);
+  if (activeVerifications.has(key)) return;
+  const findCard = async () => findReviewCard((await paseo.agents.ref(agentId).timeline.refetch({ limit: 200 })).entries, scoredAt);
+  const item = await findCard();
+  const parsed = item ? reviewResultSchema.safeParse(item.data) : null;
+  if (!item || !parsed?.success || parsed.data.verificationState !== "running" || activeVerifications.has(key)) return;
+  const active = sessionFor(item.id, parsed.data);
+  activeVerifications.set(key, active);
+  try {
+    const card = active.card;
+    const verification = card.verificationAgentId
+      ? await recoverFinishedVerification(paseo, card.verificationAgentId)
+      : Date.now() - Date.parse(scoredAt) > 6 * 60_000
+        ? { status: "unavailable" as const, summary: "插件重载后无法找到原验证 agent，请重新发起验证。", evidence: [], provider: "" }
+        : null;
+    if (!verification || isCanceled(active)) return;
+    const latest = await findCard();
+    const latestParsed = latest ? reviewResultSchema.safeParse(latest.data) : null;
+    if (!latestParsed?.success || latestParsed.data.verificationState !== "running" || isCanceled(active)) return;
+    active.card = completeCard(latestParsed.data, verification);
+    await writeCard(paseo, agentId, active, active.card);
+  } finally {
+    await releaseSession(key, active);
   }
-  if (card.data.verificationState !== "running") {
-    if (live) live.canceled = false;
-    throw new Error("验证已结束。");
-  }
-  const canceledCard: ReviewCardData = { ...card.data, verificationState: "canceled", verificationStage: undefined, verificationAgentId: undefined, followups: live?.card.followups ?? card.data.followups };
-  if (live) {
-    live.card = canceledCard;
-    await queueVerificationCardWrite(paseo, agentId, cardId!, live, canceledCard, false);
-  }
-  else await appendReviewWithRetry(paseo, agentId, {
-    type: "plugin", id: cardId!, kind: REVIEW_KIND, version: REVIEW_VERSION, data: canceledCard,
-  }, true);
-  const verifierId = live?.verifierAgentId ?? card.data.verificationAgentId;
-  if (verifierId) void (async () => {
+}
+
+function archiveVerifier(paseo: PaseoApi, verifierId: string) {
+  void (async () => {
     for (let attempt = 0; attempt < 4; attempt++) {
       try { await paseo.agents.ref(verifierId).archive(); return; }
       catch (error) {
@@ -152,55 +171,42 @@ export async function cancelVerification(paseo: PaseoApi, agentId: string, score
   })();
 }
 
-/** Run independent verification for a card and update it to completion. */
-export async function runVerificationAndWrite(
-  paseo: PaseoApi,
-  agentId: string,
-  cardId: string,
-  card: ReviewCardData,
-  key: string,
-  active: ActiveVerification,
-  run: { verifyTask(agentId: string, request: VerificationRequest, control?: VerificationControl): Promise<VerificationResult> },
-  distilled: import("../review/distill.ts").DistilledTask,
-): Promise<ReviewResult | null> {
-  let verification: VerificationResult;
-  try {
-    verification = await run.verifyTask(agentId, {
-      goal: distilled.goal,
-      narrative: distilled.narrative,
-    }, {
-      isCanceled: () => active.canceled,
-      onAgentCreated: async (verifierAgentId) => {
-        active.verifierAgentId = verifierAgentId;
-        if (active.canceled) return;
-        active.card = { ...active.card, verificationAgentId: verifierAgentId, verificationStage: "正在选择验证方式…" };
-        await queueVerificationCardWrite(paseo, agentId, cardId, active, active.card);
-      },
-      onProgress: (stage) => {
-        if (active.canceled || active.card.verificationStage === stage) return;
-        active.card = { ...active.card, verificationStage: stage };
-        void queueVerificationCardWrite(paseo, agentId, cardId, active, active.card).catch((error) =>
-          console.warn("[vibe-review] verification progress update failed:", error));
-      },
-    });
-  } catch (error) {
-    console.error("[vibe-review] independent verification failed:", error);
-    verification = { status: "unavailable", summary: error instanceof Error ? error.message : "验证任务无法运行。", evidence: [], provider: "" };
+/** Cancel live and reloaded cards through the same serialized write path. */
+export async function cancelVerification(paseo: PaseoApi, agentId: string, scoredAt: string): Promise<void> {
+  const key = verificationKey(agentId, scoredAt);
+  let active = activeVerifications.get(key);
+  let owned = false;
+  if (!active) {
+    const ref = paseo.agents.ref(agentId);
+    let page: Awaited<ReturnType<typeof ref.timeline.refetch>> | undefined;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try { page = await ref.timeline.refetch(); break; }
+      catch (error) {
+        if (!/Transport (?:closed|not connected)|status: disconnected/i.test(String(error)) || attempt === 3) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+      }
+    }
+    // A recovery may have reserved this card while refetch was in flight.
+    active = activeVerifications.get(key);
+    if (!active) {
+      const item = findReviewCard(page?.entries ?? [], scoredAt);
+      if (!item) throw new Error("审核卡片已失效，请刷新后重试。");
+      const card = reviewResultSchema.safeParse(item.data);
+      if (!card.success) throw new Error("审核卡片数据无效，请刷新后重试。");
+      if (card.data.verificationState !== "running") throw new Error("验证已结束。");
+      active = sessionFor(item.id, card.data);
+      activeVerifications.set(key, active);
+      owned = true;
+    }
   }
   try {
-    if (active.canceled) return null;
-    const result = resultAfterVerification(distilled.result, verification.status) ?? "unknown";
-    const finalVerdict = verdictOf({ result, drifts: distilled.drifts });
-    await queueVerificationCardWrite(paseo, agentId, cardId, active, {
-      ...card, verdict: finalVerdict.verdict, completed: finalVerdict.completed,
-      result, verificationState: "complete", verificationStage: undefined, verificationAgentId: active.verifierAgentId,
-      verification, followups: distilled.followups,
-    });
-    return { verdict: finalVerdict.verdict, completed: finalVerdict.completed, drift: card.drift, summary: card.summary, scoredAt: card.scoredAt };
-  } catch (error) {
-    console.error("[vibe-review] verification card update failed:", error);
+    if (active.card.verificationState !== "running" && active.card.verificationState !== "canceled") throw new Error("验证已结束。");
+    const verifierId = active.card.verificationAgentId;
+    active.card = { ...active.card, verificationState: "canceled", verificationStage: undefined, verificationAgentId: undefined };
+    if (verifierId) archiveVerifier(paseo, verifierId);
+    // Repeating a failed cancellation retries its write instead of silently succeeding.
+    await writeCard(paseo, agentId, active, active.card);
   } finally {
-    activeVerifications.delete(key);
+    if (owned) await releaseSession(key, active);
   }
-  return null;
 }

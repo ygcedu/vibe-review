@@ -7,15 +7,9 @@ import { REVIEW_KIND, REVIEW_VERSION } from "../../shared/review.ts";
 import type { VerificationControl, VerificationRequest, VerificationResult } from "../verification/verify.ts";
 import { appendReviewWithRetry } from "./review-append.ts";
 import { notify } from "./notify.ts";
-import { verdictOf, type ReviewResult } from "./verdict.ts";
+import { verdictOf } from "./verdict.ts";
 import { maybeSendFollowup } from "./followup.ts";
-import {
-  activeVerifications,
-  verificationKey,
-  runVerificationAndWrite,
-  type ActiveVerification,
-  type ReviewCardData,
-} from "../verification/verification.ts";
+import { publishReviewCard, type ReviewCardData } from "../verification/verification.ts";
 
 /** Settings access, injected from the server entry point. */
 export interface RunContext {
@@ -129,22 +123,11 @@ async function runReview(
     return;
   }
 
-  const { verdict, completed, drift } = verdictOf(distilled);
-  const result: ReviewResult = {
-    verdict,
-    completed,
-    drift,
-    summary: distilled.goal || summary.task,
-    scoredAt: new Date().toISOString(),
-  };
-
   const needsVerification = distilled.taskType === "verification_required" && !interrupted;
   const card: ReviewCardData = {
-    verdict: result.verdict,
-    completed: result.completed,
-    drift: result.drift,
-    summary: result.summary,
-    scoredAt: result.scoredAt,
+    ...verdictOf(distilled),
+    summary: distilled.goal || summary.task,
+    scoredAt: new Date().toISOString(),
     turnId: turnId ?? undefined,
     goal: distilled.goal,
     result: distilled.result,
@@ -159,37 +142,8 @@ async function runReview(
     diffIncomplete,
     detail: distilled.promptNoDiff,
   };
-  const key = verificationKey(agentId, result.scoredAt);
-  const active: ActiveVerification | undefined = needsVerification
-    ? { canceled: false, cardId, card: { ...card, followups: distilled.followups }, writeQueue: Promise.resolve() }
-    : undefined;
-  if (active) activeVerifications.set(key, active);
-  try {
-    const appendResult = await appendReviewWithRetry(paseo, agentId, {
-      type: "plugin",
-      id: cardId,
-      kind: REVIEW_KIND,
-      version: REVIEW_VERSION,
-      data: card,
-    }, Boolean(turnId && lastTurnDiff?.trim()));
-    console.log(
-      `[vibe-review] appended review: verdict=${result.verdict} completed=${result.completed} drift=${result.drift} followups=${distilled.followups.length} seq=${appendResult?.seq ?? "already-present"}`,
-    );
-  } catch (error) {
-    console.error("[vibe-review] timeline append failed:", error);
-    if (active) activeVerifications.delete(key);
-    return;
-  }
-
-  if (active) {
-    const updated = await runVerificationAndWrite(
-      paseo, agentId, cardId, card, key, active, run, distilled,
-    );
-    if (updated) {
-      result.verdict = updated.verdict;
-      result.completed = updated.completed;
-    }
-  }
+  const result = await publishReviewCard(paseo, agentId, cardId, card, run, Boolean(turnId && lastTurnDiff?.trim()));
+  if (!result) return;
 
   if (result.verdict === "pass") return;
 
