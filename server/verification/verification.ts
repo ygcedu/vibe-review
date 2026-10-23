@@ -1,3 +1,4 @@
+import type { AgentTimelineItem } from "@getpaseo/protocol/agent-types";
 import { pluginData } from "../../shared/timeline.ts";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import type { PaseoApi } from "../paseo-api-types.ts";
@@ -17,12 +18,18 @@ export const reconcilingVerifications = new Set<string>();
 export const verificationKey = (agentId: string, scoredAt: string) => `${agentId}:${scoredAt}`;
 const execFileAsync = promisify(execFile);
 
+/** Select the same review card for navigation, recovery and cancellation. */
+function findReviewCard(entries: readonly { item: AgentTimelineItem }[], scoredAt: string) {
+  for (const { item } of entries) {
+    if (item.type === "plugin" && item.kind === REVIEW_KIND && pluginData(item, REVIEW_KIND)?.scoredAt === scoredAt) return item;
+  }
+}
+
 /** Resolve the verifier bound to one card, reviving its archived Paseo session. */
 export async function openVerification(paseo: PluginHandlerContext["paseo"], agentId: string, scoredAt: string): Promise<{ verifierAgentId: string; workspaceId: string }> {
   const page = await paseo.agents.ref(agentId).timeline.refetch({ limit: 200 });
-  const item = page.entries.find(({ item }) => item.type === "plugin" && item.kind === REVIEW_KIND &&
-    pluginData(item, REVIEW_KIND)?.scoredAt === scoredAt)?.item;
-  const parsed = item?.type === "plugin" ? reviewResultSchema.safeParse(item.data) : null;
+  const item = findReviewCard(page.entries, scoredAt);
+  const parsed = item ? reviewResultSchema.safeParse(item.data) : null;
   const verifierAgentId = parsed?.success ? parsed.data.verificationAgentId : undefined;
   if (!verifierAgentId) throw new Error("这张卡没有保存验证 agent，无法跳转。");
 
@@ -50,9 +57,7 @@ export async function reconcileVerification(paseo: PluginHandlerContext["paseo"]
     const parent = paseo.agents.ref(agentId);
     const findCard = async () => {
       const page = await parent.timeline.refetch({ limit: 200 });
-      const item = page.entries.find(({ item }) => item.type === "plugin" && item.kind === REVIEW_KIND &&
-        pluginData(item, REVIEW_KIND)?.scoredAt === scoredAt)?.item;
-      return item?.type === "plugin" ? item : undefined;
+      return findReviewCard(page.entries, scoredAt);
     };
     const item = await findCard();
     if (!item) return;
@@ -67,7 +72,7 @@ export async function reconcileVerification(paseo: PluginHandlerContext["paseo"]
     if (!verification) return;
     if (activeVerifications.has(key)) return;
     const latest = await findCard();
-    const latestParsed = latest?.type === "plugin" ? reviewResultSchema.safeParse(latest.data) : null;
+    const latestParsed = latest ? reviewResultSchema.safeParse(latest.data) : null;
     if (!latestParsed?.success || latestParsed.data.verificationState !== "running") return;
     const result = resultAfterVerification(card.result, verification.status);
     const finalVerdict = verdictOf({ result: result ?? "unknown", drifts: card.drifts ?? [] });
@@ -110,9 +115,8 @@ export async function cancelVerification(paseo: PaseoApi, agentId: string, score
         await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
       }
     }
-    const item = page?.entries?.map(({ item }) => item).find((entry) => entry.type === "plugin" && entry.kind === REVIEW_KIND &&
-      pluginData(entry, REVIEW_KIND)?.scoredAt === scoredAt);
-    if (!item || item.type !== "plugin") throw new Error("审核卡片已失效，请刷新后重试。");
+    const item = findReviewCard(page?.entries ?? [], scoredAt);
+    if (!item) throw new Error("审核卡片已失效，请刷新后重试。");
     cardId = item.id;
     cardData = item.data;
   }

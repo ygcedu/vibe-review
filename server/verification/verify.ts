@@ -102,8 +102,12 @@ export async function verifyWithPaseoProvider(
   control?: VerificationControl,
   instructionTemplate = DEFAULT_VERIFICATION_PROMPT,
 ): Promise<VerificationResult> {
-  const provider = config.model.trim() ? `${config.provider.trim()}/${config.model.trim()}` : config.provider.trim();
-  if (!config.enabled || !config.provider.trim()) return { status: "unavailable", summary: "未配置验证 Provider。", evidence: [], provider };
+  const providerId = config.provider.trim();
+  const model = config.model.trim();
+  const modeId = config.modeId.trim() || "full-access";
+  const fullAccess = modeId === "full-access";
+  const provider = model ? `${providerId}/${model}` : providerId;
+  if (!config.enabled || !providerId) return { status: "unavailable", summary: "未配置验证 Provider。", evidence: [], provider };
   const parent = paseo.agents.ref(parentAgentId);
   const snapshot = parent.current() ?? (await parent.refresh())?.agent;
   if (!snapshot?.workspaceId) return { status: "unavailable", summary: "无法确定原会话所在工作区。", evidence: [], provider };
@@ -116,8 +120,8 @@ export async function verifyWithPaseoProvider(
   const agent = await paseo.workspaces.ref(snapshot.workspaceId).agents.create({
     config: {
       provider,
-      modeId: config.modeId.trim() || "full-access",
-      ...(config.provider.trim() === "codex" && (config.modeId.trim() || "full-access") === "full-access"
+      modeId,
+      ...(providerId === "codex" && fullAccess
         ? { options: { approval_policy: "never", sandbox_mode: "danger-full-access" } }
         : {}),
       systemPrompt: "你是独立验证员。只读检查，不得修改工作区或用户数据。",
@@ -142,8 +146,7 @@ export async function verifyWithPaseoProvider(
       unsubscribe = subscription;
       void subscription.ready.catch((error: unknown) => console.warn("[vibe-review] verification progress subscription unavailable:", error));
     }
-    const waitForVerifier = () => retryAfterReconnect(
-      () => agent.waitForFinish(0));
+    const waitForVerifier = () => retryAfterReconnect(() => agent.waitForFinish(0));
     let run = await waitForVerifier();
     for (let attempts = 0; run.status === "permission" && attempts < 12; attempts++) {
       const current = (await retryAfterReconnect(() => agent.refresh()))?.agent ?? agent.current();
@@ -152,7 +155,6 @@ export async function verifyWithPaseoProvider(
         // The permission event may already have been answered while the run result was in flight.
         await new Promise((resolve) => setTimeout(resolve, 250));
       } else {
-        const fullAccess = (config.modeId.trim() || "full-access") === "full-access";
         const blocked = fullAccess ? undefined : pending.find((request) => !isAllowedVerificationPermission(request));
         if (blocked) {
           const history = await retryAfterReconnect(() => agent.timeline.refetch({ limit: 50 }));
@@ -215,7 +217,7 @@ function parseVerificationResult(items: readonly AgentTimelineItem[], message: s
     let status: VerificationResult["status"] = output.status === "passed" || output.status === "failed" ? output.status : "unavailable";
     if (cases.some((item) => item.status === "failed")) status = "failed";
     else if (cases.some((item) => item.status === "blocked")) status = "unavailable";
-    else if (status === "passed" && (cases.length === 0 || cases.some((item) => item.status !== "passed"))) status = "unavailable";
+    else if (status === "passed" && cases.length === 0) status = "unavailable";
     const evidence = Array.isArray(output.evidence)
       ? output.evidence.filter((value): value is string => typeof value === "string" && Boolean(value.trim()))
       : [];
