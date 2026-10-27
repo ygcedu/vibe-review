@@ -1,5 +1,42 @@
 # Changelog
 
+## [1.2.0](https://github.com/ygcedu/vibe-review/compare/v1.1.0...v1.2.0) (2026-10-20)
+
+
+### Features
+
+* Edit 卡片与评估卡片统一差异视图交互，按需还原完整上下文并支持折叠与同步滚动 ([da0d9d3](https://github.com/ygcedu/vibe-review/commit/da0d9d377f9d7a858a20fe3fefffffbd3a9c18fd))
+* Web 端无换行差异按可视窗口虚拟渲染，并统一使用固定高度边界计算 ([b9a8fed](https://github.com/ygcedu/vibe-review/commit/b9a8fed01e992318b26047dca92d082cbc45c35e))
+* 分支面板默认折叠远程与标签，本地仅展开当前分支所在路径 ([f5eca0c](https://github.com/ygcedu/vibe-review/commit/f5eca0c074c546974705d87e9b600a20d9fe06cd))
+* 增加 test 脚本，用 node --test 直接运行 TS 测试 ([6980788](https://github.com/ygcedu/vibe-review/commit/6980788f913faaca0f53a0d260a48a670292c4d6))
+* 增加会话历史面板及实时状态展示 ([b151ae1](https://github.com/ygcedu/vibe-review/commit/b151ae1b7a6901b6a61bd4d9513b72e8e3a2e44e))
+* 增加通用右键菜单及回滚删除搁置操作 ([c9fc60f](https://github.com/ygcedu/vibe-review/commit/c9fc60fd206daab1f0633e8b5401eecd618b7fca))
+* 差异视图支持折叠未变更代码与左右同步滚动，点击波浪可展开省略行 ([2dd85e4](https://github.com/ygcedu/vibe-review/commit/2dd85e477362251a60d7c6d91a82df864b637c05))
+* 差异视图支持折叠未变更代码与左右同步滚动，点击波浪可展开省略行 ([62d1926](https://github.com/ygcedu/vibe-review/commit/62d1926e0cfe118428677cb56bb9181a9ecf1330))
+* 提交面板增加 Shelf 文件树与差异预览 ([073346a](https://github.com/ygcedu/vibe-review/commit/073346aee326a82f1f4a6d8195c7ba03adb6d85f))
+
+
+### Bug Fixes
+
+* AppleScript 通知转义反斜杠与引号，补齐 git-history 解析与 review 核心路径测试 ([772e58d](https://github.com/ygcedu/vibe-review/commit/772e58dd2748b50891f9b1096c3681a1dfbd1222))
+* Git 历史分页丢弃过期响应避免跨维度拼接 ([9de286e](https://github.com/ygcedu/vibe-review/commit/9de286ea202972124e0966be47f3e9ef50801dbf))
+* SplitDiff 波浪展开加载失败时提示可点击重试 ([8ce09c1](https://github.com/ygcedu/vibe-review/commit/8ce09c146ddceedcd5ffd9a31521ec065d6a9fb7))
+* 优化 Git 面板工具栏提示与分组布局 ([2cc2424](https://github.com/ygcedu/vibe-review/commit/2cc242468cc14db20209e9ec2dea4a52865bfa58))
+* 分支图标固定宽高并禁用收缩，长分支名下保持图标尺寸一致 ([6704dbc](https://github.com/ygcedu/vibe-review/commit/6704dbc06bd919e9a88a5994c22b45ea39ad2b12))
+* 多分栏场景优先在当前聚焦分栏定位输入框 ([78d8023](https://github.com/ygcedu/vibe-review/commit/78d8023319aedd098c440f3fb13fbfbd799d550e))
+* 提交预览卡片在终态后不再被轮询降级 ([14df1fb](https://github.com/ygcedu/vibe-review/commit/14df1fb10bcf04628071958607d1f0730def345b))
+* 提示词编辑器 read() 失败时仍上报可编辑段内容 ([25e0398](https://github.com/ygcedu/vibe-review/commit/25e039856d6d6950118c8087400d7ca383de603b))
+* 提示词编辑器输入失败时保留用户已键入内容 ([350221c](https://github.com/ygcedu/vibe-review/commit/350221c211d5d8b3cc911f388f8eee304cd330e2))
+* 统一差异按钮提示显示在上方并提升按钮层级，修复折行提示错位与 Edit 卡片提示被遮挡 ([784d637](https://github.com/ygcedu/vibe-review/commit/784d637d1bc0d4a0a1f1c1405b1197b02ea6301c))
+* 补漏 VerificationResult 导入 ([27b8d8e](https://github.com/ygcedu/vibe-review/commit/27b8d8e75e435d5da42928d1fd24aff76c9cde41))
+
+
+### Performance Improvements
+
+* CommitPreview 3s 轮询在卡片不可见时暂停 ([ced8bd5](https://github.com/ygcedu/vibe-review/commit/ced8bd5907e5c9a437df5ac85143977a02a1ea57))
+* 卡片不可见时跳过提交可用性 15s 轮询 ([f4cfa9c](https://github.com/ygcedu/vibe-review/commit/f4cfa9c475ba2db9141061a5c3a0818f472e18c9))
+* 虚拟滚动支持原生端并跳过超长文件语法着色，修复桌面端卡顿 ([8a186d6](https://github.com/ygcedu/vibe-review/commit/8a186d673976222358a3934992f9f994a23fe268))
+
 ## [1.1.0](https://github.com/ygcedu/vibe-review/compare/v1.0.0...v1.1.0) (2026-10-12)
 
 
