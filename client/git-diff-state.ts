@@ -1,4 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
+import { useTabState, type PluginTab } from "@getpaseo/plugin/client";
+import { z } from "zod";
 
 export type DiffTab =
   | { id: string; source: "compare"; path: string; hash: string; status: string }
@@ -8,6 +11,48 @@ export type DiffTab =
 
 type DiffState = { tabs: DiffTab[]; activeTabId: string | null; revision: number };
 const emptyState: DiffState = { tabs: [], activeTabId: null, revision: 0 };
+
+const baseTab = { id: z.string(), path: z.string() };
+const savedDiffSchema = z.object({
+  tabs: z.array(z.discriminatedUnion("source", [
+    z.object({ ...baseTab, source: z.literal("compare"), hash: z.string(), status: z.string() }),
+    z.object({ ...baseTab, source: z.literal("history"), hash: z.string(), status: z.string() }),
+    z.object({ ...baseTab, source: z.literal("shelf"), entryId: z.string(), label: z.string(), status: z.string().optional() }),
+    z.object({ ...baseTab, source: z.literal("working"), staged: z.boolean(), status: z.string().optional() }),
+  ])),
+  activeTabId: z.string().nullable(),
+});
+const emptySavedDiff: z.infer<typeof savedDiffSchema> = { tabs: [], activeTabId: null };
+
+/** Keep the workspace cache for cross-panel actions; persist the visible diff tab
+ * through Paseo so reopening the app restores its file selection. */
+export function useGitDiffPersistence(workspaceId: string, tab: PluginTab) {
+  const cache = useQueryClient();
+  const state = useGitDiffState(workspaceId);
+  const [saved, save] = useTabState(tab, savedDiffSchema, emptySavedDiff);
+  const hydration = useRef({ workspaceId: "", pending: false });
+  useEffect(() => {
+    if (hydration.current.workspaceId !== workspaceId) {
+      hydration.current = { workspaceId, pending: false };
+      // A file opened from Commit/History just before mount takes precedence.
+      if (state.revision === 0 && state.tabs.length === 0 && saved.tabs.length > 0) {
+        hydration.current.pending = true;
+        cache.setQueryData<DiffState>(["vibe-review", "git-diff", workspaceId], {
+          ...saved,
+          activeTabId: saved.tabs.some((item) => item.id === saved.activeTabId) ? saved.activeTabId : saved.tabs[0].id,
+          revision: 1,
+        });
+        return;
+      }
+    }
+    // Strict Mode can replay the mount effect before the cache update renders.
+    // Do not overwrite the restored selection with that render's empty state.
+    if (hydration.current.pending && state.revision === 0) return;
+    hydration.current.pending = false;
+    const next = { tabs: state.tabs, activeTabId: state.activeTabId };
+    if (JSON.stringify(next) !== JSON.stringify(saved)) save(next);
+  }, [workspaceId, cache, state.tabs, state.activeTabId, state.revision, saved, save]);
+}
 
 export function useGitDiffState(workspaceId: string) {
   const cache = useQueryClient();

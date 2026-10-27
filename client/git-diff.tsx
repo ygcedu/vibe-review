@@ -10,7 +10,7 @@ import { parseDiffFiles } from "./diff/diff";
 import { FileTypeIcon } from "./diff/file-icons";
 import { SplitDiff } from "./diff/split-diff";
 import { DiffOptionButton, WrapToggleButton } from "./diff/wrap-toggle";
-import { useGitDiffState, type DiffTab } from "./git-diff-state";
+import { useGitDiffPersistence, useGitDiffState, type DiffTab } from "./git-diff-state";
 const TAB_DRAG_TYPE = "application/x-vibe-review-diff-tab";
 function ReorderableTab({ tab, active, onActivate, onClose, onReorder, onNode, theme, compact, onCloseOthers, onCloseAll }: {
   theme: PluginWorkspacePanelProps["theme"]; compact: boolean; onCloseOthers(): void; onCloseAll(): void;
@@ -85,7 +85,8 @@ function fileColor(status: string) {
 }
 
 
-export function GitDiffPanel({ workspaceId, theme, layout }: PluginWorkspacePanelProps) {
+export function GitDiffPanel({ workspaceId, theme, layout, tab }: PluginWorkspacePanelProps) {
+  useGitDiffPersistence(workspaceId, tab);
   const compareLocal = useRpc(gitCompareLocalRpc);
   const getFileDiff = useRpc(gitCommitFileDiffRpc);
   const getShelfDiff = useRpc(workspaceGitShelfDiffRpc);
