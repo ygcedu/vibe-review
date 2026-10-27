@@ -1,5 +1,44 @@
 # Changelog
 
+## [1.3.0](https://github.com/ygcedu/vibe-review/compare/v1.2.0...v1.3.0) (2026-10-27)
+
+
+### Features
+
+* 历史提交列表支持独立调整各列宽度 ([1b134e5](https://github.com/ygcedu/vibe-review/commit/1b134e5e8f54c84d40baafb269cc36e5ffe9a264))
+* 提交更改面板的 Commit 和 Shelf 文件树支持键盘导航 ([30fe3af](https://github.com/ygcedu/vibe-review/commit/30fe3af468079c8ab8dcd0ef26b454b8942ec8d7))
+* 提交面板增加追加提交、历史说明选择及间距调整 ([67575a3](https://github.com/ygcedu/vibe-review/commit/67575a3cb512d25706f02cf4679fdb3d4e57a052))
+* 支持从历史提交新建分支 ([023372a](https://github.com/ygcedu/vibe-review/commit/023372aefddc589043717bc65dea2c9516001980))
+* 支持从历史提交新建标签 ([dba3338](https://github.com/ygcedu/vibe-review/commit/dba33382446556fc1bbf7c64164cf38de7ad00ad))
+* 支持以分离 HEAD 模式检出历史版本 ([4c69c37](https://github.com/ygcedu/vibe-review/commit/4c69c375651b73c1258cae45a30fe67251c325c0))
+* 支持历史提交与本地工作区比较 ([0dfde31](https://github.com/ygcedu/vibe-review/commit/0dfde31a7f12f5aa29ae11d5cad5f6f98352fed0))
+* 支持将历史提交压缩到指定祖先并保留备份 ([9c5aefb](https://github.com/ygcedu/vibe-review/commit/9c5aefbde2b05f10892d3398208e3cf2429d7d87))
+* 支持拣选历史提交并在冲突时自动恢复 ([973fd4f](https://github.com/ygcedu/vibe-review/commit/973fd4f33167a5c3e7562434c391eb5e331125b6))
+* 支持方向键切换分支树中的可见分支 ([337fc00](https://github.com/ygcedu/vibe-review/commit/337fc00f591d5a2be26e6be9c6b9ba4c267c4cd8))
+* 支持方向键切换历史提交并移除查看详情菜单项 ([47796ee](https://github.com/ygcedu/vibe-review/commit/47796eee4cbb3345d198ff5483d96db58b1eea80))
+* 支持方向键导航历史变更文件树 ([1feb9ca](https://github.com/ygcedu/vibe-review/commit/1feb9ca59c0116976ae79a28dd8e8f4455ffc3ce))
+* 支持重置当前分支并保留恢复备份 ([608aba9](https://github.com/ygcedu/vibe-review/commit/608aba99079150c1f78994f279db69e72fbf3cf7))
+* 支持隔离变基编辑历史提交说明并保留备份 ([2671cf1](https://github.com/ygcedu/vibe-review/commit/2671cf17a420d83d04ef892405a5950588cad9af))
+* 支持隔离重放丢弃历史提交并保留备份 ([c0037fc](https://github.com/ygcedu/vibe-review/commit/c0037fcc6dd68e6c472dffb861d74f51ee33849f))
+
+
+### Bug Fixes
+
+* 从diff 组件面板中移除 rtl 方向 ([cc83689](https://github.com/ygcedu/vibe-review/commit/cc83689b3562f7674a1421b17daa14c2e79ad68f))
+* 侧边栏面板屏蔽默认右键菜单并修正自定义菜单遮罩拦截 ([81918e9](https://github.com/ygcedu/vibe-review/commit/81918e955b07dc0c4931d8f7425161a612df5f4e))
+* 修复提交面板聚焦双边框、操作反馈及确认弹窗布局 ([14dec42](https://github.com/ygcedu/vibe-review/commit/14dec42195e66f708c4759872dc202fdd69a16cb))
+* 分支树键盘导航支持目录选中及展开折叠 ([d42606b](https://github.com/ygcedu/vibe-review/commit/d42606b2ce4cdbeb0d53aa53492697e6f16b44ca))
+* 列宽调节不显示分割线并以提交时间线为拖动位置 ([3fbbe7e](https://github.com/ygcedu/vibe-review/commit/3fbbe7ef380ef8fe1c1655868c6c4bf444cac3a9))
+* 将历史变更列表的删除文件颜色统一为灰色 ([d982eef](https://github.com/ygcedu/vibe-review/commit/d982eefa98297cfe22b1c8276d428ea97b89f414))
+* 将提交反馈移至分割线上方并支持手动关闭 ([71c0561](https://github.com/ygcedu/vibe-review/commit/71c05614fba4e3f5991b0b03f891ea413f520626))
+* 恢复历史变更列表中已修改文件的蓝色文字 ([d63bf53](https://github.com/ygcedu/vibe-review/commit/d63bf53f6615f07c6bf4c2af5a9ab43328568043))
+* 提交与搁置列表中图标固定尺寸防止文件名过长挤压 ([148e993](https://github.com/ygcedu/vibe-review/commit/148e993cac0323789c06a477739e03a88533e82e))
+* 移除历史列表列头并支持直接拖动列间隙调宽 ([e85d2d5](https://github.com/ygcedu/vibe-review/commit/e85d2d5f0063769cb166d7328c67ebf9891632d7))
+* 移除历史提交键盘选中时的焦点外框和侧边框 ([cac6ff9](https://github.com/ygcedu/vibe-review/commit/cac6ff9770813366ed5de8d06455f9ce174dbc6a))
+* 移除提交列表最右侧的列宽拖动区域 ([59ebbb2](https://github.com/ygcedu/vibe-review/commit/59ebbb24527c98bd8172f783818c388f6b01983d))
+* 调节内部列宽时保持历史列表总宽度和右边缘固定 ([46893da](https://github.com/ygcedu/vibe-review/commit/46893da54c978b38cfb6682159fe8c33a4925560))
+* 重构提交列表为单行横向布局并统一主题样式与本地化文案 ([3e6296f](https://github.com/ygcedu/vibe-review/commit/3e6296fabeea76c230e92f5fa3ba3eea416bd465))
+
 ## [1.2.0](https://github.com/ygcedu/vibe-review/compare/v1.1.0...v1.2.0) (2026-10-20)
 
 
