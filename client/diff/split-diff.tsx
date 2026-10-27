@@ -410,8 +410,8 @@ export function SplitDiff({ file, wrapLines, collapseUnchanged = true, syncScrol
     >
       {width > 0 ? <>
         {Platform.OS === "web" ? <View style={[styles.codeRow, { width, height: viewportHeight }]}>
-          <ScrollView key={`before-${wrapLines}`} nativeID="vibe-review-before-vertical" ref={beforeVertical} style={[styles.verticalScroll, styles.leftVerticalScroll, { width: leftWidth, height: viewportHeight }]} nestedScrollEnabled showsVerticalScrollIndicator={false} scrollEventThrottle={16} onContentSizeChange={(_width, height) => onPaneHeight("before", height)}>
-            <View style={[{ width: leftWidth }, Platform.OS === "web" && styles.leftVerticalContent]}>
+          <ScrollView key={`before-${wrapLines}`} nativeID="vibe-review-before-vertical" ref={beforeVertical} style={[styles.verticalScroll, { width: leftWidth, height: viewportHeight }]} nestedScrollEnabled showsVerticalScrollIndicator={false} scrollEventThrottle={16} onContentSizeChange={(_width, height) => onPaneHeight("before", height)}>
+            <View style={{ width: leftWidth }}>
               {renderPane("before", leftWidth)}
             </View>
           </ScrollView>
@@ -461,8 +461,6 @@ const styles = StyleSheet.create({
   scrollbarThumb: { position: "absolute", width: 6, borderRadius: 3, cursor: "pointer" },
   horizontalTrack: { height: 18, position: "relative" },
   horizontalThumb: { position: "absolute", bottom: 2, height: 6, borderRadius: 3, cursor: "pointer" },
-  leftVerticalScroll: { direction: "rtl" },
-  leftVerticalContent: { direction: "ltr" },
   footerScroll: { height: 18 },
   connector: { width: CONNECTOR_WIDTH, overflow: "hidden", backgroundColor: "#fff", position: "relative" },
   connectorDrawing: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, pointerEvents: "none" },
