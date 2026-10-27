@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { useTabState, type PluginTab } from "@getpaseo/plugin/client";
-import { z } from "zod";
+import { savedDiffSchema, emptySavedDiff, serializeSavedDiff } from "./diff/saved-diff-state";
 
 export type DiffTab =
   | { id: string; source: "compare"; path: string; hash: string; status: string }
@@ -11,18 +11,6 @@ export type DiffTab =
 
 type DiffState = { tabs: DiffTab[]; activeTabId: string | null; revision: number };
 const emptyState: DiffState = { tabs: [], activeTabId: null, revision: 0 };
-
-const baseTab = { id: z.string(), path: z.string() };
-const savedDiffSchema = z.object({
-  tabs: z.array(z.discriminatedUnion("source", [
-    z.object({ ...baseTab, source: z.literal("compare"), hash: z.string(), status: z.string() }),
-    z.object({ ...baseTab, source: z.literal("history"), hash: z.string(), status: z.string() }),
-    z.object({ ...baseTab, source: z.literal("shelf"), entryId: z.string(), label: z.string(), status: z.string().optional() }),
-    z.object({ ...baseTab, source: z.literal("working"), staged: z.boolean(), status: z.string().optional() }),
-  ])),
-  activeTabId: z.string().nullable(),
-});
-const emptySavedDiff: z.infer<typeof savedDiffSchema> = { tabs: [], activeTabId: null };
 
 /** Keep the workspace cache for cross-panel actions; persist the visible diff tab
  * through Paseo so reopening the app restores its file selection. */
@@ -50,7 +38,7 @@ export function useGitDiffPersistence(workspaceId: string, tab: PluginTab) {
     if (hydration.current.pending && state.revision === 0) return;
     hydration.current.pending = false;
     const next = { tabs: state.tabs, activeTabId: state.activeTabId };
-    if (JSON.stringify(next) !== JSON.stringify(saved)) save(next);
+    if (serializeSavedDiff(next) !== serializeSavedDiff(saved)) save(next);
   }, [workspaceId, cache, state.tabs, state.activeTabId, state.revision, saved, save]);
 }
 
