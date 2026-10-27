@@ -17,6 +17,7 @@ import { registerWorkspaceCommit } from "./server/workspace-commit";
 import { registerGitHistory } from "./server/git-history";
 import { registerCommit } from "./server/commit/register-commit.ts";
 import { registerEditDiff } from "./server/edit-diff";
+import { fetchReviewHistory } from "./server/review/turn-history";
 
 export default function contribute(server: PluginServerContext) {
   registerWorkspaceCommit(server);
@@ -72,11 +73,6 @@ export default function contribute(server: PluginServerContext) {
     } catch (error) {
       console.warn("[vibe-review] stored turn snapshot unavailable:", error);
     }
-    if (isSessionControlCommand(buildTaskSummary(event.timeline).task)) {
-      if (started) await disposeSnapshot(started.snapshot);
-      console.log("[vibe-review] skipped session control command:", event.agent.id, event.turnId);
-      return;
-    }
     let fileChanges: { diff: string; fullDiff?: string; diffIncomplete: boolean } | undefined;
     if (started && started.turnId === event.turnId) {
       try {
@@ -96,6 +92,17 @@ export default function contribute(server: PluginServerContext) {
     } else {
       console.warn("[vibe-review] turn-start snapshot missing for:", event.agent.id, event.turnId);
     }
+    let timeline;
+    try {
+      timeline = await fetchReviewHistory(context.paseo.agents.ref(event.agent.id).timeline);
+    } catch (error) {
+      console.warn("[vibe-review] turn history unavailable:", error);
+      return;
+    }
+    if (isSessionControlCommand(buildTaskSummary(timeline).task)) {
+      console.log("[vibe-review] skipped session control command:", event.agent.id, event.turnId);
+      return;
+    }
     // Runtime hook agents may carry labels that the SDK hook type does not expose.
     const labels = (event.agent as { labels?: Record<string, string> }).labels;
     const outcome =
@@ -104,7 +111,7 @@ export default function contribute(server: PluginServerContext) {
         : event.outcome.kind === "canceled"
           ? { kind: "canceled", error: { message: event.outcome.reason } }
         : undefined;
-    queueReview(context.paseo, event.agent.id, event.timeline, event.turnId, labels, ctx(context.paseo), outcome, fileChanges);
+    queueReview(context.paseo, event.agent.id, timeline, event.turnId, labels, ctx(context.paseo), outcome, fileChanges);
   });
 
   server.handle(reviewAgentRpc, async ({ agentId }, context) => {

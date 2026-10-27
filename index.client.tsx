@@ -31,10 +31,10 @@ export default function contribute(client: PluginClientContext) {
   function SessionsPanel(props: PluginWorkspacePanelProps) {
     return <SidebarSurface><SessionHistoryPanel {...props} /></SidebarSurface>;
   }
-  client.addWorkspacePanel({ id: "vibe-review-commit", title: "提交更改", icon: "GitCommitHorizontal", context: "workspace", locations: ["explorer"], Component: CommitPanel });
-  client.addWorkspacePanel({ id: "vibe-review-git-diff", title: "Git Diff", icon: "FileDiff", context: "workspace", locations: ["workspace"], Component: GitDiffPanel });
-  client.addWorkspacePanel({ id: "vibe-review-git-history", title: "Git 历史", icon: "GitBranch", context: "workspace", locations: ["explorer"], Component: HistoryPanel });
-  client.addWorkspacePanel({ id: "vibe-review-session-history", title: "会话历史", icon: "MessagesSquare", context: "workspace", locations: ["explorer"], Component: SessionsPanel });
+  client.addWorkspacePanel({ id: "vibe-review-commit", title: "提交更改", icon: "GitCommitHorizontal", locations: ["explorer"], Component: CommitPanel });
+  client.addWorkspacePanel({ id: "vibe-review-git-diff", title: "Git Diff", icon: "FileDiff", locations: ["workspace"], Component: GitDiffPanel });
+  client.addWorkspacePanel({ id: "vibe-review-git-history", title: "Git 历史", icon: "GitBranch", locations: ["explorer"], Component: HistoryPanel });
+  client.addWorkspacePanel({ id: "vibe-review-session-history", title: "会话历史", icon: "MessagesSquare", locations: ["explorer"], Component: SessionsPanel });
   for (const [id, title, icon] of [
     ["vibe-review-commit", "提交更改", "GitCommitHorizontal"],
     ["vibe-review-git-diff", "Git Diff", "FileDiff"],
