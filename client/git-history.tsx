@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Image, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type StyleProp, type ViewStyle } from "react-native";
 import { useRpc, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import { gitCommitDetailRpc, gitHistoryRpc, type GitCommit as Commit, type GitBranch as Branch, type ChangedFile } from "../shared/git-history";
+import { gitCommitDetailRpc, gitHistoryRpc, historyRef, historyRefLabel, type GitCommit as Commit, type GitBranch as Branch, type ChangedFile } from "../shared/git-history";
 import { FileTypeIcon } from "./diff/file-icons";
 import { useGitDiffState, type DiffTab } from "./git-diff-state";
 import { buildFileTree, sortTreeNodes, type FileTreeNode } from "./diff/file-tree-utils";
@@ -145,6 +145,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
   const [revision, setRevision] = useState(0);
   const [selectedHash, setSelectedHash] = useState<string | null>(null);
   const logRef = useRef<View>(null);
+  const logScrollRef = useRef<ScrollView>(null);
   const commitNodes = useRef(new Map<string, HTMLElement>());
   const navigation = useRef({ commits, selectedHash });
   navigation.current = { commits, selectedHash };
@@ -244,7 +245,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
       branchFocus.current = row.dataset.branchKey!;
       setActiveBranchNode(branchFocus.current);
       const name = row.dataset.historyBranch;
-      if (name) { branchNavigation.current = name; setBranch(name); setSkip(0); }
+      if (name) { branchNavigation.current = name; setBranch(name); setSkip(0); setRevision((value) => value + 1); }
       row.focus({ preventScroll: true });
       row.scrollIntoView({ block: "nearest", inline: "nearest" });
     };
@@ -309,8 +310,19 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
   }, [searchText]);
 
   useEffect(() => {
+    setBranch(""); setSkip(0); setBranches([]); setCurrentBranch("");
+    setActiveBranchNode(null); branchFocus.current = null;
+  }, [workspaceId]);
+
+  useEffect(() => {
+    // A workspace change must resolve its own HEAD before reusing a branch name.
+    if (branchDefaultsWorkspace.current !== workspaceId && branch) return;
     const seq = ++requestSeq.current;
     setLoading(true);
+    if (skip === 0) {
+      setCommits([]); setSelectedHash(null); setHasMore(false);
+      logScrollRef.current?.scrollTo({ y: 0, animated: false });
+    }
     void getHistory({ workspaceId, branch, query, skip }).then((value) => {
       // ponytail: discard stale responses to prevent cross-branch/dimension list splicing.
       if (seq !== requestSeq.current) return;
@@ -329,11 +341,13 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
         }
         setBranchCollapsed(initiallyCollapsed);
         branchDefaultsWorkspace.current = workspaceId;
+        setBranch(value.currentBranch ? historyRef("local", value.currentBranch) : "");
       }
       setHasMore(value.hasMore);
       if (skip === 0) setSelectedHash(value.commits[0]?.hash ?? null);
       setError("");
     }, (reason: unknown) => { if (seq === requestSeq.current) setError(String(reason)); }).finally(() => { if (seq === requestSeq.current) setLoading(false); });
+    return () => { ++requestSeq.current; };
   }, [workspaceId, branch, query, skip, revision]);
 
   const detailSeq = useRef(0);
@@ -359,7 +373,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
     else next.add(path);
     return next;
   });
-  const chooseBranch = (name: string, key?: string) => { setBranch(name); setSkip(0); setActiveBranchNode(key ?? null); branchFocus.current = key ?? null; };
+  const chooseBranch = (name: string, key?: string) => { setBranch(name); setSkip(0); setRevision((value) => value + 1); setActiveBranchNode(key ?? null); branchFocus.current = key ?? null; };
   const bindBranchNode = (row: View | null, key: string, parent: string, name?: string, expanded?: boolean) => {
     if (Platform.OS !== "web" || !row) return;
     const element = row as unknown as HTMLElement;
@@ -373,23 +387,25 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
   const focusBranchNode = (key: string) => { branchFocus.current = key; setActiveBranchNode(key); };
   const renderBranches = (nodes: BranchNode[], group: Branch["group"], parent: string = group): React.ReactNode[] => nodes.map((node) => {
     if (node.kind === "folder") return <View key={node.path}>
-      <Pressable ref={(row) => bindBranchNode(row, node.path, parent, undefined, !branchCollapsed.has(node.path) || Boolean(branchSearch.trim()))} onFocus={() => focusBranchNode(node.path)} accessibilityRole="button" accessibilityState={{ expanded: !branchCollapsed.has(node.path) || Boolean(branchSearch.trim()) }} accessibilityLabel={`${branchCollapsed.has(node.path) ? "展开" : "折叠"} ${node.name}`} onPress={() => { focusBranchNode(node.path); toggleBranchFolder(node.path); }} style={[styles.branchRow, activeBranchNode === node.path && styles.branchSelected]}>
+      <Pressable ref={(row) => bindBranchNode(row, node.path, parent, undefined, !branchCollapsed.has(node.path) || Boolean(branchSearch.trim()))} onFocus={() => focusBranchNode(node.path)} accessibilityRole="button" accessibilityState={{ expanded: !branchCollapsed.has(node.path) || Boolean(branchSearch.trim()) }} accessibilityLabel={`${branchCollapsed.has(node.path) ? "展开" : "折叠"} ${node.name}`} onPress={() => { focusBranchNode(node.path); toggleBranchFolder(node.path); }} style={[styles.branchRow, activeBranchNode === node.path && styles.branchFocused]}>
         <Icon name={branchCollapsed.has(node.path) ? "ChevronRight" : "ChevronDown"} size={14} color={colors.foregroundMuted} />
         <Icon name="Folder" size={15} color={colors.foregroundMuted} />
         <Text style={styles.branchName} numberOfLines={1}>{node.name}</Text>
       </Pressable>
       {!branchCollapsed.has(node.path) || branchSearch.trim() ? <View style={styles.branchChildren}>{renderBranches(node.children, group, node.path)}</View> : null}
     </View>;
+    const ref = historyRef(group, node.fullName);
+    const isSelected = branch === ref;
     const isCurrent = group === "local" && node.fullName === currentBranch;
     const isMain = (group === "local" && (node.fullName === "main" || node.fullName === "master")) || (group === "remote" && (node.fullName === "origin/main" || node.fullName === "origin/master"));
     return <ContextMenu key={`${group}/${node.fullName}`} theme={props.theme} compact={props.layout.compact} label={node.fullName} items={[
-      { id: "history", label: "查看历史", icon: "GitBranch", onSelect: () => chooseBranch(node.fullName) },
+      { id: "history", label: "查看历史", icon: "GitBranch", onSelect: () => chooseBranch(ref) },
       { id: "copy", label: group === "tag" ? "复制标签名称" : "复制分支名称", icon: "Copy", onSelect: () => copyText(node.fullName) },
-    ]}><Pressable key={`${group}/${node.fullName}`} ref={(row) => bindBranchNode(row, `leaf:${group}/${node.fullName}`, parent, node.fullName)} onFocus={() => focusBranchNode(`leaf:${group}/${node.fullName}`)} accessibilityRole="button" accessibilityLabel={`查看${group === "tag" ? "标签" : "分支"} ${node.fullName}`} accessibilityState={{ selected: branch === node.fullName }} onPress={() => chooseBranch(node.fullName, `leaf:${group}/${node.fullName}`)} style={[{ flex: 1 }, styles.branchRow, (activeBranchNode === `leaf:${group}/${node.fullName}` || (!activeBranchNode && branch === node.fullName)) && styles.branchSelected]}>
+    ]}><Pressable key={`${group}/${node.fullName}`} ref={(row) => bindBranchNode(row, `leaf:${group}/${node.fullName}`, parent, ref)} onFocus={() => focusBranchNode(`leaf:${group}/${node.fullName}`)} accessibilityRole="button" accessibilityLabel={`查看${group === "tag" ? "标签" : "分支"} ${node.fullName}`} accessibilityState={{ selected: isSelected }} onPress={() => chooseBranch(ref, `leaf:${group}/${node.fullName}`)} style={[{ flex: 1 }, styles.branchRow, isSelected ? styles.branchSelected : activeBranchNode === `leaf:${group}/${node.fullName}` && styles.branchFocused]}>
       <View style={styles.branchIndent} />
-      <View style={styles.branchIcon}>{isCurrent && isMain ? <Image source={{ uri: CURRENT_BRANCH_ICON }} style={styles.currentBranchIcon} /> : isMain ? <Text style={styles.mainBranchIcon}>★</Text> : <Icon name={group === "tag" || isCurrent ? "Tag" : "GitBranch"} size={16} color={isCurrent ? colors.accent : colors.foregroundMuted} />}</View>
-      <Text style={[styles.branchLeafName, branch === node.fullName && styles.activeBranch]} numberOfLines={1}>{node.name}</Text>
-      {group === "local" && (node.ahead > 0 || node.behind > 0) ? <View style={styles.branchTracking}>{node.behind > 0 ? <><Icon name="ArrowDownLeft" size={14} color="#3478f6" /><Text style={styles.behindCount}>{node.behind}</Text></> : null}{node.ahead > 0 ? <><Icon name="ArrowUpRight" size={14} color="#30a653" /><Text style={styles.aheadCount}>{node.ahead}</Text></> : null}</View> : null}
+      <View style={styles.branchIcon}>{isCurrent && isMain ? <Image source={{ uri: CURRENT_BRANCH_ICON }} style={[styles.currentBranchIcon, isSelected && { tintColor: colors.accentForeground }]} /> : isMain ? <Text style={[styles.mainBranchIcon, isSelected && { color: colors.accentForeground }]}>★</Text> : <Icon name={group === "tag" || isCurrent ? "Tag" : "GitBranch"} size={16} color={isSelected ? colors.accentForeground : isCurrent ? colors.accent : colors.foregroundMuted} />}</View>
+      <Text style={[styles.branchLeafName, isSelected && styles.activeBranch]} numberOfLines={1}>{node.name}</Text>
+      {group === "local" && (node.ahead > 0 || node.behind > 0) ? <View style={styles.branchTracking}>{node.behind > 0 ? <><Icon name="ArrowDownLeft" size={14} color={isSelected ? colors.accentForeground : "#3478f6"} /><Text style={[styles.behindCount, isSelected && { color: colors.accentForeground }]}>{node.behind}</Text></> : null}{node.ahead > 0 ? <><Icon name="ArrowUpRight" size={14} color={isSelected ? colors.accentForeground : "#30a653"} /><Text style={[styles.aheadCount, isSelected && { color: colors.accentForeground }]}>{node.ahead}</Text></> : null}</View> : null}
     </Pressable></ContextMenu>;
   });
   const bindFileNode = (row: View | null, key: string, parent: string, path: string, folder: boolean, expanded = false) => {
@@ -447,7 +463,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
   return <View style={styles.root} onLayout={(event) => { setPanelWidth(event.nativeEvent.layout.width); setPanelHeight(event.nativeEvent.layout.height); }}>
     <View style={[styles.bottomPanel, { height: bottomHeight }]}>
       <View style={styles.historyHeader}>
-        <View style={styles.headerTitle}><Icon name="GitBranch" size={14} color={colors.foregroundMuted} /><Text style={styles.historyTitle} numberOfLines={1}>{branch || "全部分支"}</Text><Text style={styles.headerCount}>{commits.length}{hasMore ? "+" : ""} 条提交</Text></View>
+        <View style={styles.headerTitle}><Icon name="GitBranch" size={14} color={colors.foregroundMuted} /><Text style={styles.historyTitle} numberOfLines={1}>{historyRefLabel(branch) || "HEAD"}</Text><Text style={styles.headerCount}>{commits.length}{hasMore ? "+" : ""} 条提交</Text></View>
         <View style={styles.historyActions}>
           <ToolbarButton label="刷新提交历史" icon="RefreshCw" size={28} theme={props.theme} onPress={() => { setSkip(0); setRevision((value) => value + 1); }} />
         </View>
@@ -463,7 +479,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
               if (!matching.length) return null;
               const label = group === "local" ? "本地分支" : group === "remote" ? "远程分支" : "标签";
               return <View key={group}>
-                <Pressable ref={(row) => bindBranchNode(row, group, "", undefined, !branchCollapsed.has(group) || Boolean(query))} onFocus={() => focusBranchNode(group)} accessibilityRole="button" accessibilityState={{ expanded: !branchCollapsed.has(group) || Boolean(query) }} accessibilityLabel={`${branchCollapsed.has(group) ? "展开" : "折叠"}${label}`} onPress={() => { focusBranchNode(group); toggleBranchFolder(group); }} style={[styles.branchGroup, activeBranchNode === group && styles.branchSelected]}><Icon name={branchCollapsed.has(group) ? "ChevronRight" : "ChevronDown"} size={14} color={colors.foregroundMuted} /><Text style={styles.branchGroupText}>{label}</Text></Pressable>
+                <Pressable ref={(row) => bindBranchNode(row, group, "", undefined, !branchCollapsed.has(group) || Boolean(query))} onFocus={() => focusBranchNode(group)} accessibilityRole="button" accessibilityState={{ expanded: !branchCollapsed.has(group) || Boolean(query) }} accessibilityLabel={`${branchCollapsed.has(group) ? "展开" : "折叠"}${label}`} onPress={() => { focusBranchNode(group); toggleBranchFolder(group); }} style={[styles.branchGroup, activeBranchNode === group && styles.branchFocused]}><Icon name={branchCollapsed.has(group) ? "ChevronRight" : "ChevronDown"} size={14} color={colors.foregroundMuted} /><Text style={styles.branchGroupText}>{label}</Text></Pressable>
                 {!branchCollapsed.has(group) || query ? <View style={styles.branchChildren}>{renderBranches(branchTree(matching, group), group)}</View> : null}
               </View>;
             })}
@@ -474,7 +490,8 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
           <View style={styles.logToolbar}><View style={[styles.commitSearchRow, focusedSearch === "commit" && { borderColor: colors.accent }]}><Icon name="Search" size={15} color={colors.foregroundMuted} /><TextInput ref={borderOnlyFocus} accessibilityLabel="搜索提交说明" value={searchText} onChangeText={setSearchText} onFocus={() => setFocusedSearch("commit")} onBlur={() => setFocusedSearch(null)} placeholder="搜索提交说明" placeholderTextColor={colors.foregroundMuted} style={styles.search} /></View></View>
           <ScrollView horizontal style={styles.logTableViewport} contentContainerStyle={styles.logTableScroll}>
           <View style={{ width: commitTableWidth, minHeight: 0 }}>
-          <ScrollView style={styles.log}>
+          <ScrollView ref={logScrollRef} style={styles.log}>
+            {loading && commits.length === 0 ? <Text style={styles.empty}>加载提交历史…</Text> : null}
             {commits.map((item) => {
               return <ContextMenu key={item.hash} theme={props.theme} compact={props.layout.compact} label={item.subject} items={[
                 { id: "hash", label: "复制提交 Hash", icon: "Copy", onSelect: () => copyText(item.hash) },
@@ -600,8 +617,9 @@ function historyStyles(colors: PluginWorkspacePanelProps["theme"]["colors"]) {
     branchRow: { ...baseStyles.branchRow, minHeight: 28 },
     branchName: { ...baseStyles.branchName, minWidth: 0, color: colors.foreground },
     branchLeafName: { ...baseStyles.branchLeafName, color: colors.foreground },
-    branchSelected: { backgroundColor: colors.surface2, borderRadius: 4 },
-    activeBranch: { color: colors.accent, fontWeight: "500" },
+    branchFocused: { backgroundColor: colors.surface2, borderRadius: 4 },
+    branchSelected: { backgroundColor: colors.accent, borderRadius: 6 },
+    activeBranch: { color: colors.accentForeground, fontWeight: "700" },
     logToolbar: { height: 46, padding: 8, borderBottomWidth: 1, borderColor: colors.border },
     commitSearchRow: { flex: 1, height: 30, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 8, borderWidth: 1, borderColor: colors.border, borderRadius: 6, backgroundColor: colors.surface1 },
     search: { flex: 1, minWidth: 0, fontSize: 12, color: colors.foreground, outlineWidth: 0, paddingVertical: 0 },

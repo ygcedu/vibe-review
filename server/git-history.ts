@@ -1,6 +1,6 @@
 import { git, workspaceGitDirectory } from "./git.ts";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { gitCommitDetailRpc, gitCommitFileDiffRpc, gitHistoryRpc, type ChangedFile } from "../shared/git-history.ts";
+import { gitCommitDetailRpc, gitCommitFileDiffRpc, gitHistoryRpc, historyRef, type ChangedFile } from "../shared/git-history.ts";
 
 async function gitConfig(cwd: string, key: string): Promise<string> {
   try {
@@ -52,14 +52,21 @@ export function registerGitHistory(server: PluginServerContext) {
       if (ref.startsWith("refs/tags/")) return { name: ref.slice("refs/tags/".length), group: "tag" as const, ahead: 0, behind: 0 };
       return { name: ref.slice("refs/remotes/".length), group: "remote" as const, ahead: 0, behind: 0 };
     }).filter((item) => item.name && !(item.group === "remote" && item.name.endsWith("/HEAD")));
-    if (branch && !branches.some((item) => item.name === branch)) throw new Error("分支不存在，请刷新");
+    // Legacy short names prefer local branches; new clients send exact refs.
+    const selectedBranch = branches.find((item) => historyRef(item.group, item.name) === branch)
+      ?? branches.find((item) => item.group === "local" && item.name === branch)
+      ?? branches.find((item) => item.name === branch);
+    if (branch && !selectedBranch) throw new Error("分支不存在，请刷新");
     const currentBranch = (await git(cwd, ["branch", "--show-current"])).trim();
     const [gitUserName, gitUserEmail] = await Promise.all([gitConfig(cwd, "user.name"), gitConfig(cwd, "user.email")]);
-    const args = ["log", `--skip=${skip}`, `-n${PAGE_SIZE + 1}`, `--pretty=format:${format}`];
-    if (!branch) args.push("--all");
+    const args = ["log", "--topo-order", `--skip=${skip}`, `-n${PAGE_SIZE + 1}`, `--pretty=format:${format}`];
+
     if (query.trim()) args.push("--regexp-ignore-case", "--fixed-strings", `--grep=${query.trim()}`);
-    if (branch) args.push(branch);
-    const raw = branches.length ? await git(cwd, args) : "";
+    args.push(selectedBranch ? historyRef(selectedBranch.group, selectedBranch.name) : "HEAD", "--");
+    const hasHistory = branch ? branches.length > 0 : currentBranch
+      ? branches.some((item) => item.group === "local" && item.name === currentBranch)
+      : await git(cwd, ["rev-parse", "--verify", "HEAD"]).then(() => true, () => false);
+    const raw = hasHistory ? await git(cwd, args) : "";
     const commits = parseCommits(raw);
     return { commits: commits.slice(0, PAGE_SIZE), hasMore: commits.length > PAGE_SIZE, branches, currentBranch, currentGitUser: { name: gitUserName, email: gitUserEmail } };
   });

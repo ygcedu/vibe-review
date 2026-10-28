@@ -30,3 +30,13 @@ export const gitCompareLocalRpc = defineRpc({
   input: z.object({ workspaceId: z.string(), hash: z.string().regex(/^[a-f0-9]{40,64}$/), path: z.string().optional(), fullContext: z.boolean().optional() }),
   output: z.object({ files: z.array(changedFile), diff: z.string() }),
 });
+
+// Keep ref namespaces in selection and RPCs: branch and tag names can collide.
+export function historyRef(group: GitBranch["group"], name: string) {
+  const prefix = group === "local" ? "refs/heads/" : group === "remote" ? "refs/remotes/" : "refs/tags/";
+  return `${prefix}${name}`;
+}
+
+export function historyRefLabel(ref: string) {
+  return ref.replace(/^refs\/(heads|remotes|tags)\//, "");
+}

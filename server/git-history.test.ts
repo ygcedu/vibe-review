@@ -60,3 +60,40 @@ test("isValidHash accepts 7-64 lowercase hex chars, rejects shorter, longer, and
   assert.equal(isValidHash("abc def"), false);
   assert.equal(isValidHash(""), false);
 });
+
+test("history defaults to workspace HEAD and starts selected branches at their tip", async (t) => {
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { git } = await import("./git.ts");
+  const { registerGitHistory } = await import("./git-history.ts");
+  const cwd = await mkdtemp(join(tmpdir(), "history-head-"));
+  t.after(() => rm(cwd, { recursive: true, force: true }));
+  await git(cwd, ["init", "-b", "main"]);
+  await git(cwd, ["config", "user.name", "Test"]);
+  await git(cwd, ["config", "user.email", "test@example.com"]);
+  await git(cwd, ["commit", "--allow-empty", "-m", "main tip"]);
+  const main = (await git(cwd, ["rev-parse", "HEAD"])).trim();
+  await git(cwd, ["checkout", "-b", "feature"]);
+  await git(cwd, ["commit", "--allow-empty", "-m", "feature tip"]);
+  const feature = (await git(cwd, ["rev-parse", "HEAD"])).trim();
+  await git(cwd, ["checkout", "main"]);
+  // Reproduce a local branch sharing a name with an older release tag.
+  await git(cwd, ["tag", "feature", main]);
+  await git(cwd, ["update-ref", "refs/remotes/origin/feature", main]);
+  type Handler = (input: { workspaceId: string; branch: string; query: string; skip: number }, context: unknown) => Promise<{ commits: { hash: string }[]; currentBranch: string }>;
+  let history!: Handler;
+  registerGitHistory({ handle(rpc: { name: string }, handler: Handler) {
+    if (rpc.name === "vibe-review.git-history") history = handler;
+  } } as unknown as Parameters<typeof registerGitHistory>[0]);
+  const context = { paseo: { workspaces: { ref: () => ({ refresh: async () => ({ workspaceDirectory: cwd }) }) } } };
+  const load = (branch: string) => history({ workspaceId: "test", branch, query: "", skip: 0 }, context);
+  assert.deepEqual((await load("")).commits.map(({ hash }) => hash), [main]);
+  assert.equal((await load("feature")).commits[0]?.hash, feature);
+  assert.equal((await load("refs/heads/feature")).commits[0]?.hash, feature);
+  assert.equal((await load("refs/tags/feature")).commits[0]?.hash, main);
+  assert.equal((await load("refs/remotes/origin/feature")).commits[0]?.hash, main);
+  assert.equal((await load("main")).commits[0]?.hash, main);
+  await git(cwd, ["checkout", "feature"]);
+  assert.equal((await load("")).commits[0]?.hash, feature);
+});
