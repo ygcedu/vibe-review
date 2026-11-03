@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.4.0](https://github.com/ygcedu/vibe-review/compare/v1.3.0...v1.4.0) (2026-11-03)
+
+
+### Features
+
+* 持久化 Git Diff 标签和文件选中状态 ([eba211a](https://github.com/ygcedu/vibe-review/commit/eba211a7556129c7f09da6488aebd8c41207a16d))
+
+
+### Bug Fixes
+
+* 区分同名分支与标签并优化 Git 历史选中状态 ([73e9f6b](https://github.com/ygcedu/vibe-review/commit/73e9f6bc3da067ccc1a5706869654cc412a244a4))
+* 适配 Paseo 0.13 并主动读取自动审核历史 ([17b8d8d](https://github.com/ygcedu/vibe-review/commit/17b8d8d18114533189439785e5569300e898c763))
+* 避免 Diff 状态重复保存导致 React 更新死循环 ([6f13ee5](https://github.com/ygcedu/vibe-review/commit/6f13ee5ef97d5260dbde0b85f741bbbf604b54ba))
+* 避免审核卡片超过时间线数据大小限制 ([09a7437](https://github.com/ygcedu/vibe-review/commit/09a7437bdb656155f5c87641e0169e7119ace878))
+
 ## [1.3.0](https://github.com/ygcedu/vibe-review/compare/v1.2.0...v1.3.0) (2026-10-27)
 
 
