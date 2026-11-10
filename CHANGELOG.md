@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.5.0](https://github.com/ygcedu/vibe-review/compare/v1.4.0...v1.5.0) (2026-11-10)
+
+
+### Features
+
+* 完善 Git 历史分支操作与快捷工具栏 ([b7ca50c](https://github.com/ygcedu/vibe-review/commit/b7ca50cb6f435f540f4d8b561b37fb1778effc14))
+
+
+### Bug Fixes
+
+* 优化提交面板推送与提交按钮配色及交互样式 ([099b51b](https://github.com/ygcedu/vibe-review/commit/099b51bb82a60a97363c41ba74f41d098e51187e))
+* 消除审核与提交预览卡片中的硬编码颜色 ([af326ab](https://github.com/ygcedu/vibe-review/commit/af326ab8887603b1dfa27b0e4fe45706a18e8d30))
+* 适配深色主题并消除提交面板硬编码颜色 ([c579d00](https://github.com/ygcedu/vibe-review/commit/c579d003f918a0e98e622cdd2738353d133a8964))
+
 ## [1.4.0](https://github.com/ygcedu/vibe-review/compare/v1.3.0...v1.4.0) (2026-11-03)
 
 
