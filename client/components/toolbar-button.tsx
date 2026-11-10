@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import type { PluginHostProps } from "@getpaseo/plugin/client";
-import { bindToolbarTooltip } from "../web";
+import { bindToolbarTooltip, mountToolbarTooltip } from "../web";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 
 type Props = {
@@ -25,6 +25,10 @@ export function ToolbarButton({ label, icon, disabled = false, onPress, theme, b
   useEffect(() => bindToolbarTooltip(anchor.current, show, hide), [show, hide]);
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
   const colors = theme.colors;
+  useEffect(() => {
+    if (!visible) return;
+    return mountToolbarTooltip(anchor.current, label, colors.foreground, colors.surface0);
+  }, [visible, label, colors.foreground, colors.surface0]);
   const tooltipWidth = boundary?.width ? Math.min(116, Math.max(0, boundary.width - 8)) : 116;
   const centeredLeft = (anchorLayout.width - tooltipWidth) / 2;
   const tooltipLeft = boundary?.width
@@ -34,7 +38,7 @@ export function ToolbarButton({ label, icon, disabled = false, onPress, theme, b
     <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled }} disabled={disabled} onHoverIn={show} onHoverOut={hide} onFocus={show} onBlur={hide} onPress={onPress} style={({ pressed }) => [styles.button, { width: size, height: size, opacity: disabled ? 0.35 : 1, backgroundColor: pressed ? colors.surface2 : "transparent" }]}>
       <Icon name={icon} size={18} color={colors.foregroundMuted} />
     </Pressable>
-    {visible ? <View pointerEvents="none" role="tooltip" style={[styles.tooltip, { backgroundColor: colors.foreground, left: tooltipLeft, width: tooltipWidth }]}><Text style={[styles.text, { color: colors.surface0 }]}>{label}</Text></View> : null}
+    {visible && Platform.OS !== "web" ? <View pointerEvents="none" role="tooltip" style={[styles.tooltip, { backgroundColor: colors.foreground, left: tooltipLeft, width: tooltipWidth }]}><Text style={[styles.text, { color: colors.surface0 }]}>{label}</Text></View> : null}
   </View>;
 }
 

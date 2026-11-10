@@ -90,6 +90,47 @@ export function bindToolbarTooltip(target: unknown, show: () => void, hide: () =
   };
 }
 
+/** Render outside clipped panels without capturing pointer events or keyboard focus. */
+export function mountToolbarTooltip(target: unknown, label: string, background: string, foreground: string): () => void {
+  if (Platform.OS !== "web" || !target) return () => {};
+  const anchor = target as HTMLElement;
+  const doc = anchor.ownerDocument;
+  const viewport = doc.defaultView;
+  if (!viewport) return () => {};
+  const tooltip = doc.createElement("div");
+  tooltip.setAttribute("role", "tooltip");
+  tooltip.textContent = label;
+  Object.assign(tooltip.style, {
+    position: "fixed", zIndex: "2147483647", pointerEvents: "none",
+    boxSizing: "border-box", width: "max-content", padding: "6px 8px",
+    borderRadius: "5px", backgroundColor: background, color: foreground,
+    fontFamily: "inherit", fontSize: "12px", lineHeight: "16px",
+    textAlign: "center", whiteSpace: "normal", overflowWrap: "anywhere",
+    boxShadow: "0 2px 8px #0003",
+  });
+  doc.body.appendChild(tooltip);
+  const position = () => {
+    const rect = anchor.getBoundingClientRect();
+    const width = doc.documentElement.clientWidth;
+    const height = doc.documentElement.clientHeight;
+    tooltip.style.maxWidth = `${Math.max(0, Math.min(240, width - 16))}px`;
+    const bounds = tooltip.getBoundingClientRect();
+    const left = Math.max(8, Math.min(rect.left + (rect.width - bounds.width) / 2, width - bounds.width - 8));
+    const preferredTop = rect.top - bounds.height - 6;
+    const top = preferredTop >= 8 ? preferredTop : rect.bottom + 6;
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${Math.max(8, Math.min(top, height - bounds.height - 8))}px`;
+  };
+  position();
+  viewport.addEventListener("resize", position);
+  doc.addEventListener("scroll", position, true);
+  return () => {
+    viewport.removeEventListener("resize", position);
+    doc.removeEventListener("scroll", position, true);
+    tooltip.remove();
+  };
+}
+
 /** Same browser-owned 900ms clock as Paseo's status-ring/clock.web.ts. */
 export function animateSessionStatusRing(target: unknown): () => void {
   if (Platform.OS !== "web" || !target) return () => {};

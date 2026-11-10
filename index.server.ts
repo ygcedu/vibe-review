@@ -1,3 +1,4 @@
+import { registerBranchActions } from "./server/branch-actions";
 import { registerHistoryCompare } from "./server/history-compare";
 import { registerHistoryActions } from "./server/history-actions";
 import { registerSessionHistory } from "./server/session-history";
@@ -23,6 +24,7 @@ export default function contribute(server: PluginServerContext) {
   registerWorkspaceCommit(server);
   registerSessionHistory(server);
   registerGitHistory(server);
+  registerBranchActions(server);
   registerHistoryActions(server);
   registerHistoryCompare(server);
   registerEditDiff(server);

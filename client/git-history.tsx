@@ -1,3 +1,4 @@
+import { useBranchActions } from "./branch-actions";
 import { fitHistoryColumns, resizeHistoryColumns, HISTORY_TABLE_CHROME, type HistoryColumnWidths } from "./history-columns";
 import { useHistoryActions } from "./history-actions";
 import { ToolbarButton } from "./components/toolbar-button";
@@ -143,6 +144,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [revision, setRevision] = useState(0);
+  const branchActions = useBranchActions({ workspaceId, theme: props.theme, currentBranch, onChanged: () => { setBranch(""); setSkip(0); setRevision((value) => value + 1); refreshDiff(); } });
   const [selectedHash, setSelectedHash] = useState<string | null>(null);
   const logRef = useRef<View>(null);
   const logScrollRef = useRef<ScrollView>(null);
@@ -399,6 +401,8 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
     const isCurrent = group === "local" && node.fullName === currentBranch;
     const isMain = (group === "local" && (node.fullName === "main" || node.fullName === "master")) || (group === "remote" && (node.fullName === "origin/main" || node.fullName === "origin/master"));
     return <ContextMenu key={`${group}/${node.fullName}`} theme={props.theme} compact={props.layout.compact} label={node.fullName} items={[
+      ...branchActions.itemsFor(ref),
+      { id: "navigation-separator", separator: true },
       { id: "history", label: "查看历史", icon: "GitBranch", onSelect: () => chooseBranch(ref) },
       { id: "copy", label: group === "tag" ? "复制标签名称" : "复制分支名称", icon: "Copy", onSelect: () => copyText(node.fullName) },
     ]}><Pressable key={`${group}/${node.fullName}`} ref={(row) => bindBranchNode(row, `leaf:${group}/${node.fullName}`, parent, ref)} onFocus={() => focusBranchNode(`leaf:${group}/${node.fullName}`)} accessibilityRole="button" accessibilityLabel={`查看${group === "tag" ? "标签" : "分支"} ${node.fullName}`} accessibilityState={{ selected: isSelected }} onPress={() => chooseBranch(ref, `leaf:${group}/${node.fullName}`)} style={[{ flex: 1 }, styles.branchRow, isSelected ? styles.branchSelected : activeBranchNode === `leaf:${group}/${node.fullName}` && styles.branchFocused]}>
@@ -442,7 +446,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
   const selectedCommit = commits.find((item) => item.hash === selectedHash);
   const contentWidth = Math.max(0, panelWidth);
   const bottomHeight = panelHeight;
-  const columnSpace = Math.max(0, contentWidth - SPLITTER_SIZE * 2);
+  const columnSpace = Math.max(0, contentWidth - 36 - SPLITTER_SIZE * 2);
   const minimumBranchWidth = Math.min(160, columnSpace * 0.25);
   const minimumLogWidth = Math.min(250, columnSpace * 0.35);
   const minimumDetailWidth = Math.min(200, columnSpace * 0.2);
@@ -460,6 +464,8 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
   const maximumFilesHeight = Math.max(minimumFilesHeight, detailPanelHeight - SPLITTER_SIZE - minimumMessageHeight);
   const filesHeight = Math.max(minimumFilesHeight, Math.min(maximumFilesHeight, preferredFilesHeight ?? detailPanelHeight * 0.58));
 
+  const allBranchGroupsCollapsed = !branchSearch.trim() && branches.every((item) => branchCollapsed.has(item.group));
+
   return <View style={styles.root} onLayout={(event) => { setPanelWidth(event.nativeEvent.layout.width); setPanelHeight(event.nativeEvent.layout.height); }}>
     <View style={[styles.bottomPanel, { height: bottomHeight }]}>
       <View style={styles.historyHeader}>
@@ -470,6 +476,18 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
       </View>
       <View style={styles.bottomViewport}>
       <View style={[styles.columns, { height: Math.max(0, bottomHeight - 64) }]}>
+        <View style={{ width: 36, alignItems: "center", paddingVertical: 6, gap: 4, borderRightWidth: 1, borderColor: colors.border, backgroundColor: colors.surface1 }}>
+          <ToolbarButton label="从所选分支新建" icon="Plus" size={28} theme={props.theme} disabled={branchActions.busy || !branches.length} onPress={() => void branchActions.open(branch || historyRef("local", currentBranch), "new")} />
+          <ToolbarButton label="获取远程更新" icon="ArrowDownToLine" size={28} theme={props.theme} disabled={branchActions.busy || !branches.length} onPress={() => void branchActions.open(branch || historyRef("local", currentBranch), "fetch")} />
+          <ToolbarButton label="拉取当前分支（仅快进）" icon="ArrowDownLeft" size={28} theme={props.theme} disabled={branchActions.busy || !currentBranch} onPress={() => void branchActions.open(historyRef("local", currentBranch), "update")} />
+          <ToolbarButton label="推送当前分支" icon="ArrowUpRight" size={28} theme={props.theme} disabled={branchActions.busy || !currentBranch} onPress={() => void branchActions.open(historyRef("local", currentBranch), "push")} />
+          <View style={{ height: 1, width: 20, backgroundColor: colors.border, marginVertical: 4 }} />
+          <ToolbarButton label="定位当前分支" icon="LocateFixed" size={28} theme={props.theme} disabled={!currentBranch} onPress={() => { setBranchSearch(""); setBranchCollapsed(new Set()); chooseBranch(historyRef("local", currentBranch)); }} />
+          <ToolbarButton label={allBranchGroupsCollapsed ? "展开所有分支" : "折叠所有分支"} icon={allBranchGroupsCollapsed ? "ChevronsUpDown" : "ChevronsDownUp"} size={28} theme={props.theme} onPress={() => {
+            setBranchSearch("");
+            setBranchCollapsed(allBranchGroupsCollapsed ? new Set() : new Set(["local", "remote", "tag"]));
+          }} />
+        </View>
         <View ref={branchTreeRef} style={[styles.sidebar, { width: resolvedBranchColumnWidth }]}>
           <View style={[styles.branchSearchRow, focusedSearch === "branch" && { borderColor: colors.accent }]}><Icon name="Search" size={16} color={colors.foregroundMuted} /><TextInput ref={borderOnlyFocus} accessibilityLabel="搜索分支或标签" onFocus={() => setFocusedSearch("branch")} onBlur={() => setFocusedSearch(null)} placeholderTextColor={colors.foregroundMuted} value={branchSearch} onChangeText={setBranchSearch} placeholder="搜索分支或标签" style={styles.branchSearchInput} /></View>
           <ScrollView style={styles.sidebarScroll}>
@@ -547,6 +565,7 @@ export function GitHistoryPanel(props: PluginWorkspacePanelProps & { onOpenDiff(
       <View style={styles.historyFooter}><Icon name="GitBranch" size={13} color={colors.foregroundMuted} /><Text style={styles.historyBranch} numberOfLines={1}>{currentBranch || "未检测到分支"}</Text></View>
     </View>
     {historyActions.dialog}
+    {branchActions.dialog}
     {error ? <Text style={styles.error} numberOfLines={2}>{error}</Text> : null}
   </View>;
 }
