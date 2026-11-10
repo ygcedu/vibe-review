@@ -1,5 +1,5 @@
 import { isNoDrift } from "../../shared/drift";
-import { View, Text, StyleSheet, TouchableOpacity, useColorScheme } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import { useMemo, useState, type ComponentType } from "react";
 import type { PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import type { output } from "zod";
@@ -14,11 +14,7 @@ import { useReviewVerification } from "./use-review-verification";
 
 type ReviewResultData = output<typeof reviewResultSchema>;
 
-const verdictStyle = {
-  pass: { accent: "#15803d", darkAccent: "#86efac", tint: "#dcfce7", darkTint: "#153d29", label: "通过" },
-  review: { accent: "#b45309", darkAccent: "#fcd34d", tint: "#fef3c7", darkTint: "#493018", label: "待复核" },
-  reject: { accent: "#b91c1c", darkAccent: "#fca5a5", tint: "#fee2e2", darkTint: "#491f20", label: "未通过" },
-} as const;
+const verdictLabel = { pass: "通过", review: "待复核", reject: "未通过" } as const;
 
 const driftLabel = {
   in_scope: "在范围内",
@@ -55,12 +51,10 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
   const verificationRunning = data.verificationState === "running";
   const legacyNoDrift = data.result === "done" && data.verification?.status === "passed" && !!data.drifts?.length && data.drifts.every(isNoDrift);
   const displayVerdict = data.verificationState === "canceled" && data.verdict === "pass" ? "review" : legacyNoDrift ? "pass" : data.verdict;
-  const v = verdictStyle[displayVerdict];
-  const dark = useColorScheme() === "dark";
-  const accent = dark ? v.darkAccent : v.accent;
-  const cardColors = dark
-    ? { background: "#1f2937", border: "#374151", text: "#f3f4f6", muted: "#a9b3c2", divider: "#374151" }
-    : { background: "#ffffff", border: "#d8dee6", text: "#111827", muted: "#6b7280", divider: "#e5e7eb" };
+  const colors = props.theme.colors;
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const accent = displayVerdict === "pass" ? colors.statusSuccess : displayVerdict === "reject" ? colors.statusDanger : colors.statusWarning;
+  const cardColors = { background: colors.surface0, border: colors.border, text: colors.foreground, muted: colors.foregroundMuted, divider: colors.border };
   const [openPanel, setOpenPanel] = useState<"details" | "files" | "suggestions" | null>("suggestions");
   const expanded = openPanel === "details";
   const showFiles = openPanel === "files";
@@ -97,8 +91,8 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
       <View style={styles.header}>
         <View style={styles.headerIdentity}>
           <Text style={[styles.pluginLabel, { color: cardColors.muted }]}>VIBE REVIEW 插件 · 轮次评估</Text>
-          <Text style={[styles.title, { color: verificationRunning ? (dark ? "#93c5fd" : "#1d4ed8") : accent, backgroundColor: verificationRunning ? (dark ? "#1e3a5f" : "#dbeafe") : dark ? v.darkTint : v.tint }]}>
-            {data.processing ? "评估中" : verificationRunning ? "验证中" : v.label}
+          <Text style={[styles.title, { color: verificationRunning ? colors.accent : accent, backgroundColor: verificationRunning ? colors.surface2 : colors.surface2 }]}>
+            {data.processing ? "评估中" : verificationRunning ? "验证中" : verdictLabel[displayVerdict]}
           </Text>
         </View>
         <View style={styles.headerRight}>
@@ -119,23 +113,23 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
       </View> : null}
       {verificationError ? <Text selectable style={styles.verificationError}>{verificationError}</Text> : null}
       <View style={styles.metaActions}>
-      {diffFiles.length ? <TouchableOpacity style={[styles.metaButton, showFiles && styles.metaButtonActive, showFiles && { backgroundColor: dark ? "#293747" : "#eef2ff", borderColor: dark ? "#64748b" : "#a5b4fc" }]} activeOpacity={0.7} accessibilityRole="button" accessibilityState={{ selected: showFiles }} accessibilityLabel={`${showFiles ? "收起" : "展开"}文件变更，${diffFiles.length} 个文件，增加 ${totalAdded} 行，删除 ${totalRemoved} 行`} onPress={() => togglePanel("files")}>
-        <Text style={[styles.metaText, { color: showFiles ? (dark ? "#c7d2fe" : "#3730a3") : cardColors.muted }]}>文件变更 · {diffFiles.length} 个</Text>
+      {diffFiles.length ? <TouchableOpacity style={[styles.metaButton, showFiles && styles.metaButtonActive, showFiles && { backgroundColor: colors.surface2, borderColor: colors.border }]} activeOpacity={0.7} accessibilityRole="button" accessibilityState={{ selected: showFiles }} accessibilityLabel={`${showFiles ? "收起" : "展开"}文件变更，${diffFiles.length} 个文件，增加 ${totalAdded} 行，删除 ${totalRemoved} 行`} onPress={() => togglePanel("files")}>
+        <Text style={[styles.metaText, { color: showFiles ? colors.accent : cardColors.muted }]}>文件变更 · {diffFiles.length} 个</Text>
         <Text style={styles.added}>+{totalAdded}</Text>
         <Text style={styles.removed}>-{totalRemoved}</Text>
         {data.diffIncomplete ? <Text style={styles.diffCaveat}>可能不全</Text> : null}
       </TouchableOpacity> : null}
-      {hasAnalysis ? <TouchableOpacity style={[styles.metaButton, expanded && styles.metaButtonActive, expanded && { backgroundColor: dark ? "#293747" : "#eef2ff", borderColor: dark ? "#64748b" : "#a5b4fc" }]}
+      {hasAnalysis ? <TouchableOpacity style={[styles.metaButton, expanded && styles.metaButtonActive, expanded && { backgroundColor: colors.surface2, borderColor: colors.border }]}
         activeOpacity={0.7} accessibilityRole="button" accessibilityState={{ selected: expanded }} accessibilityLabel={expanded ? "收起评估详情" : "查看评估详情"}
         onPress={() => togglePanel("details")}>
-        <Text style={[styles.metaText, { color: expanded ? (dark ? "#c7d2fe" : "#3730a3") : cardColors.muted }]}>评估/验证</Text>
+        <Text style={[styles.metaText, { color: expanded ? colors.accent : cardColors.muted }]}>评估/验证</Text>
       </TouchableOpacity> : null}
-      {(visibleFollowups.length || commitCwd || commitProgress || commitUnavailableReason) ? <TouchableOpacity style={[styles.metaButton, showSuggestions && styles.metaButtonActive, showSuggestions && { backgroundColor: dark ? "#293747" : "#eef2ff", borderColor: dark ? "#64748b" : "#a5b4fc" }]} activeOpacity={0.7} accessibilityRole="button" accessibilityState={{ selected: showSuggestions }} accessibilityLabel={showSuggestions ? "收起后续建议" : "展开后续建议"} onPress={() => togglePanel("suggestions")}>
-        <Text style={[styles.metaText, { color: showSuggestions ? (dark ? "#c7d2fe" : "#3730a3") : cardColors.muted }]}>下一步建议</Text>
+      {(visibleFollowups.length || commitCwd || commitProgress || commitUnavailableReason) ? <TouchableOpacity style={[styles.metaButton, showSuggestions && styles.metaButtonActive, showSuggestions && { backgroundColor: colors.surface2, borderColor: colors.border }]} activeOpacity={0.7} accessibilityRole="button" accessibilityState={{ selected: showSuggestions }} accessibilityLabel={showSuggestions ? "收起后续建议" : "展开后续建议"} onPress={() => togglePanel("suggestions")}>
+        <Text style={[styles.metaText, { color: showSuggestions ? colors.accent : cardColors.muted }]}>下一步建议</Text>
       </TouchableOpacity> : null}
       </View>
       {expanded ? <View style={styles.analysis}>
-        {data.narrative || data.summary || data.drifts?.length || data.detail ? <View style={[styles.detailSection, { backgroundColor: dark ? "#263241" : "#f8fafc", borderColor: cardColors.border }]}>
+        {data.narrative || data.summary || data.drifts?.length || data.detail ? <View style={[styles.detailSection, { backgroundColor: colors.surface1, borderColor: cardColors.border }]}>
           <Text style={[styles.detailSectionTitle, { color: cardColors.muted }]}>任务评估</Text>
           <Text style={[styles.analysisItem, { color: cardColors.muted }]}>
             完成情况：{data.result ? resultLabel[data.result] : `${Math.round(data.completed * 100)}%`} · 目标范围：{legacyNoDrift ? driftLabel.in_scope : driftLabel[data.drift]}
@@ -153,13 +147,13 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
           {showPrompt ? <Text selectable style={[styles.detailText, { color: cardColors.muted }]}>{data.detail}</Text> : null}
           </> : null}
         </View> : null}
-        {data.verification ? <View style={[styles.detailSection, { backgroundColor: dark ? "#263241" : "#f8fafc", borderColor: cardColors.border }]}>
+        {data.verification ? <View style={[styles.detailSection, { backgroundColor: colors.surface1, borderColor: cardColors.border }]}>
           {data.verificationAgentId ? <TouchableOpacity accessibilityRole="button" accessibilityLabel="打开验证 agent" disabled={openingVerifier} onPress={() => { void showVerifier(); }} style={styles.detailSectionHeader}>
             <Text style={[styles.detailSectionTitle, { color: cardColors.muted }]}>{openingVerifier ? "正在打开验证 agent…" : "独立验证 ↗"}</Text>
-            <Text style={[styles.detailStatus, { color: data.verification.status === "passed" ? (dark ? "#86efac" : "#15803d") : accent }]}>{verificationLabel[data.verification.status]}</Text>
+            <Text style={[styles.detailStatus, { color: data.verification.status === "passed" ? colors.statusSuccess : accent }]}>{verificationLabel[data.verification.status]}</Text>
           </TouchableOpacity> : <View style={styles.detailSectionHeader}>
             <Text style={[styles.detailSectionTitle, { color: cardColors.muted }]}>独立验证</Text>
-            <Text style={[styles.detailStatus, { color: data.verification.status === "passed" ? (dark ? "#86efac" : "#15803d") : accent }]}>{verificationLabel[data.verification.status]}</Text>
+            <Text style={[styles.detailStatus, { color: data.verification.status === "passed" ? colors.statusSuccess : accent }]}>{verificationLabel[data.verification.status]}</Text>
           </View>}
           <Text selectable style={[styles.verificationSummary, { color: cardColors.text }]}>{data.verification.summary}</Text>
           {data.verification.cases?.map((item, index) => <View key={`${index}-${item.name}`} style={{ marginTop: 10 }}>
@@ -170,14 +164,14 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
           </View>)}
           {data.verification.evidence.map((fact, index) => <Text selectable key={`${index}-${fact}`} style={[styles.analysisItem, { color: cardColors.muted }]}>· {fact}</Text>)}
         </View> : null}
-        {data.verificationState === "canceled" ? <View style={[styles.detailSection, { backgroundColor: dark ? "#263241" : "#f8fafc", borderColor: cardColors.border }]}>
+        {data.verificationState === "canceled" ? <View style={[styles.detailSection, { backgroundColor: colors.surface1, borderColor: cardColors.border }]}>
           <Text style={[styles.detailSectionTitle, { color: cardColors.muted }]}>独立验证 · 已取消</Text>
         </View> : null}
       </View> : null}
     </View>
     {diffFiles.length && showFiles ? (
       <View style={[styles.diffBox, { borderTopColor: cardColors.divider }]}>
-        <FileTree files={diffFiles} fullDiff={data.fullDiff} />
+        <FileTree theme={props.theme} files={diffFiles} fullDiff={data.fullDiff} />
       </View>
     ) : data.diffIncomplete ? (
       <Text style={styles.missingDiff}>文件变更可能未被记录</Text>
@@ -208,7 +202,7 @@ export const ReviewResultItem: ComponentType<PluginTimelineItemProps<ReviewResul
         </View> : null}
         {pendingDiffFiles.length && commitProgress?.kind !== "ready" ? <View style={styles.pendingDiffBox}>
           <Text style={styles.pendingDiffHeading}>当前待提交 diff · {pendingDiffFiles.length} 个候选文件</Text>
-          <FileTree files={pendingDiffFiles} />
+          <FileTree theme={props.theme} files={pendingDiffFiles} />
         </View> : null}
         {followupFeedback ? <Text style={styles.followupFeedback}>{followupFeedback}</Text> : null}
       </View>
@@ -301,3 +295,31 @@ const styles = StyleSheet.create({
   pendingDiffBox: { alignSelf: "stretch", borderRadius: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: "#d8dee6", backgroundColor: "#fff", paddingVertical: 6 },
   pendingDiffHeading: { color: "#374151", fontSize: 12, fontWeight: "600", paddingHorizontal: 12, paddingVertical: 5 },
 });
+
+function createStyles(colors: PluginTimelineItemProps<ReviewResultData>["theme"]["colors"]) {
+  return {
+    ...styles,
+    ...StyleSheet.create({
+      verificationError: { ...styles.verificationError, color: colors.statusDanger },
+      diffCaveat: { ...styles.diffCaveat, color: colors.statusWarning },
+      missingDiff: { ...styles.missingDiff, color: colors.foregroundMuted },
+      added: { ...styles.added, color: colors.statusSuccess },
+      removed: { ...styles.removed, color: colors.statusDanger },
+      followupBubble: { ...styles.followupBubble, backgroundColor: colors.surface1, borderColor: colors.border },
+      commitBubble: { backgroundColor: colors.surface2, borderColor: colors.border },
+      commitText: { ...styles.commitText, color: colors.accent },
+      commitArrow: { ...styles.commitArrow, color: colors.accent },
+      followupText: { ...styles.followupText, color: colors.foreground },
+      followupArrow: { ...styles.followupArrow, color: colors.foregroundMuted },
+      followupFeedback: { ...styles.followupFeedback, color: colors.foregroundMuted },
+      commitError: { color: colors.statusDanger },
+      commitStep: { ...styles.commitStep, color: colors.foregroundMuted },
+      commitStepActive: { ...styles.commitStepActive, color: colors.accent },
+      commitStepDone: { color: colors.foregroundMuted },
+      retryButton: { ...styles.retryButton, backgroundColor: colors.surface2 },
+      retryText: { ...styles.retryText, color: colors.accent },
+      pendingDiffBox: { ...styles.pendingDiffBox, backgroundColor: colors.surface1, borderColor: colors.border },
+      pendingDiffHeading: { ...styles.pendingDiffHeading, color: colors.foreground },
+    }),
+  };
+}

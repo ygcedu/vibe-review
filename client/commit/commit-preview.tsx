@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useRpc, type PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import type { z } from "zod";
 import { cancelPiCommitRpc, commitPreviewSchema, confirmPiCommitRpc, getPiCommitPreviewRpc } from "../../shared/commit";
@@ -7,7 +7,8 @@ import { parseDiffFiles } from "../diff/diff";
 import { useCardVisibility } from "../hooks/use-card-visibility";
 import { FileTree } from "../diff/file-tree";
 
-export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.infer<typeof commitPreviewSchema>>) {
+export function CommitPreviewItem({ item, agentId, theme }: PluginTimelineItemProps<z.infer<typeof commitPreviewSchema>>) {
+  const styles = useMemo(() => createStyles(theme.colors), [theme.colors]);
   const [diff, setDiff] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -122,11 +123,11 @@ export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.i
     </> : <Text selectable style={styles.done}>{done}</Text> : <>
       <Text style={styles.heading}>提交预览</Text>
       <Text style={styles.label}>Commit message</Text>
-      <TextInput accessibilityLabel="Commit message" value={editedMessage} onChangeText={setEditedMessage} onFocus={() => setMessageFocused(true)} onBlur={() => setMessageFocused(false)} editable={!busy} maxLength={80} selectTextOnFocus style={[styles.messageInput, messageFocused && styles.messageInputFocused]} />
+      <TextInput ref={setBorderOnlyFocus} placeholderTextColor={theme.colors.foregroundMuted} accessibilityLabel="Commit message" value={editedMessage} onChangeText={setEditedMessage} onFocus={() => setMessageFocused(true)} onBlur={() => setMessageFocused(false)} editable={!busy} maxLength={80} selectTextOnFocus style={[styles.messageInput, messageFocused && styles.messageInputFocused]} />
       {!validMessage ? <Text style={styles.error}>请输入不超过 80 个字符的提交标题。</Text> : null}
       <Text style={styles.files}>{files.length} 个文件 · 请展开查看具体 diff</Text>
       {diff === null && !error ? <Text style={styles.muted}>正在读取 diff…</Text> : null}
-      {diff ? <View style={styles.diff}><FileTree files={parseDiffFiles(diff)} /></View> : null}
+      {diff ? <View style={styles.diff}><FileTree theme={theme} files={parseDiffFiles(diff)} /></View> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {error ? <TouchableOpacity accessibilityRole="button" onPress={() => { setError(""); setPreviewRequest((value) => value + 1); }} style={styles.retry}><Text style={styles.promptToggleText}>重新读取预览</Text></TouchableOpacity> : null}
     </>}
@@ -141,28 +142,36 @@ export function CommitPreviewItem({ item, agentId }: PluginTimelineItemProps<z.i
   </View>;
 }
 
-const styles = StyleSheet.create({
-  card: { alignSelf: "stretch", backgroundColor: "#fff", borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: "#d8dee6", padding: 14, gap: 10 },
-  heading: { color: "#111827", fontSize: 15, fontWeight: "700" },
-  label: { color: "#6b7280", fontSize: 11, fontWeight: "600" },
-  messageInput: { color: "#1f2937", fontSize: 13, lineHeight: 19, borderWidth: 1, borderColor: "#d8dee6", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, outlineWidth: 0 },
-  messageInputFocused: { borderColor: "#15803d" },
-  files: { color: "#6b7280", fontSize: 12 },
-  diff: { backgroundColor: "#f8fafc", borderRadius: 8, overflow: "hidden" },
-  muted: { color: "#6b7280", fontSize: 12 },
-  error: { color: "#b91c1c", fontSize: 12 },
-  done: { color: "#166534", fontSize: 13 },
-  doneMessage: { color: "#166534", fontSize: 13, lineHeight: 20 },
+function createStyles(colors: PluginTimelineItemProps["theme"]["colors"]) {
+return StyleSheet.create({
+  card: { alignSelf: "stretch", backgroundColor: colors.surface0, borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, padding: 14, gap: 10 },
+  heading: { color: colors.foreground, fontSize: 15, fontWeight: "700" },
+  label: { color: colors.foregroundMuted, fontSize: 11, fontWeight: "600" },
+  messageInput: { color: colors.foreground, fontSize: 13, lineHeight: 19, borderWidth: 1, borderColor: colors.border, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, outlineWidth: 0 },
+  messageInputFocused: { borderColor: colors.accent },
+  files: { color: colors.foregroundMuted, fontSize: 12 },
+  diff: { backgroundColor: colors.surface1, borderRadius: 8, overflow: "hidden" },
+  muted: { color: colors.foregroundMuted, fontSize: 12 },
+  error: { color: colors.statusDanger, fontSize: 12 },
+  done: { color: colors.statusSuccess, fontSize: 13 },
+  doneMessage: { color: colors.statusSuccess, fontSize: 13, lineHeight: 20 },
   actions: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 },
   actionButtons: { flexDirection: "row", alignItems: "center", gap: 8, marginLeft: "auto" },
-  cancel: { minHeight: 36, paddingHorizontal: 15, justifyContent: "center", borderRadius: 8, backgroundColor: "#f3f4f6" },
-  cancelText: { color: "#374151", fontSize: 13, fontWeight: "600" },
-  confirm: { minHeight: 36, paddingHorizontal: 15, justifyContent: "center", borderRadius: 8, backgroundColor: "#4f46e5" },
-  confirmText: { color: "#fff", fontSize: 13, fontWeight: "600" },
+  cancel: { minHeight: 36, paddingHorizontal: 15, justifyContent: "center", borderRadius: 8, backgroundColor: colors.surface2 },
+  cancelText: { color: colors.foreground, fontSize: 13, fontWeight: "600" },
+  confirm: { minHeight: 36, paddingHorizontal: 15, justifyContent: "center", borderRadius: 8, backgroundColor: colors.accent },
+  confirmText: { color: colors.accentForeground, fontSize: 13, fontWeight: "600" },
   disabled: { opacity: 0.55 },
   promptToggle: { minHeight: 36, justifyContent: "center" },
-  promptToggleText: { color: "#4f46e5", fontSize: 12, fontWeight: "600" },
-  promptBox: { maxHeight: 320, backgroundColor: "#f8fafc", borderRadius: 8, padding: 10 },
-  promptText: { color: "#374151", fontFamily: "monospace", fontSize: 11, lineHeight: 17 },
+  promptToggleText: { color: colors.accent, fontSize: 12, fontWeight: "600" },
+  promptBox: { maxHeight: 320, backgroundColor: colors.surface1, borderRadius: 8, padding: 10 },
+  promptText: { color: colors.foreground, fontFamily: "monospace", fontSize: 11, lineHeight: 17 },
   retry: { alignSelf: "flex-start", paddingVertical: 4 },
 });
+}
+
+function setBorderOnlyFocus(input: TextInput | null) {
+  if (Platform.OS !== "web" || !input) return;
+  const node = input as unknown as HTMLElement;
+  node.style.setProperty("outline", "none", "important");
+}

@@ -1,3 +1,4 @@
+import type { PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import { useMemo, useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
@@ -9,7 +10,10 @@ import { buildFileTree, type FileTreeNode } from "./file-tree-utils";
 
 type TreeNode = FileTreeNode<DiffFile>;
 
-export function FileTree({ files, fullDiff, collapseFoldersInitially = false }: { files: DiffFile[]; fullDiff?: string; collapseFoldersInitially?: boolean }) {
+export function FileTree({ files, fullDiff, collapseFoldersInitially = false, theme }: { theme: PluginTimelineItemProps["theme"]; files: DiffFile[]; fullDiff?: string; collapseFoldersInitially?: boolean }) {
+  const colors = theme.colors;
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const fileNameColors = { added: { color: colors.statusSuccess }, modified: { color: colors.accent }, deleted: { color: colors.foregroundMuted } };
   const [collapsed, setCollapsed] = useState<Set<string>>(() => {
     const folders = new Set<string>();
     if (!collapseFoldersInitially) return folders;
@@ -46,7 +50,7 @@ export function FileTree({ files, fullDiff, collapseFoldersInitially = false }: 
           onPress={() => toggleFolder(node.path)}
           style={[styles.row, { paddingLeft: 12 + depth * 20 }]}
         >
-          <Icon name={isCollapsed ? "ChevronRight" : "ChevronDown"} size={15} color="#6b7280" />
+          <Icon name={isCollapsed ? "ChevronRight" : "ChevronDown"} size={15} color={colors.foregroundMuted} />
           <Text style={styles.folderName} numberOfLines={1}>{node.name}</Text>
           <Text style={styles.count}>{node.files.length} 个文件</Text>
         </TouchableOpacity>
@@ -83,21 +87,17 @@ export function FileTree({ files, fullDiff, collapseFoldersInitially = false }: 
   return <View>{renderNodes(nodes, 0)}</View>;
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: PluginTimelineItemProps["theme"]["colors"]) {
+return StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 34, paddingRight: 12 },
-  selected: { backgroundColor: "#e8f0ff", zIndex: 3 },
+  selected: { backgroundColor: colors.surface2, zIndex: 3 },
   fileSelect: { flex: 1, minHeight: 34, flexDirection: "row", alignItems: "center", gap: 6 },
   fileActions: { flexDirection: "row", alignItems: "center", gap: 4, position: "relative", zIndex: 2 },
-  folderName: { color: "#111827", fontSize: 12, fontWeight: "600", flexShrink: 1 },
-  count: { color: "#6b7280", fontSize: 11 },
+  folderName: { color: colors.foreground, fontSize: 12, fontWeight: "600", flexShrink: 1 },
+  count: { color: colors.foregroundMuted, fontSize: 11 },
   fileIndent: { width: 15 },
   fileName: { fontSize: 12, flex: 1 },
-  added: { color: "#077d18", fontSize: 12, fontWeight: "600" },
-  removed: { color: "#b91c1c", fontSize: 12, fontWeight: "600" },
+  added: { color: colors.statusSuccess, fontSize: 12, fontWeight: "600" },
+  removed: { color: colors.statusDanger, fontSize: 12, fontWeight: "600" },
 });
-
-const fileNameColors = StyleSheet.create({
-  added: { color: "#077d18" },
-  modified: { color: "#0133b3" },
-  deleted: { color: "#6c707e" },
-});
+}
