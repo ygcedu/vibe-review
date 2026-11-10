@@ -39,20 +39,24 @@ function setBorderOnlyFocus(input: TextInput | null) {
   node.style.setProperty("outline-offset", "0", "important");
 }
 
-function CommitActionButton({ label, icon, onPress, disabled = false, loading = false, primary = false, compact = false, danger = false, theme }: {
-  label: string; icon: string; onPress(): void; disabled?: boolean; loading?: boolean; primary?: boolean; compact?: boolean; danger?: boolean; theme: PluginWorkspacePanelProps["theme"];
+function CommitActionButton({ label, icon, onPress, disabled = false, loading = false, primary = false, compact = false, danger = false, blue = false, muted = false, theme }: {
+  label: string; icon: string; onPress(): void; disabled?: boolean; loading?: boolean; primary?: boolean; compact?: boolean; danger?: boolean; blue?: boolean; muted?: boolean; theme: PluginWorkspacePanelProps["theme"];
 }) {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const colors = theme.colors;
-  const foreground = primary ? colors.accentForeground : colors.foreground;
+  const active = !disabled && (hovered || focused);
+  const foreground = disabled ? colors.foregroundMuted : primary ? blue ? "#ffffff" : colors.accentForeground : muted ? colors.foregroundMuted : colors.foreground;
+  const primaryBackground = danger ? colors.statusDanger : blue ? active ? "#1d4ed8" : "#2563eb" : colors.accent;
   return <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled, busy: loading }} disabled={disabled} onPress={onPress}
     onHoverIn={() => setHovered(true)} onHoverOut={() => setHovered(false)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
     style={({ pressed }) => [styles.actionButton, compact && styles.compactButton, {
-      backgroundColor: primary ? danger ? colors.statusDanger : colors.accent : hovered || pressed ? colors.surface2 : compact ? "transparent" : colors.surface1,
-      borderColor: focused ? colors.accent : compact ? "transparent" : primary ? danger ? colors.statusDanger : colors.accent : colors.border,
-      opacity: disabled ? 0.45 : pressed ? 0.8 : 1,
+      backgroundColor: disabled ? compact ? "transparent" : colors.surface2 : primary ? primaryBackground : compact ? active || pressed ? colors.surface2 : "transparent" : active || pressed ? colors.surface1 : colors.surface0,
+      borderColor: compact ? "transparent" : disabled ? colors.border : primary ? primaryBackground : focused ? blue ? "#2563eb" : colors.accent : colors.border,
+      opacity: pressed && !disabled ? 0.8 : 1,
+      overflow: "hidden",
     }]}>
+    {primary && active && !blue ? <View pointerEvents="none" style={[StyleSheet.absoluteFillObject, { backgroundColor: colors.accentForeground, opacity: 0.12 }]} /> : null}
     {loading ? <ActivityIndicator size="small" color={foreground} /> : <Icon name={icon} size={14} color={foreground} />}
     <Text style={[styles.actionLabel, { color: foreground }]}>{label}</Text>
   </Pressable>;
@@ -433,11 +437,11 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
         <ToolbarButton label="历史提交说明" icon="History" size={24} theme={theme} disabled={busy} onPress={() => setMessageHistoryOpen(true)} />
       </View>
       {amend ? <Text style={[styles.confirmCaption, { color: theme.colors.foregroundMuted }]}>{messageHistoryLoading && !amendHead ? "正在载入最近提交…" : amendHead ? `将修改最近提交 ${amendHead.slice(0, 7)}` : messageHistoryError}</Text> : null}
-      <TextInput ref={setBorderOnlyFocus} value={message} onChangeText={setMessage} onFocus={() => setMessageFocused(true)} onBlur={() => setMessageFocused(false)} multiline accessibilityLabel="提交说明" placeholder="填写提交说明…" placeholderTextColor={theme.colors.foregroundMuted} style={[styles.message, { color: theme.colors.foreground, borderWidth: messageFocused ? 2 : 1, padding: messageFocused ? 9 : 10, borderColor: messageFocused ? theme.colors.accent : theme.colors.border, backgroundColor: theme.colors.surface1 }]} />
+      <TextInput ref={setBorderOnlyFocus} value={message} onChangeText={setMessage} onFocus={() => setMessageFocused(true)} onBlur={() => setMessageFocused(false)} multiline accessibilityLabel="提交说明" placeholder="填写提交说明…" placeholderTextColor={theme.colors.foregroundMuted} style={[styles.message, { color: theme.colors.foreground, borderWidth: 1, padding: 10, borderColor: messageFocused ? theme.colors.accent : theme.colors.border, backgroundColor: theme.colors.surface1 }]} />
       </View>
       <View style={styles.actions}>
-        <CommitActionButton label={pushing ? "推送中…" : "推送"} icon="ArrowUp" theme={theme} disabled={busy} loading={pushing} onPress={() => void pushBranch()} />
-        <CommitActionButton label={submitting ? "提交中…" : amend ? "追加提交" : "提交"} icon="GitCommitHorizontal" theme={theme} primary loading={submitting} disabled={busy || (amend ? !amendHead : !selectedPaths.size) || !message.trim()} onPress={() => void submit()} />
+        <CommitActionButton label={pushing ? "推送中…" : "推送"} icon="ArrowUpRight" theme={theme} muted disabled={busy} loading={pushing} onPress={() => void pushBranch()} />
+        <CommitActionButton label={submitting ? "提交中…" : amend ? "追加提交" : "提交"} icon="GitCommitHorizontal" theme={theme} primary blue loading={submitting} disabled={busy || (amend ? !amendHead : !selectedPaths.size) || !message.trim()} onPress={() => void submit()} />
       </View>
 
     </View>
