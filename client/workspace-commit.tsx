@@ -5,7 +5,7 @@ import { Modal } from "@getpaseo/plugin/client/react-native";
 import { workspaceChangePreviewRpc, workspaceChangeApplyRpc, workspaceChangeUndoRpc, type ChangeAction } from "../shared/workspace-commit";
 import { ContextMenu } from "./components/context-menu";
 import { copyText } from "@getpaseo/plugin/client/react-native";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type ViewStyle } from "react-native";
 import { useRpc, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
@@ -19,7 +19,7 @@ type TreeNode = FileTreeNode<File>;
 const checkboxState = (files: File[], selected: Set<string>) => files.length > 0 && files.every((file) => selected.has(file.path)) ? "all" : files.some((file) => selected.has(file.path)) ? "partial" : "none";
 const checkboxIcon = (state: "all" | "partial" | "none") => state === "all" ? "SquareCheck" : state === "partial" ? "SquareMinus" : "Square";
 const dragType = "application/x-vibe-review-git-files";
-function fileNameColor(file: File) {
+function fileNameColor(file: File, styles: ReturnType<typeof createStyles>) {
   if (file.untracked || file.status.includes("D")) return styles.removedName;
   if (file.status.includes("A") || file.status.includes("?")) return styles.addedName;
   return styles.path;
@@ -77,7 +77,7 @@ function DraggableRow({ children, paths, workspaceId, style }: { children: React
   return <View ref={ref} style={style}>{children}</View>;
 }
 
-function TrackedDropZone({ children, workspaceId, onFiles }: { children: ReactNode; workspaceId: string; onFiles(paths: string[]): void }) {
+function TrackedDropZone({ children, workspaceId, onFiles, theme }: { children: ReactNode; workspaceId: string; onFiles(paths: string[]): void; theme: PluginWorkspacePanelProps["theme"] }) {
   const ref = useRef<View>(null);
   const [hovered, setHovered] = useState(false);
   const onFilesRef = useRef(onFiles);
@@ -109,10 +109,11 @@ function TrackedDropZone({ children, workspaceId, onFiles }: { children: ReactNo
     node.addEventListener("drop", drop);
     return () => { node.removeEventListener("dragover", over); node.removeEventListener("dragleave", leave); node.removeEventListener("drop", drop); };
   }, [workspaceId]);
-  return <View ref={ref} style={hovered && styles.dropTarget}>{children}</View>;
+  return <View ref={ref} style={hovered && { backgroundColor: theme.colors.surface2 }}>{children}</View>;
 }
 
 export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPreview, onOpenShelfDiff, theme, layout }: PluginWorkspacePanelProps & { onFilePreview: (selection: Selection) => void; externalPreview?: Selection | null; onOpenShelfDiff: () => void }) {
+  const styles = useMemo(() => createStyles(theme.colors), [theme.colors]);
   const [toolbarWidth, setToolbarWidth] = useState(0);
   const [tab, setTab] = useState<"commit" | "shelf">("commit");
   const tree = useKeyboardTree(workspaceId);
@@ -279,10 +280,10 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
       const isCollapsed = collapsed.has(key);
       const row = <>
         <Pressable accessibilityRole="button" accessibilityLabel={`${isCollapsed ? "展开" : "折叠"} ${node.path}`} onFocus={() => tree.select(key)} accessibilityState={{ expanded: !isCollapsed }} onPress={() => toggleFolder(key)} style={styles.chevron}>
-          <Icon name={isCollapsed ? "ChevronRight" : "ChevronDown"} size={15} color="#64748b" />
+          <Icon name={isCollapsed ? "ChevronRight" : "ChevronDown"} size={15} color={theme.colors.foregroundMuted} />
         </Pressable>
         <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: checkboxState(node.files, selectedPaths) === "all" }} accessibilityLabel={`${checkboxState(node.files, selectedPaths) === "all" ? "取消选择" : "选择"} ${node.path} 下的文件`} onFocus={() => tree.select(key)} onPress={() => toggleSelection(node.files)} style={styles.checkbox}>
-          <Icon name={checkboxIcon(checkboxState(node.files, selectedPaths))} size={17} color="#64748b" />
+          <Icon name={checkboxIcon(checkboxState(node.files, selectedPaths))} size={17} color={theme.colors.foregroundMuted} />
         </Pressable>
         <ContextMenu theme={theme} compact={layout.compact} label={node.path} style={styles.fileContent} items={[
           { id: "rollback", label: "回滚目录内的更改…", icon: "Undo2", disabled: busy, onSelect: () => requestAction("rollback", node.files) },
@@ -292,7 +293,7 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
           { id: "toggle", label: isCollapsed ? "展开目录" : "折叠目录", onSelect: () => toggleFolder(key) },
           { id: "select", label: checkboxState(node.files, selectedPaths) === "all" ? "取消选择目录下的文件" : "选择目录下的文件", onSelect: () => toggleSelection(node.files) },
         ]}><Pressable ref={(row) => tree.bind(row, key, parent, { expanded: !isCollapsed, toggle: () => toggleFolder(key), check: () => toggleSelection(node.files) })} accessibilityRole="button" accessibilityLabel={`${isCollapsed ? "展开" : "折叠"} ${node.path} 目录`} onPress={() => toggleFolder(key)} style={styles.fileButton}>
-          <View style={styles.fileIcon}><Icon name="Folder" size={16} color="#6b7280" /></View>
+          <View style={styles.fileIcon}><Icon name="Folder" size={16} color={theme.colors.foregroundMuted} /></View>
           <Text style={[styles.folderName, group.title === "未跟踪" && styles.untrackedName]} numberOfLines={1}>{node.name}</Text>
           <Text style={styles.count} numberOfLines={1}>{node.files.length} 个文件</Text>
         </Pressable></ContextMenu>
@@ -308,7 +309,7 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
     const row = <>
       <View style={styles.chevron} />
       <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: selectedPaths.has(file.path) }} accessibilityLabel={`${selectedPaths.has(file.path) ? "取消选择" : "选择"} ${file.path} 用于提交`} onFocus={() => { tree.select(`${group.title}:file:${file.path}`); setActivePath(file.path); }} onPress={() => toggleSelection([file])} style={styles.checkbox}>
-        <Icon name={checkboxIcon(checkboxState([file], selectedPaths))} size={17} color="#64748b" />
+        <Icon name={checkboxIcon(checkboxState([file], selectedPaths))} size={17} color={theme.colors.foregroundMuted} />
       </Pressable>
       <ContextMenu theme={theme} compact={layout.compact} label={file.path} style={styles.fileContent} items={[
         { id: "diff", label: "查看差异", icon: "FileDiff", onSelect: preview },
@@ -324,7 +325,7 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
         { id: "delete", label: "删除…", icon: "Trash2", destructive: true, disabled: busy || file.status.includes("D"), onSelect: () => requestAction("delete", [file]) },
       ]}><Pressable ref={(row) => tree.bind(row, `${group.title}:file:${file.path}`, parent, { check: () => toggleSelection([file]), onSelect: () => setActivePath(file.path) })} accessibilityRole="button" accessibilityLabel={`查看 ${file.path} 的差异`} onPress={preview} style={styles.fileButton}>
         <View style={styles.fileIcon}><FileTypeIcon fileName={node.name} /></View>
-        <Text style={[styles.path, fileNameColor(file)]} numberOfLines={1}>{node.name}</Text>
+        <Text style={[styles.path, fileNameColor(file, styles)]} numberOfLines={1}>{node.name}</Text>
       </Pressable></ContextMenu>
     </>;
     const rowStyle = [styles.fileRow, { paddingLeft: 29 + depth * 20 }, (tree.activeKey === `${group.title}:file:${file.path}` || (!tree.activeKey && externalPreview?.path === file.path)) && styles.active];
@@ -364,10 +365,10 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
         const isCollapsed = collapsedGroups.has(group.title);
         const header = <>
           <Pressable accessibilityRole="button" accessibilityLabel={`${isCollapsed ? "展开" : "折叠"}${group.title}`} accessibilityState={{ expanded: !isCollapsed }} onFocus={() => tree.select(`group:${group.title}`)} onPress={() => toggleGroup(group.title)} style={styles.chevron}>
-            <Icon name={isCollapsed ? "ChevronRight" : "ChevronDown"} size={15} color="#64748b" />
+            <Icon name={isCollapsed ? "ChevronRight" : "ChevronDown"} size={15} color={theme.colors.foregroundMuted} />
           </Pressable>
           <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: checkboxState(group.files, selectedPaths) === "all" }} accessibilityLabel={`${checkboxState(group.files, selectedPaths) === "all" ? "取消选择" : "选择"}全部${group.title}文件用于提交`} onFocus={() => tree.select(`group:${group.title}`)} onPress={() => toggleSelection(group.files)} disabled={group.files.length === 0} style={styles.checkbox}>
-            <Icon name={checkboxIcon(checkboxState(group.files, selectedPaths))} size={17} color="#64748b" />
+            <Icon name={checkboxIcon(checkboxState(group.files, selectedPaths))} size={17} color={theme.colors.foregroundMuted} />
           </Pressable>
           <Pressable ref={(row) => tree.bind(row, `group:${group.title}`, "", { expanded: !isCollapsed, toggle: () => toggleGroup(group.title), check: () => toggleSelection(group.files) })} accessibilityRole="button" accessibilityLabel={`${isCollapsed ? "展开" : "折叠"}${group.title}`} onPress={() => toggleGroup(group.title)} style={styles.groupButton}>
             <Text style={styles.group}>{group.title}  {group.files.length} 个文件</Text>
@@ -389,7 +390,7 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
           {!isCollapsed ? renderNodes(buildFileTree(group.files, true), group, 0) : null}
         </View>;
         return group.title === "已跟踪"
-          ? <TrackedDropZone key={group.title} workspaceId={workspaceId} onFiles={(paths) => void track(files.filter((file) => file.untracked && paths.includes(file.path)).map((file) => file.path))}>{content}</TrackedDropZone>
+          ? <TrackedDropZone key={group.title} workspaceId={workspaceId} theme={theme} onFiles={(paths) => void track(files.filter((file) => file.untracked && paths.includes(file.path)).map((file) => file.path))}>{content}</TrackedDropZone>
           : <View key={group.title}>{content}</View>;
       })}
       {files.length === 0 && !error ? <Text style={styles.empty}>工作区没有待提交的改动</Text> : null}
@@ -476,6 +477,7 @@ export function WorkspaceCommitPanel({ workspaceId, onFilePreview, externalPrevi
 
 function Shelf({ workspaceId, onOpenDiff, theme, compact }: { workspaceId: string; onOpenDiff: () => void; theme: PluginWorkspacePanelProps["theme"]; compact: boolean }) {
   const tree = useKeyboardTree(workspaceId);
+  const styles = useMemo(() => createStyles(theme.colors), [theme.colors]);
   const [toolbarWidth, setToolbarWidth] = useState(0);
   const { openTab, tabs, activeTabId } = useGitDiffState(workspaceId);
   const activeTab = tabs.find((tab) => tab.id === activeTabId);
@@ -489,8 +491,8 @@ function Shelf({ workspaceId, onOpenDiff, theme, compact }: { workspaceId: strin
       const closed = collapsed.has(key);
       return <View key={key}>
         <Pressable ref={(row) => tree.bind(row, key, parent, { expanded: !closed, toggle: () => toggleShelfFolder(key) })} accessibilityRole="button" accessibilityLabel={`${closed ? "展开" : "折叠"} ${node.path}`} accessibilityState={{ expanded: !closed }} onPress={() => toggleShelfFolder(key)} style={[styles.fileRow, { paddingLeft: 29 + depth * 20 }, tree.activeKey === key && styles.active]}>
-          <View style={styles.chevron}><Icon name={closed ? "ChevronRight" : "ChevronDown"} size={15} color="#64748b" /></View>
-          <View style={styles.fileButton}><View style={styles.fileIcon}><Icon name="Folder" size={16} color="#6b7280" /></View><Text style={styles.folderName} numberOfLines={1}>{node.name}</Text><Text style={styles.count}>{node.files.length} 个文件</Text></View>
+          <View style={styles.chevron}><Icon name={closed ? "ChevronRight" : "ChevronDown"} size={15} color={theme.colors.foregroundMuted} /></View>
+          <View style={styles.fileButton}><View style={styles.fileIcon}><Icon name="Folder" size={16} color={theme.colors.foregroundMuted} /></View><Text style={styles.folderName} numberOfLines={1}>{node.name}</Text><Text style={styles.count}>{node.files.length} 个文件</Text></View>
         </Pressable>
         {!closed ? renderTree(entry, node.children, depth + 1, key) : null}
       </View>;
@@ -542,7 +544,7 @@ function Shelf({ workspaceId, onOpenDiff, theme, compact }: { workspaceId: strin
           if (next.has(entry.id)) next.delete(entry.id); else next.add(entry.id);
           return next;
         })}>
-          <Icon name={expanded.has(entry.id) ? "ChevronDown" : "ChevronRight"} size={15} color="#64748b" />
+          <Icon name={expanded.has(entry.id) ? "ChevronDown" : "ChevronRight"} size={15} color={theme.colors.foregroundMuted} />
           <View style={styles.shelfInfo}>
             <Text style={styles.shelfMessage} numberOfLines={2}>{entry.message}</Text>
             <Text style={styles.shelfMeta}>{entry.ref} · {entry.files.length} 个文件 · {entry.date ? new Date(entry.date).toLocaleString() : "时间未知"}</Text>
@@ -555,44 +557,36 @@ function Shelf({ workspaceId, onOpenDiff, theme, compact }: { workspaceId: strin
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden", backgroundColor: "#fff" },
-  tabs: { flexDirection: "row", gap: 4, padding: 8, borderBottomWidth: 1, borderColor: "#e5e7eb" },
+  root: { flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden" },
+  tabs: { flexDirection: "row", gap: 4, padding: 8, borderBottomWidth: 1 },
   tab: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 6 },
-  selectedTab: { backgroundColor: "#e9f0ff" },
-  tabText: { fontSize: 14, fontWeight: "400", color: "#64748b" },
-  selectedTabText: { color: "#1641ad" },
-  shelfEntry: { borderBottomWidth: 1, borderColor: "#f1f5f9" },
+  tabText: { fontSize: 14, fontWeight: "400" },
+  shelfEntry: { borderBottomWidth: 1 },
   shelfRow: { flexDirection: "row", alignItems: "center", padding: 12, gap: 8 },
   shelfInfo: { flex: 1, minWidth: 0, gap: 4 },
-  shelfMessage: { fontSize: 13, color: "#111827" },
-  shelfMeta: { fontSize: 11, color: "#64748b" },
+  shelfMessage: { fontSize: 13 },
+  shelfMeta: { fontSize: 11 },
   operationBar: { flexDirection: "row", alignItems: "center", paddingHorizontal: 6, paddingVertical: 4, borderBottomWidth: 1, gap: 2, zIndex: 20 },
   listExpanded: { flex: 1, minHeight: 0 },
   groupRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 9, paddingTop: 10, paddingBottom: 4 },
-  group: { fontSize: 12, fontWeight: "600", color: "#6b7280" },
+  group: { fontSize: 12, fontWeight: "600" },
   groupButton: { flex: 1, minHeight: 27, justifyContent: "center" },
   fileRow: { flexDirection: "row", alignItems: "center", minHeight: 32, paddingHorizontal: 9 },
-  active: { backgroundColor: "#e9f0ff" },
   checkbox: { flexShrink: 0, padding: 4 },
   chevron: { flexShrink: 0, width: 20, height: 27, alignItems: "center", justifyContent: "center" },
   fileContent: { flex: 1, minWidth: 0 },
   fileIcon: { width: 16, height: 16, flexShrink: 0, alignItems: "center", justifyContent: "center" },
   fileButton: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 6, padding: 3 },
-  folderName: { minWidth: 0, flexShrink: 1, fontSize: 13, color: "#111827" },
-  untrackedName: { color: "#bc3145" },
-  dropTarget: { backgroundColor: "#e9f0ff" },
-  count: { flexShrink: 0, fontSize: 11, color: "#9ca3af" },
-  path: { flex: 1, minWidth: 0, fontSize: 13, color: "#1641ad" },
-  addedName: { color: "#07833d" },
-  removedName: { color: "#bc3145" },
-  empty: { padding: 12, color: "#6b7280" },
-  footer: { borderTopWidth: 1, borderColor: "#e5e7eb", padding: 12, paddingTop: 4, gap: 8 },
+  folderName: { minWidth: 0, flexShrink: 1, fontSize: 13 },
+  count: { flexShrink: 0, fontSize: 11 },
+  path: { flex: 1, minWidth: 0, fontSize: 13 },
+  empty: { padding: 12 },
+  footer: { borderTopWidth: 1, padding: 12, paddingTop: 4, gap: 8 },
   selectionSummary: { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 4 },
   messageEditor: { gap: 4 },
   summaryRow: { minHeight: 24, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  summaryCount: { color: "#6b7280", fontSize: 12 },
+  summaryCount: { fontSize: 12 },
   summaryDetails: { flexDirection: "row", alignItems: "center", gap: 12 },
-  summaryModified: { color: "#1641ad" },
   messageTools: { flexDirection: "row", alignItems: "center", gap: 8 },
   amendToggle: { minHeight: 24, flexDirection: "row", alignItems: "center", gap: 6 },
   messageHistoryItem: { padding: 12, gap: 4, borderRadius: 6, borderWidth: 1 },
@@ -617,6 +611,35 @@ const styles = StyleSheet.create({
   feedbackActions: { flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 0 },
   dismissFeedback: { width: 14, height: 28, flexShrink: 0, alignItems: "flex-end", justifyContent: "center" },
   disabled: { opacity: 0.45 },
-  error: { color: "#b91c1c", fontSize: 12 },
-  result: { color: "#15803d", fontSize: 12 },
+  error: { fontSize: 12 },
+  result: { fontSize: 12 },
 });
+
+function createStyles(colors: PluginWorkspacePanelProps["theme"]["colors"]) {
+  return {
+    ...styles,
+    ...StyleSheet.create({
+      root: { ...styles.root, backgroundColor: colors.surface0 },
+      tabs: { ...styles.tabs, borderColor: colors.border },
+      selectedTab: { backgroundColor: colors.surface2 },
+      tabText: { ...styles.tabText, color: colors.foregroundMuted },
+      selectedTabText: { color: colors.accent },
+      shelfEntry: { ...styles.shelfEntry, borderColor: colors.border },
+      shelfMessage: { ...styles.shelfMessage, color: colors.foreground },
+      shelfMeta: { ...styles.shelfMeta, color: colors.foregroundMuted },
+      group: { ...styles.group, color: colors.foregroundMuted },
+      active: { backgroundColor: colors.surface2 },
+      folderName: { ...styles.folderName, color: colors.foreground },
+      untrackedName: { color: colors.statusDanger },
+      count: { ...styles.count, color: colors.foregroundMuted },
+      path: { ...styles.path, color: colors.accent },
+      addedName: { color: colors.statusSuccess },
+      removedName: { color: colors.statusDanger },
+      empty: { ...styles.empty, color: colors.foregroundMuted },
+      summaryCount: { ...styles.summaryCount, color: colors.foregroundMuted },
+      summaryModified: { color: colors.accent },
+      error: { ...styles.error, color: colors.statusDanger },
+      result: { ...styles.result, color: colors.statusSuccess },
+    }),
+  };
+}
